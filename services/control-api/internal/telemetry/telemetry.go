@@ -5,7 +5,6 @@ package telemetry
 import (
     "context"
     "fmt"
-    "net/http"
     "os"
 
     "github.com/gin-gonic/gin"
@@ -26,8 +25,10 @@ var (
 // Init initializes OpenTelemetry
 func Init(serviceName string) context.CancelFunc {
     ctx := context.Background()
+    
+    // Override service name if provided
     if serviceName != "" {
-        service = serviceName
+        serviceName = serviceName
     }
 
     // Try to create OTLP exporter
@@ -46,7 +47,7 @@ func Init(serviceName string) context.CancelFunc {
         sdktrace.WithBatcher(exp),
         sdktrace.WithResource(resource.NewWithAttributes(
             semconv.SchemaURL,
-            semconv.ServiceNameKey.String(service),
+            semconv.ServiceNameKey.String(serviceName),
         )),
     )
 
@@ -88,3 +89,4 @@ func getenv(key, defaultValue string) string {
         return value
     }
     return defaultValue
+}
