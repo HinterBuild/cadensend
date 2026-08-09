@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "description": "Email templates for Cadensend platform",
+  "templates": {
+    "welcome": {
+      "name": "Welcome Series",
+      "description": "Welcome email template for new users",
+      "subject": "Welcome to Cadensend!",
+      "preheader": "Your AI newsletter platform is ready",
+      "layout": "default"
+    },
+    "test_send": {
+      "name": "Test Send",
+      "description": "Test email template for verifying send configuration",
+      "subject": "TEST: {{ series.topic }}",
+      "preheader": "Test email from Cadensend",
+      "layout": "default"
+    },
+    "series_delivery": {
+      "name": "Series Delivery",
+      "description": "Main email template for newsletter series",
+      "subject": "{{ issue.subject }}",
+      "preheader": "{{ issue.preheader }}",
+      "layout": "default"
+    },
+    "approval_reminder": {
+      "name": "Approval Reminder",
+      "description": "Reminder to approve scheduled issues",
+      "subject": "Reminder: Approve {{ series.topic }} Issue #{{ issue.sequence_no }}",
+      "preheader": "Your issue is scheduled to be sent soon",
+      "layout": "notification"
+    }
+  },
+  "layouts": {
+    "default": {
+      "file": "email_template.html",
+      "plain_text": "email_template.txt"
+    },
+    "notification": {
+      "file": "notification_template.html",
+      "plain_text": "notification_template.txt"
+    }
+  }
+}
