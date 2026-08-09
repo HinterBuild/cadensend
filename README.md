@@ -75,6 +75,7 @@ Based on the product plan, Cadensend is intentionally NOT:
 git clone https://github.com/HinterBuild/cadensend.git
 cd cadensend
 docker compose up -d
+cd frontend/web && npm run dev  # Frontend (dev mode)
 ```
 
 ### Local stack
@@ -95,8 +96,6 @@ docker compose up -d
 8. Verify scheduled delivery time
 
 *Note: Local tests replace external models with deterministic fixtures.*
-
-### Environment setup
 
 Copy `.env.example` to `.env` and fill in your secrets:
 
@@ -153,12 +152,13 @@ If Qdrant is lost, the product must reindex. Losing Qdrant must not lose user so
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | DATABASE_URL | postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable | PostgreSQL business state |
-| QDRANT_URL | http://localhost:6333 | vector search |
-| OBJECT_STORAGE_URL | http://localhost:9000 | S3-compatible source/assets |
-| OPENROUTER_API_KEY | — | model gateway |
-| SMTP_FROM / EMAIL_PROVIDER | — | delivery adapter |
+| REDIS_URL | redis://localhost:6379/0 | Job queue (Asynq) |
+| QDRANT_URL | http://localhost:6333 | Vector search |
+| MINIO_ENDPOINT | localhost:9000 | S3-compatible source/assets |
+| OPENROUTER_API_KEY | — | Model gateway |
+| SMTP_FROM / EMAIL_PROVIDER | — | Delivery adapter |
 
-See `.env.example` and `infra/docker/` for detailed environment setup.
+See `.env.example` and `docker-compose.yml` for detailed environment setup.
 
 ## Usage walkthrough
 
@@ -188,36 +188,31 @@ Based on the 10 acceptance criteria from the product plan:
 ### Repository layout
 
 ```
-newsletter-platform/
-├── apps/
-│   └── web/
-├── services/
-│   ├── control-api/
-│   ├── control-worker/
+cadensend/
+├── frontend/
+│   └── web/                    # Next.js frontend dashboard
+├── backend/
+│   ├── control-api/            # Go control API (auth, series, issues, sources)
+│   └── control-worker/         # Go control worker (scheduling, delivery)
+├── ai-service/
 │   └── ai-engine/
-│       ├── api/
-│       ├── workers/
-│       ├── graphs/
-│       ├── rag/
-│       │   ├── ingestion/
-│       │   ├── chunking/
-│       │   ├── embeddings/
-│       │   ├── retrieval/
-│       │   └── evaluation/
-│       └── visuals/
+│       ├── api/                # Python FastAPI app (LangGraph, RAG)
+│       ├── workers/            # Python background workers
+│       ├── rag/                # RAG pipeline (chunking, embeddings, retrieval)
+│       └── visuals/            # Visual generation (Mermaid/D2)
 ├── packages/
-│   ├── contracts/
-│   ├── email-templates/
-│   └── visual-specs/
+│   ├── contracts/              # Go data contracts
+│   ├── email-templates/        # SendGrid email templates
+│   └── visual-specs/           # Visual specification types
 ├── db/
-│   ├── migrations/
-│   └── seeds/
+│   ├── migrations/             # PostgreSQL migrations
+│   └── seeds/                  # Seed data
 ├── infra/
 │   ├── docker/
 │   └── terraform/
-├── observability/
+├── observability/              # Prometheus, Grafana, Jaeger configs
 ├── docs/
-│   ├── adr/
+│   ├── adr/                    # Architecture Decisions
 │   └── runbooks/
 └── .github/workflows/
 ```
