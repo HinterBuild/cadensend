@@ -33,9 +33,9 @@ Based on the product plan, Cadensend is intentionally NOT:
 
 ## Demo
 
-![Cadensend Create Series wizard](Screenshot_2026-08-10.png)
+![Cadensend architecture diagram](logo.png)
 
-*Screenshot from the Create Series wizard showing the initial brief setup.*
+*The Cadensend logo representing the platform's learning-focused design.*
 
 ## Features
 
