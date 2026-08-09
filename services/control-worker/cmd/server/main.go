@@ -18,65 +18,55 @@ import (
     "github.com/gin-gonic/gin/middleware/recovery"
     "github.com/gin-gonic/gin/middleware/cors"
 
-    "github.com/hibiken/asynq"
-    "github.com/open-telemetry/opentelemetry-go"
-    "github.com/open-telemetry/opentelemetry-go/api/trace"
     "github.com/prometheus/client_golang/prometheus"
-    "gorm.io/gorm"
 
-    "cadensend/internal/config"
-    "cadensend/internal/database"
-    "cadensend/internal/logger"
-    "cadensend/internal/telemetry"
-    "cadensend/pkg/auth"
-    "cadensend/pkg/version"
+    "cadensend/services/control-worker/internal/config"
+    "cadensend/services/control-worker/internal/database"
+    "cadensend/services/control-worker/internal/logger"
+    "cadensend/services/control-worker/internal/telemetry"
+    "cadensend/services/control-worker/internal/scheduler"
+    "cadensend/services/control-worker/internal/delivery"
 )
 
+var cfg *config.Config
+
 func init() {
-    // Initialize telemetry (OpenTelemetry)
-    cleanup := telemetry.Init("")
-    defer cleanup(context.Background())
-
-    // Initialize database connection pool
-    database.Init()
-
-    // Register metrics
-    prometheus.Register()
+    cfg = config.LoadConfig()
+    
+    database.Init(cfg.DatabaseURL)
+    go scheduler.StartScheduler(cfg)
+    go delivery.StartDeliveryWorker(cfg)
 }
 
 func main() {
     gin.SetMode(gin.ReleaseMode)
     r := gin.New()
 
-    // Add middleware
     r.Use(logger.SetLogger(&logger.Config{
-        UTC:            true,
-        SkipPaths:      []string{},
+        Level:   cfg.LogLevel,
+        UTC:     true,
+        SkipPaths: []string{"/healthz", "/metrics"},
     }))
     r.Use(recovery.Recovery())
     r.Use(cors.New(cors.Config{
-        AllowAllOrigins: true,
-        AllowMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-        AllowHeaders:   []string{"Origin", "Content-Type", "Accept", "Authorization"},
+        AllowAllOrigins:  true,
+        AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+        AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+        AllowCredentials: true,
     }))
     r.Use(telemetry.Middleware("cadensend-control-worker"))
 
-    // Health check endpoint
     r.GET("/healthz", healthHandler)
-
-    // Metrics endpoint
     r.GET("/metrics", metricsHandler)
 
-    // Start HTTP server
     srv := &http.Server{
-        Addr:    ":8081",
+        Addr:    ":" + cfg.Port,
         Handler: r,
         ReadTimeout:  30 * time.Second,
         WriteTimeout: 30 * time.Second,
         IdleTimeout:  120 * time.Second,
     }
 
-    // Graceful shutdown
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -86,14 +76,10 @@ func main() {
         }
     }()
 
-    // Start scheduler and delivery workers
-    go startScheduler()
-    go startDeliveryWorker()
-
     log.Println("Control worker started")
 
     <-quit
-    log.Println("Shutting down server...")
+    log.Println("Shutting down worker...")
 
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
@@ -102,7 +88,7 @@ func main() {
         log.Fatalf("Server forced to shutdown: %v", err)
     }
 
-    log.Println("Server exited")
+    log.Println("Worker exited")
 }
 
 func healthHandler(c *gin.Context) {
@@ -111,30 +97,4 @@ func healthHandler(c *gin.Context) {
 
 func metricsHandler(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"metrics": "enabled"})
-}
-
-func startScheduler() {
-    // Initialize scheduler task processor
-    ssrv := asynq.NewServer(
-        asynq.RedisClientOpt{Addr: "localhost:6379"},
-        asynq.Config{
-            Concurrency: 10,
-            QueuePriority: map[string]int{
-                "critical": 5,
-                "default":  3,
-                "low":      1,
-            },
-        },
-    )
-
-    // Register task handlers
-    mux := asynq.NewServeMux()
-    mux.HandleFunc("issue:generate", generateIssueTask)
-    mux.HandleFunc("issue:deliver", deliverIssueTask)
-    mux.HandleFunc("source:ingest", ingestSourceTask)
-    mux.HandleFunc("schedule:run", runScheduleTask)
-
-    if err := ssrv.Run(mux); err != nil {
-        log.Fatalf("Failed to start scheduler: %v", err)
-    }
 }

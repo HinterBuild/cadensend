@@ -1,41 +1,80 @@
+// Package scheduler provides job scheduling for the control worker
 package scheduler
 
 import (
     "context"
-    "errors"
+    "log"
     "time"
+    "fmt"
 
     "github.com/hibiken/asynq"
     "golang.org/x/sync/semaphore"
 
-    "cadensend/internal/database"
+    "cadensend/services/control-worker/internal/config"
+    "cadensend/services/control-worker/internal/database"
+    "cadensend/services/control-worker/internal/middleware/auth"
+    "cadensend/services/control-worker/internal/tasks"
+    "gorm.io/gorm"
 )
 
-type SchedulerConfig struct {
-    IntervalSeconds int
-    BatchSize      int
-    MaxAttempts    int
+// Schedule represents a scheduled job
+type Schedule struct {
+    ID          string     `gorm:"primarykey"`
+    IssueID     *string    `json:"issue_id"`
+    JobType     string     `json:"job_type"`
+    RunAt       time.Time  `json:"run_at"`
+    Status      string     `json:"status"`
+    Attempts    int        `json:"attempts"`
+    MaxAttempts int        `json:"max_attempts"`
+    ClaimedAt   *time.Time `json:"claimed_at"`
+    StartedAt   *time.Time `json:"started_at"`
+    CompletedAt *time.Time `json:"completed_at"`
+    ErrorCode   string     `json:"error_code"`
+    ErrorMsg    string     `json:"error_msg"`
+    CreatedBy   string     `json:"created_by"`
+    CreatedAt   time.Time  `json:"created_at"`
+    UpdatedAt   time.Time  `json:"updated_at"`
 }
 
-type Scheduler struct {
-    config     *SchedulerConfig
-    db         *gorm.DB
-    sem        *semaphore.Weighted
-    asynqClient *asynq.Client
-}
+func StartScheduler(cfg *config.Config) {
+    db := database.Get()
+    
+    // Create Asynq client
+    asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: cfg.RedisURL})
+    defer asynqClient.Close()
 
-func NewScheduler(config *SchedulerConfig, client *asynq.Client) *Scheduler {
-    return &Scheduler{
-        config:     config,
-        db:         database.Get(),
-        asynqClient: client,
-        sem:        semaphore.NewWeighted(int64(config.BatchSize)),
+    // Create scheduler
+    s := &Scheduler{
+        config:      cfg,
+        db:          db,
+        asynqClient: asynqClient,
+        sem:         semaphore.NewWeighted(10),
     }
-}
 
-func (s *Scheduler) Start(ctx context.Context) {
-    ticker := time.NewTicker(time.Duration(s.config.IntervalSeconds) * time.Second)
+    // Start scheduler loop
+    ctx := context.Background()
+    ticker := time.NewTicker(5 * time.Second)
     defer ticker.Stop()
+
+    log.Println("Scheduler started")
+
+    // Register task handlers with Asynq mux
+    mux := asynq.NewServeMux()
+    mux.HandleFunc("issue:generate", tasks.GenerateIssueTask)
+    mux.HandleFunc("issue:deliver", tasks.DeliverIssueTask)
+    mux.HandleFunc("source:ingest", tasks.IngestSourceTask)
+    mux.HandleFunc("schedule:run", tasks.ScheduleRunTask)
+
+    server := asynq.NewServer(
+        asynq.RedisClientOpt{Addr: cfg.RedisURL},
+        asynq.Config{Concurrency: 10},
+    )
+
+    go func() {
+        if err := server.Run(mux); err != nil {
+            log.Fatalf("Asynq server error: %v", err)
+        }
+    }()
 
     for {
         select {
@@ -43,29 +82,27 @@ func (s *Scheduler) Start(ctx context.Context) {
             if err := s.processDueJobs(ctx); err != nil {
                 log.Printf("Scheduler error: %v", err)
             }
-        case <-ctx.Done():
-            return
         }
     }
+}
+
+type Scheduler struct {
+    config      *config.Config
+    db          *gorm.DB
+    asynqClient *asynq.Client
+    sem         *semaphore.Weighted
 }
 
 func (s *Scheduler) processDueJobs(ctx context.Context) error {
     now := time.Now().UTC()
 
-    // Claim a bounded due-job batch with FOR UPDATE SKIP LOCKED
     tx := s.db.Begin()
-    defer func() {
-        if r := recover(); r != nil {
-            tx.Rollback()
-        }
-    }()
-
+    
     var schedules []Schedule
     if err := tx.WithContext(ctx).
-        Set("gorm:query_option", "FOR UPDATE SKIP LOCKED").
         Where("status = ? AND run_at <= ? AND attempts < ?", "pending", now, s.config.MaxAttempts).
         Order("run_at ASC").
-        Limit(s.config.BatchSize).
+        Limit(50).
         Find(&schedules).Error; err != nil {
         tx.Rollback()
         return fmt.Errorf("failed to query schedules: %w", err)
@@ -74,17 +111,11 @@ func (s *Scheduler) processDueJobs(ctx context.Context) error {
     for i := range schedules {
         schedules[i].Status = "claimed"
         schedules[i].ClaimedAt = &now
-        if err := tx.Save(&schedules[i]).Error; err != nil {
-            tx.Rollback()
-            return fmt.Errorf("failed to claim schedule: %w", err)
-        }
+        tx.Save(&schedules[i])
     }
 
-    if err := tx.Commit(); err != nil {
-        return fmt.Errorf("failed to commit schedule claim: %w", err)
-    }
+    tx.Commit()
 
-    // Process jobs outside the transaction
     for i := range schedules {
         if err := s.processSchedule(ctx, &schedules[i]); err != nil {
             log.Printf("Failed to process schedule %s: %v", schedules[i].ID, err)
@@ -97,89 +128,38 @@ func (s *Scheduler) processDueJobs(ctx context.Context) error {
 func (s *Scheduler) processSchedule(ctx context.Context, schedule *Schedule) error {
     switch schedule.JobType {
     case "generation":
-        return s.enqueueGenerationJob(ctx, schedule)
+        return s.enqueueTask(ctx, "issue:generate", schedule)
     case "delivery":
-        return s.enqueueDeliveryJob(ctx, schedule)
+        return s.enqueueTask(ctx, "issue:deliver", schedule)
     case "ingestion":
-        return s.enqueueIngestionJob(ctx, schedule)
+        return s.enqueueTask(ctx, "source:ingest", schedule)
     default:
-        return errors.New("unknown job type: " + schedule.JobType)
+        log.Printf("Unknown job type: %s", schedule.JobType)
+        return nil
     }
 }
 
-func (s *Scheduler) enqueueGenerationJob(ctx context.Context, schedule *Schedule) error {
+func (s *Scheduler) enqueueTask(ctx context.Context, taskType string, schedule *Schedule) error {
     if err := s.sem.Acquire(ctx, 1); err != nil {
         return fmt.Errorf("failed to acquire semaphore: %w", err)
     }
     defer s.sem.Release(1)
 
-    issueID := schedule.IssueID
-    if issueID == "" {
-        return errors.New("issue ID is required for generation jobs")
+    payload := map[string]interface{}{
+        "schedule_id": schedule.ID,
+        "attempt":     schedule.Attempts + 1,
     }
 
-    task := asynq.NewTask("issue:generate", map[string]interface{}{
-        "issue_id":     issueID,
-        "schedule_id":  schedule.ID,
-        "attempt":      schedule.Attempts + 1,
-    })
+    if schedule.IssueID != nil {
+        payload["issue_id"] = *schedule.IssueID
+    }
 
+    task := asynq.NewTask(taskType, payload)
+    
     _, err := s.asynqClient.Enqueue(task,
         asynq.Queue("default"),
         asynq.MaxRetry(3),
         asynq.Timeout(300),
-    )
-
-    return err
-}
-
-func (s *Scheduler) enqueueDeliveryJob(ctx context.Context, schedule *Schedule) error {
-    if err := s.sem.Acquire(ctx, 1); err != nil {
-        return fmt.Errorf("failed to acquire semaphore: %w", err)
-    }
-    defer s.sem.Release(1)
-
-    issueID := schedule.IssueID
-    if issueID == "" {
-        return errors.New("issue ID is required for delivery jobs")
-    }
-
-    task := asynq.NewTask("issue:deliver", map[string]interface{}{
-        "issue_id":     issueID,
-        "schedule_id":  schedule.ID,
-        "attempt":      schedule.Attempts + 1,
-    })
-
-    _, err := s.asynqClient.Enqueue(task,
-        asynq.Queue("default"),
-        asynq.MaxRetry(3),
-        asynq.Timeout(120),
-    )
-
-    return err
-}
-
-func (s *Scheduler) enqueueIngestionJob(ctx context.Context, schedule *Schedule) error {
-    if err := s.sem.Acquire(ctx, 1); err != nil {
-        return fmt.Errorf("failed to acquire semaphore: %w", err)
-    }
-    defer s.sem.Release(1)
-
-    sourceID := schedule.IssueID
-    if sourceID == "" {
-        return errors.New("source ID is required for ingestion jobs")
-    }
-
-    task := asynq.NewTask("source:ingest", map[string]interface{}{
-        "source_id":    sourceID,
-        "schedule_id":  schedule.ID,
-        "attempt":      schedule.Attempts + 1,
-    })
-
-    _, err := s.asynqClient.Enqueue(task,
-        asynq.Queue("default"),
-        asynq.MaxRetry(3),
-        asynq.Timeout(600),
     )
 
     return err

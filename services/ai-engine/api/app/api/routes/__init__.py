@@ -1,3 +1,7 @@
-"""API routes for AI Engine"""
+"""API routes package for AI Engine"""
 
-from . import series_routes, issue_routes, source_routes, retrieval_routes, health_routes
+from . import series_routes
+from . import issue_routes
+from . import source_routes
+from . import retrieval_routes
+from . import health_routes
