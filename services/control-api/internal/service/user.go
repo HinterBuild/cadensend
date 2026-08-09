@@ -2,151 +2,169 @@ package service
 
 import (
     "errors"
+    "fmt"
     "time"
 
-    "github.com/gin-gonic/gin"
-    "github.com/golang-jwt/jwt/v5"
+    "gorm.io/gorm"
+    "golang.org/x/crypto/bcrypt"
+    "github.com/google/uuid"
 
     "cadensend/services/control-api/internal/auth"
-    "cadensend/services/control-api/internal/repo"
 )
 
-// UserService provides user business logic
-// This layer contains the core application logic and coordinates between repository and external services
-type UserService struct {
-    userRepo           *repo.UserRepository
-    magicLinkRepo     *repo.MagicLinkTokenRepository
-    jwtSecret         []byte
-    tokenExpiry       time.Duration
-    emailService      EmailService
-}
-
 // EmailService interface for sending emails
-// Cannot use AI for authentication - keeps auth simple and secure
 type EmailService interface {
-    SendMagicLink(email, token, userID string) error
+    SendMagicLink(email, token string) error
 }
 
-// UserServiceConfig holds configuration for UserService
-// Could be extended with environment variables, configs, etc.
-type UserServiceConfig struct {
-    JWTSecret    string
-    TokenExpiry  time.Duration
-    EmailService EmailService
+// UserService provides user business logic
+type UserService struct {
+    db        *gorm.DB
+    jwtSecret string
+    jwtExpiry time.Duration
+    emailSvc  EmailService
 }
 
 // NewUserService creates a new user service
-func NewUserService(config *UserServiceConfig, userRepo *repo.UserRepository, magicLinkRepo *repo.MagicLinkTokenRepository) *UserService {
+func NewUserService(db *gorm.DB, jwtSecret string, jwtExpiry time.Duration, emailSvc EmailService) *UserService {
     return &UserService{
-        userRepo:           userRepo,
-        magicLinkRepo:      magicLinkRepo,
-        jwtSecret:         []byte(config.JWTSecret),
-        tokenExpiry:       config.TokenExpiry,
-        emailService:      config.EmailService,
+        db:        db,
+        jwtSecret: jwtSecret,
+        jwtExpiry: jwtExpiry,
+        emailSvc:  emailSvc,
     }
 }
 
-// CreateUser creates a new user
-func (s *UserService) CreateUser(email, password, name, timezone, workspaceID string) (*auth.User, error) {
-    // Check if user already exists
-    if _, err := s.userRepo.GetByEmail(email); err == nil {
+// CreateUser creates a new user with hashed password
+func (s *UserService) CreateUser(email, password, name, timezone, workspaceID string) (*User, error) {
+    var existing User
+    if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&existing).Error; err == nil {
         return nil, errors.New("user already exists")
-    } else if !errors.Is(err, errors.New("user not found")) {
-        return nil, err
     }
 
-    // Create user
-    user, err := auth.NewAuthService(nil, string(s.jwtSecret), s.tokenExpiry).CreateUser(email, password, name, timezone, workspaceID)
+    passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
     if err != nil {
-        return nil, err
+        return nil, fmt.Errorf("failed to hash password: %w", err)
     }
 
-    // Save to database
-    if err := s.userRepo.Create(user); err != nil {
-        return nil, err
+    user := &User{
+        ID:            uuid.NewString(),
+        Email:         email,
+        PasswordHash:  string(passwordHash),
+        Name:          name,
+        Timezone:      timezone,
+        Status:        "active",
+        WorkspaceID:   workspaceID,
+        EmailVerified: false,
+        CreatedAt:     time.Now(),
+        UpdatedAt:     time.Now(),
+    }
+
+    if err := s.db.Create(user).Error; err != nil {
+        return nil, fmt.Errorf("failed to create user: %w", err)
     }
 
     return user, nil
 }
 
 // AuthenticateUser authenticates a user with email and password
-func (s *UserService) AuthenticateUser(email, password string) (*auth.User, string, error) {
-    // Find user by email
-    user, err := s.userRepo.GetByEmail(email)
-    if err != nil {
+func (s *UserService) AuthenticateUser(email, password string) (*User, string, error) {
+    var user User
+    if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&user).Error; err != nil {
         return nil, "", errors.New("invalid credentials")
     }
 
-    // Verify password using bcrypt
     if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
         return nil, "", errors.New("invalid credentials")
     }
 
-    // Generate JWT token
-    token, err := auth.NewAuthService(nil, string(s.jwtSecret), s.tokenExpiry).GenerateJWT(user.ID, user.WorkspaceID, user.Email, "user")
+    token, err := auth.GenerateJWT(&auth.User{
+        ID:          user.ID,
+        Email:       user.Email,
+        Name:        user.Name,
+        Timezone:    user.Timezone,
+        Status:      user.Status,
+        WorkspaceID: user.WorkspaceID,
+    }, s.jwtSecret, s.jwtExpiry)
+
     if err != nil {
         return nil, "", err
     }
 
-    return user, token, nil
+    return &user, token, nil
 }
 
 // GenerateMagicLink generates a magic link for passwordless authentication
 func (s *UserService) GenerateMagicLink(email string) (string, error) {
-    // Check if user exists
-    if _, err := s.userRepo.GetByEmail(email); err != nil {
+    var user User
+    if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&user).Error; err != nil {
         return "", errors.New("user not found")
     }
 
-    // Generate magic link token
-    token, err := auth.NewAuthService(nil, string(s.jwtSecret), s.tokenExpiry).GenerateMagicLink(email)
+    token, err := auth.GenerateMagicLink()
     if err != nil {
         return "", err
     }
 
-    // Save to database
-    magicLink := &auth.MagicLinkToken{
+    magicLink := &MagicLinkToken{
         Token:     token,
-        UserID:    "", // Will be populated when user clicks
-        ExpiresAt: time.Now().Add(s.tokenExpiry),
+        UserID:    user.ID,
+        ExpiresAt: time.Now().Add(s.jwtExpiry),
         CreatedAt: time.Now(),
     }
-    if err := s.magicLinkRepo.Create(magicLink); err != nil {
-        return "", err
+
+    if err := s.db.Create(magicLink).Error; err != nil {
+        return "", fmt.Errorf("failed to store magic link: %w", err)
     }
 
-    // Send magic link via email service
-    if s.emailService != nil {
-        if err := s.emailService.SendMagicLink(email, token, ""); err != nil {
-            return "", fmt.Errorf("failed to send magic link: %w", err)
-        }
+    if s.emailSvc != nil {
+        _ = s.emailSvc.SendMagicLink(email, token)
     }
 
     return token, nil
 }
 
-// ValidateMagicLink validates a magic link token and returns the associated user ID
+// ValidateMagicLink validates a magic link token
 func (s *UserService) ValidateMagicLink(token string) (string, error) {
-    return s.magicLinkRepo.GetByToken(token)
+    var magicLink MagicLinkToken
+    now := time.Now()
+
+    if err := s.db.Where("token = ? AND expires_at > ?", token, now).First(&magicLink).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return "", errors.New("invalid or expired token")
+        }
+        return "", err
+    }
+
+    return magicLink.UserID, nil
+}
+
+// GetUser retrieves a user by ID
+func (s *UserService) GetUser(userID string) (*User, error) {
+    var user User
+    if err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, errors.New("user not found")
+        }
+        return nil, err
+    }
+    return &user, nil
 }
 
 // UpdateUserEmailVerified marks user email as verified
 func (s *UserService) UpdateUserEmailVerified(userID string) error {
-    user, err := s.userRepo.GetByID(userID)
-    if err != nil {
-        return err
-    }
-
-    user.EmailVerified = true
-    return s.userRepo.Update(user)
-}
-
-// GetUser retrieves a user by ID
-func (s *UserService) GetUser(userID string) (*auth.User, error) {
-    return s.userRepo.GetByID(userID)
+    return s.db.Model(&User{}).Where("id = ?", userID).Update("email_verified", true).Error
 }
 
 // DeleteUser soft deletes a user
 func (s *UserService) DeleteUser(userID string) error {
-    return s.userRepo.Delete(userID)
+    return s.db.Model(&User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error
+}
+
+// MagicLinkToken model
+type MagicLinkToken struct {
+    Token     string    `gorm:"primarykey"`
+    UserID    string    `json:"user_id"`
+    ExpiresAt time.Time `json:"expires_at"`
+    CreatedAt time.Time `json:"created_at"`
 }
