@@ -1,5 +1,4 @@
 // Package database provides database connection management for the control API
-// This package handles database connection pooling, migrations, and session management
 package database
 
 import (
@@ -11,6 +10,7 @@ import (
     "gorm.io/gorm"
     gormLogger "gorm.io/gorm/logger"
     "gorm.io/gorm/schema"
+    "os"
 )
 
 var (
@@ -20,12 +20,18 @@ var (
 )
 
 // Init initializes the database connection pool
-func Init() {
+func Init(databaseURL string) {
     once.Do(func() {
-        databaseURL := getDatabaseURL()
+        url := databaseURL
+        if url == "" {
+            url = os.Getenv("DATABASE_URL")
+            if url == "" {
+                url = "postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable"
+            }
+        }
         
         var err error
-        dbInstance, err = gorm.Open(postgres.Open(databaseURL), &gorm.Config{
+        dbInstance, err = gorm.Open(postgres.Open(url), &gorm.Config{
             NamingStrategy: schema.NamingStrategy{
                 SingularTable: true,
             },
@@ -36,7 +42,6 @@ func Init() {
             log.Fatalf("Failed to connect to database: %v", err)
         }
 
-        // Configure connection pool
         sqlDB, err := dbInstance.DB()
         if err != nil {
             log.Fatalf("Failed to get database connection: %v", err)
@@ -53,7 +58,7 @@ func Init() {
 // Get returns the database instance
 func Get() *gorm.DB {
     if dbInstance == nil {
-        Init()
+        Init("")
     }
     
     mu.RLock()
@@ -84,34 +89,8 @@ func Close() error {
 // AutoMigrate runs database migrations
 func AutoMigrate(models ...interface{}) error {
     if dbInstance == nil {
-        Init()
+        Init("")
     }
     
     return dbInstance.AutoMigrate(models...)
-}
-
-func getDatabaseURL() string {
-    // In production, use the DATABASE_URL environment variable
-    // For development, default to local PostgreSQL
-    databaseURL := getenv("DATABASE_URL", "")
-    if databaseURL == "" {
-        host := getenv("DB_HOST", "localhost")
-        port := getenv("DB_PORT", "5432")
-        user := getenv("DB_USER", "cadensend")
-        password := getenv("DB_PASSWORD", "cadensend")
-        dbname := getenv("DB_NAME", "cadensend")
-        databaseURL = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", user, password, host, port, dbname)
-    }
-    return databaseURL
-}
-
-func getenv(key, defaultValue string) string {
-    if value := getenv(key); value != "" {
-        return value
-    }
-    return defaultValue
-}
-
-func getenv(key string) string {
-    return getenv(key)
 }
