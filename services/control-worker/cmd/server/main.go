@@ -1,8 +1,11 @@
+// Package main is the entry point for the Cadensend Control Worker service
+// This service handles job scheduling, execution, and delivery
+// It owns: job claiming, scheduling, rendering, sending, retries
+
 package main
 
 import (
     "context"
-    "fmt"
     "log"
     "net/http"
     "os"
@@ -37,9 +40,6 @@ func init() {
     // Initialize database connection pool
     database.Init()
 
-    // Start background workers
-    go startWorkers()
-
     // Register metrics
     prometheus.Register()
 }
@@ -59,73 +59,18 @@ func main() {
         AllowMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
         AllowHeaders:   []string{"Origin", "Content-Type", "Accept", "Authorization"},
     }))
-    r.Use(telemetry.Middleware("cadensend-control-api"))
+    r.Use(telemetry.Middleware("cadensend-control-worker"))
 
     // Health check endpoint
     r.GET("/healthz", healthHandler)
 
-    // API v1 routes
-    v1 := r.Group("/v1")
-    {
-        // Series endpoints
-        series := v1.Group("/series")
-        {
-            series.POST("", createSeriesHandler)
-            series.GET("/:id", getSeriesHandler)
-            series.PATCH("/:id", updateSeriesHandler)
-            series.POST("/:id/plan", generatePlanHandler)
-            series.GET("/:id/issues", listIssuesHandler)
-            series.POST("/:id/activate", activateSeriesHandler)
-            series.POST("/:id/pause", pauseSeriesHandler)
-            series.POST("/:id/resume", resumeSeriesHandler)
-        }
-
-        // Issue endpoints
-        issues := v1.Group("/issues")
-        {
-            issues.GET("/:id", getIssueHandler)
-            issues.PATCH("/:id", updateIssueHandler)
-            issues.POST("/:id/generate", generateIssueHandler)
-            issues.POST("/:id/approve", approveIssueHandler)
-            issues.POST("/:id/test-send", testSendIssueHandler)
-        }
-
-        // Source endpoints
-        sources := v1.Group("/sources")
-        {
-            sources.POST("/uploads", uploadSourceHandler)
-            sources.POST("/urls", submitURLHandler)
-            sources.GET("", listSourcesHandler)
-            sources.GET("/:id", getSourceHandler)
-            sources.GET("/:id/preview", previewSourceHandler)
-            sources.POST("/:id/reindex", reindexSourceHandler)
-            sources.DELETE("/:id", deleteSourceHandler)
-        }
-
-        // Retrieval endpoints
-        retrieval := v1.Group("/retrieval")
-        {
-            retrieval.POST("/preview/:series_id", retrievalPreviewHandler)
-        }
-
-        // Operation monitoring
-        operations := v1.Group("/operations")
-        {
-            operations.GET("/:id", getOperationHandler)
-        }
-
-        // Webhook endpoints
-        webhooks := v1.Group("/webhooks")
-        {
-            webhooks.POST("/email/:provider", emailWebhookHandler)
-        }
-    }
+    // Metrics endpoint
+    r.GET("/metrics", metricsHandler)
 
     // Start HTTP server
     srv := &http.Server{
-        Addr:    ":8080",
+        Addr:    ":8081",
         Handler: r,
-        // Add timeout configurations
         ReadTimeout:  30 * time.Second,
         WriteTimeout: 30 * time.Second,
         IdleTimeout:  120 * time.Second,
@@ -141,6 +86,12 @@ func main() {
         }
     }()
 
+    // Start scheduler and delivery workers
+    go startScheduler()
+    go startDeliveryWorker()
+
+    log.Println("Control worker started")
+
     <-quit
     log.Println("Shutting down server...")
 
@@ -155,15 +106,25 @@ func main() {
 }
 
 func healthHandler(c *gin.Context) {
-    // Health check logic
     c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 }
 
-func startWorkers() {
-    // Initialize task scheduler
-    scheduler := asynq.NewServer(
+func metricsHandler(c *gin.Context) {
+    c.JSON(http.StatusOK, gin.H{"metrics": "enabled"})
+}
+
+func startScheduler() {
+    // Initialize scheduler task processor
+    ssrv := asynq.NewServer(
         asynq.RedisClientOpt{Addr: "localhost:6379"},
-        asynq.Config{Concurrency: 10},
+        asynq.Config{
+            Concurrency: 10,
+            QueuePriority: map[string]int{
+                "critical": 5,
+                "default":  3,
+                "low":      1,
+            },
+        },
     )
 
     // Register task handlers
@@ -171,8 +132,9 @@ func startWorkers() {
     mux.HandleFunc("issue:generate", generateIssueTask)
     mux.HandleFunc("issue:deliver", deliverIssueTask)
     mux.HandleFunc("source:ingest", ingestSourceTask)
+    mux.HandleFunc("schedule:run", runScheduleTask)
 
-    if err := scheduler.Run(mux); err != nil {
+    if err := ssrv.Run(mux); err != nil {
         log.Fatalf("Failed to start scheduler: %v", err)
     }
 }
