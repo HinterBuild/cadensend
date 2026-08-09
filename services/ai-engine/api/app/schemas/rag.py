@@ -119,3 +119,9 @@ class IssueContent(BaseModel):
     content_blocks: List[ContentBlock]
     visual_specs: List[VisualSpec] = []
     citations: List[Citation] = []
+
+# Request body models
+class RetrievalRequest(BaseModel):
+    query: str
+    filters: Optional[Dict[str, Any]] = None
+    top_k: int = 20
