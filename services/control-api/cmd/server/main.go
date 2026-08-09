@@ -32,6 +32,9 @@ import (
     "cadensend/services/control-api/internal/logger"
     "cadensend/services/control-api/internal/middleware"
     "cadensend/services/control-api/internal/telemetry"
+    "cadensend/services/control-api/internal/service"
+    "cadensend/services/control-api/internal/handler"
+    "cadensend/services/control-api/internal/auth"
     "cadensend/services/control-api/internal/version"
 )
 
@@ -43,11 +46,11 @@ var (
 func init() {
     // Load configuration
     cfg = config.LoadConfig()
-    
+
     // Initialize logger
     loggerObj := logger.SetLogger(&logger.Config{
-        Level: cfg.LogLevel,
-        UTC:   true,
+        Level:   cfg.LogLevel,
+        UTC:     true,
     })
     log.SetFlags(0)
     loggerObj.Info("Starting control API", "config", cfg.Env)
@@ -55,17 +58,21 @@ func init() {
     // Initialize database
     database.Init(cfg.DatabaseURL)
     db = database.Get()
-    
+
     // Auto-migrate models
     database.AutoMigrate(
         &service.User{},
+        &service.MagicLinkToken{},
         &service.Workspace{},
         &service.Series{},
         &service.Issue{},
+        &service.Source{},
+        &service.Schedule{},
+        &service.Delivery{},
+        &service.Recipient{},
     )
 
-    // Start background workers
-    go startWorkers()
+    log.Println("Database models migrated")
 }
 
 func main() {
@@ -90,77 +97,49 @@ func main() {
     r.Use(telemetry.Middleware("cadensend-control-api"))
 
     // Health check endpoint
-    r.GET("/healthz", healthHandler)
-    r.GET("/version", versionHandler)
+    r.GET("/healthz", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+    })
+    r.GET("/version", func(c *gin.Context) {
+        info := version.Get()
+        c.JSON(http.StatusOK, gin.H{
+            "name":    info.Name,
+            "version": info.Version,
+            "commit":  info.Commit,
+        })
+    })
+
+    // Initialize services
+    userService := service.NewUserService(db, cfg.JWTSecret, cfg.JWTExpiry, nil)
+    
+    // Initialize handlers
+    userHandler := handler.NewUserHandler(userService, cfg.JWTSecret)
+    seriesHandler := handler.NewSeriesHandler(db)
+    issueHandler := handler.NewIssueHandler(db)
+    sourceHandler := handler.NewSourceHandler(db)
+    retrievalHandler := handler.NewRetrievalHandler(db)
+    operationsHandler := handler.NewOperationsHandler(db)
+    webhookHandler := handler.NewWebhookHandler(db, cfg.JWTSecret, cfg.SendGridAPIKey)
 
     // API v1 routes
     v1 := r.Group("/v1")
     {
         // Auth routes (no auth required)
-        users := v1.Group("/users")
-        {
-            users.POST("", createUserHandler)
-            users.POST("/login", loginHandler)
-            users.POST("/magic-link", magicLinkHandler)
-        }
+        userHandler.RegisterRoutes(v1)
 
         // Protected routes
         api := v1.Group("")
         api.Use(middleware.JWTMiddleware(cfg.JWTSecret))
         {
-            // Series endpoints
-            series := api.Group("/series")
-            {
-                series.POST("", createSeriesHandler)
-                series.GET("/:id", getSeriesHandler)
-                series.PATCH("/:id", updateSeriesHandler)
-                series.POST("/:id/plan", generatePlanHandler)
-                series.GET("/:id/issues", listIssuesHandler)
-                series.POST("/:id/activate", activateSeriesHandler)
-                series.POST("/:id/pause", pauseSeriesHandler)
-                series.POST("/:id/resume", resumeSeriesHandler)
-            }
-
-            // Issue endpoints
-            issues := api.Group("/issues")
-            {
-                issues.GET("/:id", getIssueHandler)
-                issues.PATCH("/:id", updateIssueHandler)
-                issues.POST("/:id/generate", generateIssueHandler)
-                issues.POST("/:id/approve", approveIssueHandler)
-                issues.POST("/:id/test-send", testSendIssueHandler)
-            }
-
-            // Source endpoints
-            sources := api.Group("/sources")
-            {
-                sources.POST("/uploads", uploadSourceHandler)
-                sources.POST("/urls", submitURLHandler)
-                sources.GET("", listSourcesHandler)
-                sources.GET("/:id", getSourceHandler)
-                sources.GET("/:id/preview", previewSourceHandler)
-                sources.POST("/:id/reindex", reindexSourceHandler)
-                sources.DELETE("/:id", deleteSourceHandler)
-            }
-
-            // Retrieval endpoints
-            retrieval := api.Group("/retrieval")
-            {
-                retrieval.POST("/preview/:series_id", retrievalPreviewHandler)
-            }
-
-            // Operation monitoring
-            operations := api.Group("/operations")
-            {
-                operations.GET("/:id", getOperationHandler)
-            }
-
-            // Webhook endpoints (no auth - webhook signature verification instead)
-            webhooks := v1.Group("/webhooks")
-            {
-                webhooks.POST("/email/:provider", emailWebhookHandler)
-            }
+            seriesHandler.RegisterRoutes(api, middleware.JWTMiddleware(cfg.JWTSecret))
+            issueHandler.RegisterRoutes(api, middleware.JWTMiddleware(cfg.JWTSecret))
+            sourceHandler.RegisterRoutes(api, middleware.JWTMiddleware(cfg.JWTSecret))
+            retrievalHandler.RegisterRoutes(api, middleware.JWTMiddleware(cfg.JWTSecret))
+            operationsHandler.RegisterRoutes(api, middleware.JWTMiddleware(cfg.JWTSecret))
         }
+
+        // Webhook endpoints (no auth - signature verification instead)
+        webhookHandler.RegisterRoutes(v1)
     }
 
     // Start HTTP server
@@ -172,6 +151,9 @@ func main() {
         IdleTimeout:  120 * time.Second,
     }
 
+    // Start background workers
+    go startWorkers()
+
     // Graceful shutdown
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -181,6 +163,8 @@ func main() {
             log.Fatalf("Failed to start server: %v", err)
         }
     }()
+
+    log.Printf("Control API listening on :%s", cfg.Port)
 
     <-quit
     log.Println("Shutting down server...")
@@ -193,19 +177,6 @@ func main() {
     }
 
     log.Println("Server exited")
-}
-
-func healthHandler(c *gin.Context) {
-    c.JSON(http.StatusOK, gin.H{"status": "healthy"})
-}
-
-func versionHandler(c *gin.Context) {
-    info := version.Get()
-    c.JSON(http.StatusOK, gin.H{
-        "name":    info.Name,
-        "version": info.Version,
-        "commit":  info.Commit,
-    })
 }
 
 func startWorkers() {
@@ -222,4 +193,20 @@ func startWorkers() {
     if err := scheduler.Run(mux); err != nil {
         log.Fatalf("Failed to start scheduler: %v", err)
     }
+}
+
+// Stub task handlers - these would be implemented with actual logic
+func generateIssueTask(ctx context.Context, t *asynq.Task) error {
+    log.Printf("Processing issue generation task")
+   	return nil
+}
+
+func deliverIssueTask(ctx context.Context, t *asynq.Task) error {
+    log.Printf("Processing issue delivery task")
+   	return nil
+}
+
+func ingestSourceTask(ctx context.Context, t *asynq.Task) error {
+    log.Printf("Processing source ingestion task")
+   	return nil
 }

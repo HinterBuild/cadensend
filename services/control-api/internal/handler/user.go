@@ -1,26 +1,36 @@
+// Handler package for API endpoints
+// Contains HTTP-specific logic and route handlers
+
 package handler
 
 import (
     "net/http"
+    "strings"
+    "time"
 
     "github.com/gin-gonic/gin"
+    "gorm.io/gorm"
 
     "cadensend/services/control-api/internal/service"
+    "cadensend/services/control-api/internal/auth"
 )
 
 // UserHandler handles HTTP requests for users
-// This layer contains the HTTP-specific logic and routes
 type UserHandler struct {
     userService *service.UserService
+    jwtSecret   string
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(userService *service.UserService) *UserHandler {
-    return &UserHandler{userService: userService}
+func NewUserHandler(userService *service.UserService, jwtSecret string) *UserHandler {
+    return &UserHandler{
+        userService: userService,
+        jwtSecret:   jwtSecret,
+    }
 }
 
-// RegisterRoutes registers user routes
-func (h *UserHandler) RegisterRoutes(router gin.IRouter) {
+// RegisterRoutes registers user routes (no auth required)
+func (h *UserHandler) RegisterRoutes(router *gin.RouterGroup) {
     users := router.Group("/users")
     {
         users.POST("", h.CreateUser)
@@ -32,46 +42,44 @@ func (h *UserHandler) RegisterRoutes(router gin.IRouter) {
     }
 }
 
-// CreateUser handles user creation
 func (h *UserHandler) CreateUser(c *gin.Context) {
     var req struct {
-        Email     string `json:"email" binding:"required"`
-        Password  string `json:"password" binding:"required"`
-        Name      string `json:"name" binding:"required"`
-        Timezone  string `json:"timezone" binding:"required"`
+        Email       string `json:"email" binding:"required,email"`
+        Password    string `json:"password" binding:"required,min=8"`
+        Name        string `json:"name" binding:"required"`
+        Timezone    string `json:"timezone" binding:"required"`
         WorkspaceID string `json:"workspace_id" binding:"required"`
     }
 
     if err := c.ShouldBindJSON(&req); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	return
     }
 
     user, err := h.userService.CreateUser(req.Email, req.Password, req.Name, req.Timezone, req.WorkspaceID)
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	return
     }
 
-    c.JSON(http.StatusCreated, user)
+    c.JSON(http.StatusCreated, gin.H{"data": user})
 }
 
-// Login handles user login
 func (h *UserHandler) Login(c *gin.Context) {
     var req struct {
-        Email    string `json:"email" binding:"required"`
+        Email    string `json:"email" binding:"required,email"`
         Password string `json:"password" binding:"required"`
     }
 
     if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+      	return
     }
 
     user, token, err := h.userService.AuthenticateUser(req.Email, req.Password)
     if err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+      	return
     }
 
     c.JSON(http.StatusOK, gin.H{
@@ -80,74 +88,77 @@ func (h *UserHandler) Login(c *gin.Context) {
     })
 }
 
-// GenerateMagicLink handles magic link generation
 func (h *UserHandler) GenerateMagicLink(c *gin.Context) {
     var req struct {
-        Email string `json:"email" binding:"required"`
+        Email string `json:"email" binding:"required,email"`
     }
 
     if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+      	return
     }
 
     token, err := h.userService.GenerateMagicLink(req.Email)
     if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+      	return
     }
 
     c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
-// GetUser handles getting a user by ID
 func (h *UserHandler) GetUser(c *gin.Context) {
     userID := c.Param("id")
 
     user, err := h.userService.GetUser(userID)
     if err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+      	return
     }
 
-    c.JSON(http.StatusOK, user)
+    c.JSON(http.StatusOK, gin.H{"data": user})
 }
 
-// VerifyEmail handles email verification via magic link
 func (h *UserHandler) VerifyEmail(c *gin.Context) {
     token := c.Query("token")
     if token == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
-        return
+       	c.JSON(http.StatusBadRequest, gin.H{"error": "token is required"})
+      	return
     }
 
     userID, err := h.userService.ValidateMagicLink(token)
     if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+      	return
     }
 
     if err := h.userService.UpdateUserEmailVerified(userID); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-
-    // Delete the used token
-    if err := h.userService.(*service.UserService).magicLinkRepo.Delete(token); err != nil {
-        // Log but don't fail the verification
+       	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+      	return
     }
 
     c.JSON(http.StatusOK, gin.H{"message": "email verified"})
 }
 
-// DeleteUser handles user deletion
 func (h *UserHandler) DeleteUser(c *gin.Context) {
     userID := c.Param("id")
 
     if err := h.userService.DeleteUser(userID); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
+       	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+      	return
     }
 
     c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
+}
+
+// helper function for string checks
+func hasPrefix(s, prefix string) bool {
+    return strings.HasPrefix(s, prefix)
+}
+
+// Helper to get DB from UserService - for handlers that need it
+func getDB(userService *service.UserService) *gorm.DB {
+    // Access the db field through reflection or pass it explicitly
+    // For simplicity, we'll pass db directly in handler constructors
+    return nil
 }
