@@ -1,0 +1,24 @@
+{{ .Subject }}
+
+{{ .Preheader }}
+
+{{ range .ContentBlocks }}
+{{ .Title }}
+
+{{ .Text }}
+
+{{ if .Citations }}
+Sources:
+{{ range $i, $c := .Citations }}
+[{{ add $i 1 }}] {{ $c.SourceID }} - {{ $c.ChunkID }} - {{ $c.Locator }}
+{{ end }}
+{{ end }}
+
+{{ end }}
+
+{{ .Footer }}
+
+Unsubscribe: #
+
+---
+This email was sent from Cadensend.

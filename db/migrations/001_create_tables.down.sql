@@ -1,0 +1,44 @@
+-- Reverse migration for 001_create_tables.up.sql
+
+DROP INDEX IF EXISTS uq_source_chunks_version_index;
+DROP INDEX IF EXISTS uq_ingestion_source_pipeline;
+DROP INDEX IF EXISTS uq_issue_versions_issue;
+DROP INDEX IF EXISTS uq_issues_series_sequence;
+DROP INDEX IF EXISTS uq_deliveries_issue_recipient;
+
+DROP INDEX IF EXISTS idx_retrieval_runs_generation;
+DROP INDEX IF EXISTS idx_provider_events_external;
+DROP INDEX IF EXISTS idx_deliveries_issue;
+DROP INDEX IF EXISTS idx_schedules_status_run_at;
+DROP INDEX IF EXISTS idx_source_chunks_version;
+DROP INDEX IF EXISTS idx_sources_status;
+DROP INDEX IF EXISTS idx_sources_workspace;
+DROP INDEX IF EXISTS idx_issues_scheduled_at;
+DROP INDEX IF EXISTS idx_issues_status;
+DROP INDEX IF EXISTS idx_issues_series;
+DROP INDEX IF EXISTS idx_series_workspace;
+DROP INDEX IF EXISTS idx_users_workspace;
+
+DROP TABLE IF EXISTS magic_link_tokens;
+DROP TABLE IF EXISTS recipients;
+DROP TABLE IF EXISTS source_members;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS provider_events;
+DROP TABLE IF EXISTS deliveries;
+DROP TABLE IF EXISTS schedules;
+DROP TABLE IF EXISTS assets;
+DROP TABLE IF EXISTS generation_runs;
+DROP TABLE IF EXISTS retrieval_runs;
+DROP TABLE IF EXISTS embedding_indexes;
+DROP TABLE IF EXISTS ingestion_runs;
+DROP TABLE IF EXISTS source_chunks;
+DROP TABLE IF EXISTS source_versions;
+DROP TABLE IF EXISTS sources;
+DROP TABLE IF EXISTS issue_versions;
+DROP TABLE IF EXISTS issues;
+DROP TABLE IF EXISTS series_versions;
+DROP TABLE IF EXISTS series;
+DROP TABLE IF EXISTS workspace_members;
+DROP TABLE IF EXISTS workspaces;
+DROP TABLE IF EXISTS users;
