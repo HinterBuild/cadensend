@@ -1,4 +1,4 @@
-module cadensend
+module cadensend-worker
 
 go 1.22
 
