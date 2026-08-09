@@ -1,0 +1,29 @@
+
+# Environment files with secrets
+.env
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+node_modules/
+dist/
+build/
+*.bundle.js
+
+# IDE
+*.swp
+*.swo
+*~
