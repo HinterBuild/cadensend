@@ -14,5 +14,3 @@ require (
     github.com/prometheus/client_golang v1.18.0
     github.com/hibiken/asynq v0.24.0
 )
-
-replace github.com/qdrant/go-client => ./vendor/qdrant-client
