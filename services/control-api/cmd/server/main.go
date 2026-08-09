@@ -1,21 +1,8 @@
-// Package main - Control API Service Entry Point
-// This service provides the control plane for Cadensend, handling:
-// - User authentication and tenancy
-// - Series management (brief creation, planning, editing)
-// - Issue lifecycle (generation, approval, scheduling, delivery)
-// - Source management and RAG ingestion
-// - Delivery orchestration and tracking
-// - API contracts and state management
-
-package main
+package graphs
 
 import (
     "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
+    "fmt"
     "time"
 
     "github.com/gin-gonic/gin"
