@@ -1,33 +1,33 @@
 """API routes for series management"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/series")
 
-class SeriesBrief(BaseModel):
-    topic: str
-    goal: str
-    level: str
-    timezone: str
-    start_date: str
-    duration: str
-    cadence: str
-    send_days: str
-    send_time: str
+class PlanGenerateRequest(BaseModel):
+    brief: Dict[str, Any]
 
-class SeriesPlan(BaseModel):
-    id: str
+class PlanGenerateResponse(BaseModel):
+    plan: Dict[str, Any]
     series_id: str
-    version: int
-    modules: List[dict]
-    created_at: datetime
-    updated_at: datetime
 
 @router.post("/{series_id}/plan")
-async def generate_plan(series_id: str):
-    """Generate a curriculum plan for a series"""
-    # This would integrate with the LangGraph plan generation workflow
-    return {"message": "Plan generation started", "series_id": series_id}
+async def generate_plan(series_id: str, request: PlanGenerateRequest):
+    """Generate a curriculum plan for a series using LangGraph"""
+    try:
+        from app.services.model_service import ModelService
+        from app.workers.generation_worker import GenerationWorker
+        
+        model_service = ModelService()
+        worker = GenerationWorker(model_service)
+        
+        plan = await worker.generate_plan(request.brief)
+        return PlanGenerateResponse(plan=plan, series_id=series_id)
+    except Exception as e:
+        logger.error(f"Plan generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
