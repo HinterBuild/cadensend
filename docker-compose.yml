@@ -26,13 +26,17 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
-    environment:
-      QDRANT_API_KEY: ""
     healthcheck:
       test: ["cmd", "curl", "-f", "http://localhost:6333/health"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cadensend-redis
+    ports:
+      - "6379:6379"
 
   minio:
     image: minio/minio:latest
@@ -47,66 +51,67 @@ services:
     volumes:
       - minio_data:/data
 
-  go-api:
-    build: ./services/control-api
-    container_name: cadensend-go-api
+  backend-api:
+    build: ./backend/control-api
+    container_name: cadensend-backend-api
     ports:
       - "8080:8080"
     environment:
       DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       EMAIL_PROVIDER: "sendgrid"
       SENDGRID_API_KEY: ""
+      JWT_SECRET: "dev-secret-key-change-in-production"
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      redis:
+        condition: service_started
 
-  go-worker:
-    build: ./services/control-worker
-    container_name: cadensend-go-worker
+  backend-worker:
+    build: ./backend/control-worker
+    container_name: cadensend-backend-worker
     environment:
       DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       EMAIL_PROVIDER: "sendgrid"
       SENDGRID_API_KEY: ""
+      JWT_SECRET: "dev-secret-key-change-in-production"
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      redis:
+        condition: service_started
 
-  python-api:
-    build: ./services/ai-engine/api
-    container_name: cadensend-python-api
+  ai-engine-api:
+    build: ./ai-service/ai-engine/api
+    container_name: cadensend-ai-engine-api
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      DATABASE_URL: "postgresql+asyncpg://cadensend:cadensend@postgres:5432/cadensend"
+      REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       OPENROUTER_API_KEY: "REDACTED_OPENROUTER_KEY"
       DEFAULT_MODEL: "nvidia/nemotron-3-embed-1b:free"
+      JWT_SECRET: "dev-secret-key-change-in-production"
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      redis:
+        condition: service_started
 
-  python-worker:
-    build: ./services/ai-engine/workers
-    container_name: cadensend-python-worker
+  ai-engine-worker:
+    build: ./ai-service/ai-engine
+    container_name: cadensend-ai-engine-worker
     environment:
-      DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      DATABASE_URL: "postgresql+asyncpg://cadensend:cadensend@postgres:5432/cadensend"
+      REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       OPENROUTER_API_KEY: "REDACTED_OPENROUTER_KEY"
@@ -114,23 +119,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      redis:
+        condition: service_started
+      ai-engine-api:
+        condition: service_started
 
-  web:
-    build: ./apps/web
-    container_name: cadensend-web
+  frontend:
+    build: ./frontend/web
     ports:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8080"
       NEXT_PUBLIC_AI_API_URL: "http://localhost:8000"
     depends_on:
-      go-api:
+      backend-api:
         condition: service_started
-      python-api:
+      ai-engine-api:
         condition: service_started
 
 volumes:
