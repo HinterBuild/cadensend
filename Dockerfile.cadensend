@@ -1,7 +1,7 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/web/package.json frontend/web/package-lock.json* ./
-RUN npm ci --legacy-peer-deps
+RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
 COPY frontend/web/ ./
 RUN npm run build
 
