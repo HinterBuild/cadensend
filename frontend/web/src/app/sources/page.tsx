@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Upload, Link2, Search, FileText } from 'lucide-react';
+import { Upload, Link2, FileText } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
+import type { Source } from '@/types';
 
 export default function SourcesPage() {
-  const [sources, setSources] = useState([]);
+  const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addMethod, setAddMethod] = useState('url');
@@ -19,7 +19,7 @@ export default function SourcesPage() {
     setLoading(true);
     try {
       const response = await sourceApi.list();
-      setSources(response.data || []);
+      setSources(response.data ?? []);
     } catch (err) {
       console.error('Failed to load sources:', err);
     } finally {
@@ -76,7 +76,7 @@ export default function SourcesPage() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {sources.map((source: any) => (
+            {sources.map((source) => (
               <div key={source.id} className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between">
                   <div>

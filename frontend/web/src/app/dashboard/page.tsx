@@ -22,7 +22,7 @@ export default function DashboardPage() {
       setError(null);
       try {
         const response = await seriesApi.list();
-        setSeries(response.series as Series[]);
+        setSeries(response.series);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load series');
       } finally {

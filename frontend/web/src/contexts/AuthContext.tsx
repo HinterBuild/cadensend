@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const userId = payload.user_id;
       const userData = await authApi.getUser(userId);
-      setUser(userData as User);
+      setUser(userData.data);
     } catch (error) {
       localStorage.removeItem('token');
     } finally {
@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await authApi.login(email, password);
       localStorage.setItem('token', response.token);
-      setUser(response.user as User);
+      setUser(response.user);
       router.push('/dashboard');
     } finally {
       setLoading(false);
@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyMagicLink = async (token: string) => {
     const response = await authApi.verifyMagicLink(token);
     localStorage.setItem('token', response.token);
-    setUser(response.user as User);
+    setUser(response.user);
     router.push('/dashboard');
   };
 

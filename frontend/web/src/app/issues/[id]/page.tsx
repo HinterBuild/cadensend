@@ -2,13 +2,42 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, Send, RefreshCw, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
+
+type IssueRecord = {
+  id: string;
+  series_id: string;
+  sequence_no: number;
+  subject: string;
+  status: string;
+  scheduled_at: string;
+};
+
+type ContentCitation = {
+  source_id: string;
+  chunk_id: string;
+  locator: string;
+};
+
+type ContentBlock = {
+  id: string;
+  type: string;
+  title?: string;
+  text: string;
+  citations: ContentCitation[];
+};
+
+type IssueContentState = {
+  subject: string;
+  preheader: string;
+  blocks: ContentBlock[];
+};
 
 export default function IssueEditorPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
-  const [issue, setIssue] = useState(null);
-  const [content, setContent] = useState({
+  const [issue, setIssue] = useState<IssueRecord | null>(null);
+  const [content, setContent] = useState<IssueContentState>({
     subject: '',
     preheader: '',
     blocks: [],
@@ -110,7 +139,9 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
       
       if (!response.ok) throw new Error('Failed to approve issue');
       
-      router.push(`/series/${issue.series_id}`);
+      if (issue) {
+        router.push(`/series/${issue.series_id}`);
+      }
     } catch (err) {
       console.error('Failed to approve issue:', err);
     }
@@ -221,7 +252,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
               Content Blocks
             </label>
             <div className="space-y-4">
-              {content.blocks.map((block: any) => (
+              {content.blocks.map((block) => (
                 <div key={block.id} className="border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-gray-700">{block.type}</span>
@@ -232,7 +263,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                       value={block.title}
                       onChange={(e) => {
                         const newBlocks = [...content.blocks];
-                        newBlocks.forEach((b, i) => {
+                        newBlocks.forEach((b) => {
                           if (b.id === block.id) b.title = e.target.value;
                         });
                         setContent({ ...content, blocks: newBlocks });
@@ -245,7 +276,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                     value={block.text}
                     onChange={(e) => {
                       const newBlocks = [...content.blocks];
-                      newBlocks.forEach((b, i) => {
+                      newBlocks.forEach((b) => {
                         if (b.id === block.id) b.text = e.target.value;
                       });
                       setContent({ ...content, blocks: newBlocks });
