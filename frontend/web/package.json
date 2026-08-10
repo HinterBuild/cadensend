@@ -36,8 +36,6 @@
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "@types/react-query": "^3.1.5",
-    "@types/react-hook-form": "^7.43.3",
     "jest": "^29.7.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/jest-dom": "^6.2.0",
