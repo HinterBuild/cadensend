@@ -23,10 +23,11 @@ var (
 
 // Init initializes OpenTelemetry
 func Init(serviceName string) context.CancelFunc {
-    ctx := context.Background()
-    if serviceName != "" {
-        svcName = serviceName
-    }
+	ctx := context.Background()
+
+	if serviceName != "" {
+		svcName = serviceName
+	}
 
     exp, err := otlphttp.New(ctx,
         otlphttp.WithEndpoint(endpoint),

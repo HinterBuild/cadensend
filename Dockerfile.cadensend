@@ -1,0 +1,53 @@
+FROM python:3.11-slim AS base
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+FROM node:18-slim AS frontend-builder
+WORKDIR /app
+COPY frontend/web/package.json frontend/web/package-lock.json* ./
+RUN npm ci --legacy-peer-deps
+COPY frontend/web/ ./
+RUN npm run build
+
+FROM python:3.11-slim AS ai-deps
+WORKDIR /app/ai-engine
+COPY ai-service/ai-engine/api/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY ai-service/ai-engine/ ./
+
+FROM golang:1.22-alpine AS go-builder
+WORKDIR /src
+COPY backend/control-api/go.mod backend/control-api/go.sum ./
+RUN go mod download
+COPY backend/control-api/ ./
+RUN CGO_ENABLED=0 go build -o /control-api ./cmd/server
+ENV AI_ENGINE_PATH=/app/ai-engine
+
+COPY backend/control-worker/go.mod backend/control-worker/go.sum ./
+RUN go mod download
+COPY backend/control-worker/ ./
+RUN CGO_ENABLED=0 go build -o /control-worker ./cmd/server
+
+FROM node:18-slim AS app
+WORKDIR /app
+
+COPY --from=ai-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=ai-deps /app/ai-engine /app/ai-engine
+COPY --from=go-builder /control-api /app/control-api
+COPY --from=go-builder /control-worker /app/control-worker
+
+COPY --from=frontend-builder /app/.next /app/frontend/.next
+COPY --from=frontend-builder /app/public /app/frontend/public
+COPY frontend/web/package.json frontend/web/next.config.* /app/frontend/
+
+ENV PYTHONPATH=/app/ai-engine
+ENV NEXT_PUBLIC_API_URL=http://localhost:8080
+ENV NEXT_PUBLIC_AI_API_URL=http://localhost:8000
+
+EXPOSE 3000 8080 8000
+
+CMD ["sh", "-c", "\
+  /app/control-api & \
+  /app/control-worker & \
+  cd /app/ai-engine/api && exec python -m uvicorn main:app --host 0.0.0.0 --port 8000 & \
+  cd /app/frontend && exec npx next start -p 3000 \
+"]

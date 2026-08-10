@@ -6,7 +6,7 @@ async function fetchApi<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `/api/v1${endpoint}`;
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   const defaultHeaders: HeadersInit = {
     'Content-Type': 'application/json',
@@ -35,7 +35,7 @@ async function fetchApi<T>(
 // API client for authentication
 export const authApi = {
   login: (email: string, password: string) =>
-    fetchApi('/users/login', {
+    fetchApi<{ token: string; user: Record<string, unknown> }>('/users/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
@@ -46,8 +46,14 @@ export const authApi = {
       body: JSON.stringify({ email }),
     }),
 
+  verifyMagicLink: (token: string) =>
+    fetchApi<{ token: string; user: Record<string, unknown> }>('/users/magic-link/verify', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
   getUser: (userId: string) =>
-    fetchApi(`/users/${userId}`),
+    fetchApi<Record<string, unknown>>(`/users/${userId}`),
 };
 
 // API client for series management
@@ -94,6 +100,9 @@ export const seriesApi = {
     fetchApi('/series/test-send', {
       method: 'POST',
     }),
+
+  list: () =>
+    fetchApi<{ series: Record<string, unknown>[] }>('/series'),
 };
 
 // API client for issue management

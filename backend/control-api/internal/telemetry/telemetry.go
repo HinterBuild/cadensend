@@ -24,12 +24,12 @@ var (
 
 // Init initializes OpenTelemetry
 func Init(serviceName string) context.CancelFunc {
-    ctx := context.Background()
-    
-    // Override service name if provided
-    if serviceName != "" {
-        serviceName = serviceName
-    }
+	ctx := context.Background()
+
+	// Override service name if provided
+	if serviceName != "" {
+		svcName = serviceName
+	}
 
     // Try to create OTLP exporter
     exp, err := otlphttp.New(ctx,

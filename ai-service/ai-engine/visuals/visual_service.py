@@ -5,7 +5,7 @@ Handles Mermaid/D2 diagram generation and rendering
 
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import uuid
 import logging
@@ -62,7 +62,7 @@ class VisualService:
             width=input.max_width,
             height=input.max_height,
             format="svg",
-            generated_at=datetime.utcnow().isoformat(),
+            generated_at=datetime.now(timezone.utc).isoformat(),
             storage_key=f"visuals/{uuid.uuid4()}.svg",
         )
         
@@ -85,7 +85,7 @@ class VisualService:
         with open(filepath, 'w') as f:
             f.write(svg_content)
         
-        logger.info(f"Rendered visual to: {filepath}")
+        logger.info("Rendered visual to: %s", filepath)
         return filepath
     
     def _generate_diagram_content(self, input: VisualSpecInput, model_service) -> str:

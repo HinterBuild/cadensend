@@ -107,7 +107,9 @@ services:
         condition: service_started
 
   ai-engine-worker:
-    build: ./ai-service/ai-engine
+    build:
+      context: ./ai-service/ai-engine
+      dockerfile: workers/Dockerfile
     container_name: cadensend-ai-engine-worker
     environment:
       DATABASE_URL: "postgresql+asyncpg://cadensend:cadensend@postgres:5432/cadensend"

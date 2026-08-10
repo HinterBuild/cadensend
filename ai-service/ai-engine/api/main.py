@@ -1,22 +1,42 @@
 """
-Cadensend AI Engine API - FastAPI application
+Cadensend AI Engine API - FastAPI application.
 """
+
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 
 from app.core.config import settings
 from app.core.database import init_db, close_db
 from app.services.model_service import ModelService
+from app.services.checkpoint_backend import get_checkpoint_backend
+from app.api.routes import series_routes, issue_routes, source_routes, retrieval_routes, health_routes
+
+import logging
 
 logging.basicConfig(level=settings.LOG_LEVEL.upper())
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage application lifecycle: database and service initialization."""
+    await init_db()
+    backend = get_checkpoint_backend()
+    await backend.setup()
+    logger.info("AI Engine API started")
+    yield
+    await close_db()
+    logger.info("AI Engine API stopped")
+
+
 app = FastAPI(
     title="Cadensend AI Engine API",
     description="AI services for newsletter generation, RAG, planning, and visual content",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -27,34 +47,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services at startup
 try:
     model_service = ModelService()
 except Exception as e:
-    logger.warning(f"Failed to initialize model service: {e}")
+    logger.warning("Failed to initialize model service: %s", e)
     model_service = None
 
-@app.on_event("startup")
-async def startup_event():
-    await init_db()
-    logger.info("AI Engine API started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await close_db()
-    logger.info("AI Engine API stopped")
 
 @app.get("/healthz")
 async def healthz():
     return {"status": "healthy"}
 
+
 @app.get("/")
 async def root():
     return {"message": "Cadensend AI Engine API", "version": "0.1.0"}
 
-# Include routers
-from app.api.routes import series_routes, issue_routes, source_routes, retrieval_routes, health_routes
 
+# Include routers
 app.include_router(health_routes.router)
 app.include_router(series_routes.router, prefix="/v1")
 app.include_router(issue_routes.router, prefix="/v1")
