@@ -1,7 +1,7 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app
-COPY frontend/web/package.json frontend/web/package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
+COPY frontend/web/package.json frontend/web/ ./
+RUN npm ci --legacy-peer-deps
 COPY frontend/web/ ./
 RUN npm run build
 
@@ -13,29 +13,37 @@ COPY ai-service/ai-engine/ ./
 
 FROM golang:1.22-alpine AS control-api-builder
 WORKDIR /src
-COPY backend/control-api/go.mod ./
+COPY backend/control-api/go.mod backend/control-api/go.sum ./
 RUN go mod download
 COPY backend/control-api/ ./
-RUN CGO_ENABLED=0 go build -o /control-api ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /control-api ./cmd/server
 
 FROM golang:1.22-alpine AS control-worker-builder
 WORKDIR /src
-COPY backend/control-worker/go.mod ./
+COPY backend/control-worker/go.mod backend/control-worker/go.sum ./
 RUN go mod download
 COPY backend/control-worker/ ./
-RUN CGO_ENABLED=0 go build -o /control-worker ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /control-worker ./cmd/server
 
-FROM node:18-slim AS app
+FROM node:20-alpine AS app
 WORKDIR /app
 
+# Install Python
+RUN apk add --no-cache python3 py3-pip
+
+# Copy Python dependencies from ai-deps stage
 COPY --from=ai-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=ai-deps /usr/local/bin /usr/local/bin
 COPY --from=ai-deps /app/ai-engine /app/ai-engine
+
+# Copy Go binaries
 COPY --from=control-api-builder /control-api /app/control-api
 COPY --from=control-worker-builder /control-worker /app/control-worker
 
-COPY --from=frontend-builder /app/.next /app/frontend/.next
+# Copy frontend standalone build
+COPY --from=frontend-builder /app/.next/standalone /app/frontend
+COPY --from=frontend-builder /app/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder /app/public /app/frontend/public
-COPY frontend/web/package.json frontend/web/next.config.* /app/frontend/
 
 ENV PYTHONPATH=/app/ai-engine
 ENV NEXT_PUBLIC_API_URL=http://localhost:8080
@@ -46,6 +54,6 @@ EXPOSE 3000 8080 8000
 CMD ["sh", "-c", "\
   /app/control-api & \
   /app/control-worker & \
-  cd /app/ai-engine/api && python -m uvicorn main:app --host 0.0.0.0 --port 8000 & \
-  cd /app/frontend && npx next start -p 3000 \
+  cd /app/ai-engine/api && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 & \
+  cd /app/frontend && node server.js \
 "]
