@@ -2,14 +2,9 @@
 
 ![Logo](logo.png)
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/HinterBuild/cadensend/ci.yml?branch=main&style=flat-square)](https://github.com/HinterBuild/cadensend/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/HinterBuild/cadensend?style=flat-square)](https://github.com/HinterBuild/cadensend/blob/main/LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/cadensend/cadensend?style=flat-square)](https://hub.docker.com/r/cadensend/cadensend)
 [![Go Version](https://img.shields.io/badge/go-1.22+-blue?style=flat-square)](https://go.dev/doc/go1)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue?style=flat-square)](https://www.python.org/downloads/release/python-3.11/)
 [![Qdrant](https://img.shields.io/badge/qdrant-1.3+-blue?style=flat-square)](https://github.com/qdrant/qdrant)
-[![Contributors](https://img.shields.io/github/contributors/HinterBuild/cadensend?style=flat-square)](https://github.com/HinterBuild/cadensend/graphs/contributors)
-[![Release](https://img.shields.io/github/v/release/HinterBuild/cadensend?style=flat-square)](https://github.com/HinterBuild/cadensend/releases)
 
 Turn learning goals into grounded, scheduled email courses — delivered exactly once.
 
