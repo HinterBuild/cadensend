@@ -1,19 +1,22 @@
-import { redirect } from 'next/navigation';
+'use client';
+
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
+  const router = useRouter();
   const { user, loading } = useAuth();
 
   useEffect(() => {
     if (!loading) {
       if (user) {
-        redirect('/dashboard');
+        router.replace('/dashboard');
       } else {
-        redirect('/login');
+        router.replace('/login');
       }
     }
-  }, [user, loading]);
+  }, [user, loading, router]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
