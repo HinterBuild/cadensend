@@ -32,7 +32,7 @@ func Init(databaseURL string) {
         var err error
         dbInstance, err = gorm.Open(postgres.Open(url), &gorm.Config{
             NamingStrategy: schema.NamingStrategy{
-                SingularTable: true,
+                SingularTable: false,
             },
             Logger: gormLogger.Default.LogMode(gormLogger.Info),
         })
