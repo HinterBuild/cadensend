@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   postgres:
@@ -14,7 +13,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["cmd", "pg_isready", "-U", "cadensend"]
+      test: ["CMD-SHELL", "pg_isready -U cadensend || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -27,7 +26,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["cmd", "curl", "-f", "http://localhost:6333/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
