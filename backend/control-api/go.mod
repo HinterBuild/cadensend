@@ -1,4 +1,4 @@
-module backend
+module backend/control-api
 
 go 1.22
 

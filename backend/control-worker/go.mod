@@ -1,4 +1,4 @@
-module backend
+module backend/control-worker
 
 go 1.22
 
