@@ -1,5 +1,5 @@
-"""Model service for AI Engine
-Handles LLM interactions and model gateway integration
+"""Model service for AI Engine.
+Handles LLM interactions and model gateway integration.
 """
 
 from openai import OpenAI
@@ -15,9 +15,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class ModelService:
-    """Service for handling LLM interactions via OpenRouter gateway"""
-    
+    """Service for handling LLM interactions via OpenRouter gateway."""
+
     def __init__(self):
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
@@ -37,16 +38,18 @@ class ModelService:
             temperature=0.7,
             max_tokens=4000,
         )
-    
-    async def generate_response(self, 
-                                messages: List[Dict[str, str]], 
-                                model: Optional[str] = None,
-                                temperature: float = 0.7,
-                                max_tokens: int = 4000) -> str:
-        """Generate a response from the LLM"""
+
+    async def generate_response(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4000,
+    ) -> str:
+        """Generate a response from the LLM."""
         model = model or self.default_model
         start_time = time.time()
-        
+
         try:
             response = self.client.chat.completions.create(
                 model=model,
@@ -54,25 +57,27 @@ class ModelService:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            
+
             result = response.choices[0].message.content
             elapsed = time.time() - start_time
-            logger.info(f"Generated response in {elapsed:.2f}s using {model}")
+            logger.info("Generated response in %.2fs using %s", elapsed, model)
             return result
-            
+
         except Exception as e:
-            logger.error(f"Failed to generate response: {e}")
+            logger.error("Failed to generate response: %s", e)
             raise
-    
-    async def generate_structured_output(self,
-                                         messages: List[Dict[str, str]],
-                                         schema: Dict[str, Any],
-                                         model: Optional[str] = None,
-                                         max_retries: int = 1) -> Dict[str, Any]:
-        """Generate structured JSON output from the LLM"""
+
+    async def generate_structured_output(
+        self,
+        messages: List[Dict[str, str]],
+        schema: Dict[str, Any],
+        model: Optional[str] = None,
+        max_retries: int = 1,
+    ) -> Dict[str, Any]:
+        """Generate structured JSON output from the LLM."""
         model = model or self.default_model
-        last_error = None
-        
+        last_error: Optional[Exception] = None
+
         for attempt in range(max_retries + 1):
             try:
                 response = self.client.chat.completions.create(
@@ -82,26 +87,26 @@ class ModelService:
                     max_tokens=4000,
                     response_format={"type": "json_object"},
                 )
-                
+
                 result = response.choices[0].message.content
                 parsed = json.loads(result)
-                logger.info(f"Generated structured output (attempt {attempt + 1})")
+                logger.info("Generated structured output (attempt %d)", attempt + 1)
                 return parsed
-                
+
             except Exception as e:
                 last_error = e
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning("Attempt %d failed: %s", attempt + 1, e)
                 if attempt < max_retries:
                     continue
-        
+
         raise last_error
-    
+
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for a list of texts"""
+        """Get embeddings for a list of texts."""
         try:
             embeddings = self.embedding_model.embed_documents(texts)
-            logger.info(f"Generated {len(embeddings)} embeddings")
+            logger.info("Generated %d embeddings", len(embeddings))
             return embeddings
         except Exception as e:
-            logger.error(f"Failed to generate embeddings: {e}")
+            logger.error("Failed to generate embeddings: %s", e)
             raise

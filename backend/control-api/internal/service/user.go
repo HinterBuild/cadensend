@@ -285,13 +285,5 @@ func (s *UserService) UpdateUserEmailVerified(userID string) error {
 
 // DeleteUser soft deletes a user
 func (s *UserService) DeleteUser(userID string) error {
-    return s.db.Model(&User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error
-}
-
-// MagicLinkToken model
-type MagicLinkToken struct {
-    Token     string    `gorm:"primarykey"`
-    UserID    string    `json:"user_id"`
-    ExpiresAt time.Time `json:"expires_at"`
-    CreatedAt time.Time `json:"created_at"`
+	return s.db.Model(&User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error
 }

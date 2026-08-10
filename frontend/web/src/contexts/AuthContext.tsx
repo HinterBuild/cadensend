@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 import { User } from '@/types';
@@ -21,39 +21,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      // Verify token and get user
-      verifyToken(token);
-    } else {
+  const verifyToken = useCallback(async (token: string) => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const userId = payload.user_id;
+      const userData = await authApi.getUser(userId);
+      setUser(userData as User);
+    } catch (error) {
+      localStorage.removeItem('token');
+    } finally {
       setLoading(false);
     }
   }, []);
 
-  const verifyToken = async (token: string) => {
-    try {
-      // In a real implementation, this would verify the JWT token
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const userId = payload.user_id;
-      const userData = await authApi.getUser(userId);
-      setUser(userData);
-      setLoading(false);
-    } catch (error) {
-      localStorage.removeItem('token');
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      verifyToken(token);
+    } else {
       setLoading(false);
     }
-  };
+  }, [verifyToken]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       const response = await authApi.login(email, password);
       localStorage.setItem('token', response.token);
-      setUser(response.user);
+      setUser(response.user as User);
       router.push('/dashboard');
-    } catch (error) {
-      throw error;
     } finally {
       setLoading(false);
     }
@@ -66,11 +62,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const sendMagicLink = async (email: string) => {
-    await authApi.sendMagicLink(email);
+    await authApi.loginWithMagicLink(email);
   };
 
   const verifyMagicLink = async (token: string) => {
-    await authApi.verifyMagicLink(token);
+    const response = await authApi.verifyMagicLink(token);
+    localStorage.setItem('token', response.token);
+    setUser(response.user as User);
     router.push('/dashboard');
   };
 

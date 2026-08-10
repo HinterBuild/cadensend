@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { Mail, Send } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const router = useRouter();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -30,7 +30,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleMagicLink = async (e: React.FormEvent) => {
+  const handleMagicLink = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
