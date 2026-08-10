@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: cadensend
       POSTGRES_USER: cadensend
-      POSTGRES_PASSWORD: cadensend
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cadensend}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations:/docker-entrypoint-initdb.d
@@ -43,8 +43,8 @@ services:
     container_name: cadensend-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -57,13 +57,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      DATABASE_URL: "${DATABASE_URL:-postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable}"
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       EMAIL_PROVIDER: "sendgrid"
-      SENDGRID_API_KEY: ""
-      JWT_SECRET: "dev-secret-key-change-in-production"
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY:-}"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,13 +74,13 @@ services:
     build: ./backend/control-worker
     container_name: cadensend-backend-worker
     environment:
-      DATABASE_URL: "postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable"
+      DATABASE_URL: "${DATABASE_URL:-postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable}"
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       EMAIL_PROVIDER: "sendgrid"
-      SENDGRID_API_KEY: ""
-      JWT_SECRET: "dev-secret-key-change-in-production"
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY:-}"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,13 +93,13 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "postgresql+asyncpg://cadensend:cadensend@postgres:5432/cadensend"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://cadensend:cadensend@localhost:5432/cadensend}"
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
       OPENROUTER_API_KEY: ""
       DEFAULT_MODEL: "poolside/laguna-s-2.1:free"
-      JWT_SECRET: "dev-secret-key-change-in-production"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
       dockerfile: workers/Dockerfile
     container_name: cadensend-ai-engine-worker
     environment:
-      DATABASE_URL: "postgresql+asyncpg://cadensend:cadensend@postgres:5432/cadensend"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+asyncpg://cadensend:cadensend@localhost:5432/cadensend}"
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"

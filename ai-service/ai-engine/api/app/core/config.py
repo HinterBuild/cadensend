@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "info"
     
     # Database settings
-    DATABASE_URL: str = "postgresql+asyncpg://cadensend:cadensend@localhost:5432/cadensend"
+    DATABASE_URL: str = "postgresql+asyncpg://localhost:5432/cadensend"
     
     # Qdrant settings
     QDRANT_URL: str = "http://localhost:6333"
@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     
     # MinIO settings
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin123"
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
     MINIO_BUCKET_NAME: str = "cadensend"
     MINIO_SECURE: bool = False
     
