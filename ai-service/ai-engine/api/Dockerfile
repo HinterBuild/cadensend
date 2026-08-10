@@ -4,8 +4,14 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
     g++ \
+    libpq-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    zlib1g-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies

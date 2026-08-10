@@ -10,35 +10,35 @@ import (
 
 // Config holds all configuration values
 type Config struct {
-	Host          string
-	Port          string
-	Env           string
-	LogLevel      string
-	DatabaseURL   string
-	RedisURL      string
-	MaxAttempts   int
-	JWTSecret     string
-	JWTExpiry     time.Duration
+	Host           string
+	Port           string
+	Env            string
+	LogLevel       string
+	DatabaseURL    string
+	RedisURL       string
+	MaxAttempts    int
+	JWTSecret      string
+	JWTExpiry      time.Duration
 	SendGridAPIKey string
-	SMTPFrom      string
-	OTELEndpoint  string
+	SMTPFrom       string
+	OTELEndpoint   string
 }
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
 	cfg := &Config{
-		Host:          getEnv("HOST", "0.0.0.0"),
-		Port:          getEnv("PORT", "8081"),
-		Env:           getEnv("ENV", "development"),
-		LogLevel:      getEnv("LOG_LEVEL", "info"),
-		DatabaseURL:   getEnv("DATABASE_URL", ""),
-		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		MaxAttempts:   getEnvInt("MAX_ATTEMPTS", 5),
-		JWTSecret:     getEnv("JWT_SECRET", "change-this-in-production"),
-		JWTExpiry:     time.Hour * 24,
+		Host:           getEnv("HOST", "0.0.0.0"),
+		Port:           getEnv("PORT", "8081"),
+		Env:            getEnv("ENV", "development"),
+		LogLevel:       getEnv("LOG_LEVEL", "info"),
+		DatabaseURL:    getEnv("DATABASE_URL", ""),
+		RedisURL:       getEnv("REDIS_URL", "localhost:6379"),
+		MaxAttempts:    getEnvInt("MAX_ATTEMPTS", 5),
+		JWTSecret:      getEnv("JWT_SECRET", "change-this-in-production"),
+		JWTExpiry:      time.Hour * 24,
 		SendGridAPIKey: getEnv("SENDGRID_API_KEY", ""),
 		SMTPFrom:       getEnv("SMTP_FROM", "noreply@cadensend.app"),
-		OTELEndpoint:  getEnv("OTEL_ENDPOINT", "http://localhost:4318"),
+		OTELEndpoint:   getEnv("OTEL_ENDPOINT", "http://localhost:4318"),
 	}
 
 	if expiry := getEnv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"); expiry != "" {

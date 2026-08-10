@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	ginmiddleware "github.com/gin-gonic/gin/middleware"
 	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 
@@ -26,8 +25,8 @@ import (
 	"backend/control-api/internal/database"
 	applogger "backend/control-api/internal/logger"
 	"backend/control-api/internal/middleware"
-	"backend/control-api/internal/telemetry"
 	"backend/control-api/internal/service"
+	"backend/control-api/internal/telemetry"
 	"backend/control-api/internal/version"
 )
 
@@ -73,8 +72,8 @@ func main() {
 	r := gin.New()
 
 	// Add middleware
-	r.Use(ginmiddleware.Logger())
-	r.Use(ginmiddleware.Recovery())
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
 	r.Use(telemetry.Middleware("cadensend-control-api"))
 

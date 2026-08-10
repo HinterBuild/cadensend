@@ -28,52 +28,52 @@ type Config struct {
 
 	// Object storage settings
 	ObjectStorageURL string
-	MinIOAccessKey  string
-	MinIOSecretKey  string
-	MinIOBucketName string
+	MinIOAccessKey   string
+	MinIOSecretKey   string
+	MinIOBucketName  string
 
 	// Email settings
 	EmailProvider  string
-	SMTPFrom        string
-	SendGridAPIKey  string
+	SMTPFrom       string
+	SendGridAPIKey string
 
 	// JWT settings
-	JWTSecret     string
-	JWTAlgorithm  string
-	JWTExpiry     time.Duration
+	JWTSecret    string
+	JWTAlgorithm string
+	JWTExpiry    time.Duration
 
 	// Tracing settings
 	OTELCollectorURL string
 
 	// Feature flags
-	EnableSignup      bool
-	EnableMagicLink   bool
+	EnableSignup       bool
+	EnableMagicLink    bool
 	RequireEmailVerify bool
 }
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
 	cfg := &Config{
-		Host:              getEnv("HOST", "0.0.0.0"),
-		Port:              getEnv("PORT", "8080"),
-		Env:               getEnv("ENV", "development"),
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
-		DatabaseURL:       getEnv("DATABASE_URL", ""),
-		RedisURL:          getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
-		ObjectStorageURL:  getEnv("OBJECT_STORAGE_URL", "http://localhost:9000"),
-		MinIOAccessKey:    getEnv("MINIO_ACCESS_KEY", ""),
-		MinIOSecretKey:    getEnv("MINIO_SECRET_KEY", ""),
-		MinIOBucketName:   getEnv("MINIO_BUCKET_NAME", "cadensend"),
-		EmailProvider:     getEnv("EMAIL_PROVIDER", "sendgrid"),
-		SMTPFrom:          getEnv("SMTP_FROM", "noreply@cadensend.app"),
-		SendGridAPIKey:    getEnv("SENDGRID_API_KEY", ""),
-		JWTSecret:         getEnv("JWT_SECRET", "change-this-in-production"),
-		JWTAlgorithm:      getEnv("JWT_ALGORITHM", "HS256"),
-		JWTExpiry:         time.Hour * 24,
-		OTELCollectorURL:  getEnv("OTEL_COLLECTOR_URL", "http://localhost:4318"),
-		EnableSignup:      getEnvBool("ENABLE_SIGNUP", true),
-		EnableMagicLink:   getEnvBool("ENABLE_MAGIC_LINK", true),
+		Host:               getEnv("HOST", "0.0.0.0"),
+		Port:               getEnv("PORT", "8080"),
+		Env:                getEnv("ENV", "development"),
+		LogLevel:           getEnv("LOG_LEVEL", "info"),
+		DatabaseURL:        getEnv("DATABASE_URL", ""),
+		RedisURL:           getEnv("REDIS_URL", "localhost:6379"),
+		QdrantURL:          getEnv("QDRANT_URL", "http://localhost:6333"),
+		ObjectStorageURL:   getEnv("OBJECT_STORAGE_URL", "http://localhost:9000"),
+		MinIOAccessKey:     getEnv("MINIO_ACCESS_KEY", ""),
+		MinIOSecretKey:     getEnv("MINIO_SECRET_KEY", ""),
+		MinIOBucketName:    getEnv("MINIO_BUCKET_NAME", "cadensend"),
+		EmailProvider:      getEnv("EMAIL_PROVIDER", "sendgrid"),
+		SMTPFrom:           getEnv("SMTP_FROM", "noreply@cadensend.app"),
+		SendGridAPIKey:     getEnv("SENDGRID_API_KEY", ""),
+		JWTSecret:          getEnv("JWT_SECRET", "change-this-in-production"),
+		JWTAlgorithm:       getEnv("JWT_ALGORITHM", "HS256"),
+		JWTExpiry:          time.Hour * 24,
+		OTELCollectorURL:   getEnv("OTEL_COLLECTOR_URL", "http://localhost:4318"),
+		EnableSignup:       getEnvBool("ENABLE_SIGNUP", true),
+		EnableMagicLink:    getEnvBool("ENABLE_MAGIC_LINK", true),
 		RequireEmailVerify: getEnvBool("REQUIRE_EMAIL_VERIFY", false),
 	}
 

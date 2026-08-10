@@ -1,5 +1,5 @@
 services:
-  cadensend:
+  postgres:
     image: postgres:15
     container_name: cadensend-postgres
     environment:
@@ -49,28 +49,24 @@ services:
     volumes:
       - minio_data:/data
 
-  cadensend-ai:
-    build:
-      context: .
-      dockerfile: Dockerfile.cadensend
-    container_name: cadensend-ai
-    image: cadensend/cadensend:latest
+  backend-api:
+    build: ./backend/control-api
+    container_name: cadensend-backend-api
     ports:
-      - "3000:3000"
       - "8080:8080"
-      - "8000:8000"
     environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER:-cadensend}:${POSTGRES_PASSWORD:-cadensend}@cadensend:5432/cadensend?sslmode=disable
-      - REDIS_URL=redis://redis:6379/0
-      - QDRANT_URL=http://qdrant:6333
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin123}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
-      - DEBUG=true
+      DATABASE_URL: "postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      QDRANT_URL: "http://qdrant:6333"
+      OBJECT_STORAGE_URL: "http://minio:9000"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      EMAIL_PROVIDER: "sendgrid"
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY:-}"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      ENV: "development"
     depends_on:
-      cadensend:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_started
@@ -78,7 +74,91 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
-    restart: unless-stopped
+
+  backend-worker:
+    build: ./backend/control-worker
+    container_name: cadensend-backend-worker
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: "postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY:-}"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      ENV: "development"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  ai-engine-api:
+    build: ./ai-service/ai-engine/api
+    container_name: cadensend-ai-engine-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend"
+      REDIS_URL: "redis://redis:6379/0"
+      QDRANT_URL: "http://qdrant:6333"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      DEFAULT_MODEL: "poolside/laguna-s-2.1:free"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      DEBUG: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  ai-engine-worker:
+    build:
+      context: ./ai-service/ai-engine
+      dockerfile: workers/Dockerfile
+    container_name: cadensend-ai-engine-worker
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend"
+      REDIS_URL: "redis://redis:6379/0"
+      QDRANT_URL: "http://qdrant:6333"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      DEFAULT_MODEL: "poolside/laguna-s-2.1:free"
+      JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      DEBUG: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      ai-engine-api:
+        condition: service_started
+
+  frontend:
+    build: ./frontend/web
+    container_name: cadensend-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "http://localhost:8080"
+      NEXT_PUBLIC_AI_API_URL: "http://localhost:8000"
+    depends_on:
+      backend-api:
+        condition: service_started
+      ai-engine-api:
+        condition: service_started
 
 volumes:
   pg_data:
