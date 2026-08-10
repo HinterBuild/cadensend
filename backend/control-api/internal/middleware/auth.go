@@ -2,6 +2,7 @@
 package middleware
 
 import (
+    "fmt"
     "net/http"
     "strings"
     "time"
@@ -32,7 +33,7 @@ func JWTMiddleware(jwtSecret string) gin.HandlerFunc {
 
         parsedToken, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token) (interface{}, error) {
             if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                return nil, jwt.ErrTokenInvalid
+                return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
             }
             return []byte(jwtSecret), nil
         })

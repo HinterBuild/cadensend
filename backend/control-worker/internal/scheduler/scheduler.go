@@ -11,7 +11,6 @@ import (
 	"github.com/hibiken/asynq"
 	"golang.org/x/sync/semaphore"
 
-	"backend/control-worker/internal/auth"
 	"backend/control-worker/internal/config"
 	"backend/control-worker/internal/database"
 	"backend/control-worker/internal/tasks"
