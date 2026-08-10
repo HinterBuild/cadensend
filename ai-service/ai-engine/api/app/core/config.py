@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     
     # OpenRouter settings
     OPENROUTER_API_KEY: str = ""
-    DEFAULT_MODEL: str = "nvidia/nemotron-3-embed-1b:free"
+    DEFAULT_MODEL: str = "poolside/laguna-s-2.1:free"
     
     # Redis settings
     REDIS_URL: str = "redis://localhost:6379/0"

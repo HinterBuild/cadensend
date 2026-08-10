@@ -97,8 +97,8 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
-      OPENROUTER_API_KEY: "REDACTED_OPENROUTER_KEY"
-      DEFAULT_MODEL: "nvidia/nemotron-3-embed-1b:free"
+      OPENROUTER_API_KEY: ""
+      DEFAULT_MODEL: "poolside/laguna-s-2.1:free"
       JWT_SECRET: "dev-secret-key-change-in-production"
     depends_on:
       postgres:
@@ -116,8 +116,8 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       QDRANT_URL: "http://qdrant:6333"
       OBJECT_STORAGE_URL: "http://minio:9000"
-      OPENROUTER_API_KEY: "REDACTED_OPENROUTER_KEY"
-      DEFAULT_MODEL: "nvidia/nemotron-3-embed-1b:free"
+      OPENROUTER_API_KEY: ""
+      DEFAULT_MODEL: "poolside/laguna-s-2.1:free"
     depends_on:
       postgres:
         condition: service_healthy
