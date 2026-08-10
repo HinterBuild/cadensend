@@ -24,9 +24,9 @@ func Init(databaseURL string) {
         url := databaseURL
         if url == "" {
             url = os.Getenv("DATABASE_URL")
-            if url == "" {
-                url = "postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable"
-            }
+        }
+        if url == "" {
+            log.Fatal("DATABASE_URL environment variable not set")
         }
 
         var err error

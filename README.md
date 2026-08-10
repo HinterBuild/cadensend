@@ -144,7 +144,7 @@ If Qdrant is lost, the product must reindex. Losing Qdrant must not lose user so
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| DATABASE_URL | postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable | PostgreSQL business state |
+| DATABASE_URL | See .env | PostgreSQL business state (set in .env) |
 | REDIS_URL | redis://localhost:6379/0 | Job queue (Asynq) |
 | QDRANT_URL | http://localhost:6333 | Vector search |
 | MINIO_ENDPOINT | localhost:9000 | S3-compatible source/assets |
