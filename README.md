@@ -33,8 +33,6 @@ Based on the product plan, Cadensend is intentionally NOT:
 
 ## Demo
 
-![Cadensend logo](logo.png)
-
 *Cadensend's Create Series wizard: turn a learning goal into an editable curriculum plan.*
 
 ## Features
