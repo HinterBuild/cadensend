@@ -36,6 +36,11 @@ type Schedule struct {
 	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
+// TableName overrides the default table name
+func (Schedule) TableName() string {
+	return "schedules"
+}
+
 func StartScheduler(cfg *config.Config) {
 	db := database.Get()
 
