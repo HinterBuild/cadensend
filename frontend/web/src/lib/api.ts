@@ -1,5 +1,6 @@
 // Next.js API client for Cadensend frontend
 // Uses Next.js API routes as a proxy to avoid CORS issues
+import type { Issue, Series, Source, User } from '@/types';
 
 async function fetchApi<T>(
   endpoint: string,
@@ -35,7 +36,7 @@ async function fetchApi<T>(
 // API client for authentication
 export const authApi = {
   login: (email: string, password: string) =>
-    fetchApi<{ token: string; user: Record<string, unknown> }>('/users/login', {
+    fetchApi<{ token: string; user: User }>('/users/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
@@ -47,13 +48,13 @@ export const authApi = {
     }),
 
   verifyMagicLink: (token: string) =>
-    fetchApi<{ token: string; user: Record<string, unknown> }>('/users/magic-link/verify', {
+    fetchApi<{ token: string; user: User }>('/users/magic-link/verify', {
       method: 'POST',
       body: JSON.stringify({ token }),
     }),
 
   getUser: (userId: string) =>
-    fetchApi<Record<string, unknown>>(`/users/${userId}`),
+    fetchApi<{ data: User }>(`/users/${userId}`),
 };
 
 // API client for series management
@@ -65,7 +66,7 @@ export const seriesApi = {
     }),
 
   get: (id: string) =>
-    fetchApi(`/series/${id}`),
+    fetchApi<{ data: Series }>(`/series/${id}`),
 
   update: (id: string, updates: Record<string, unknown>) =>
     fetchApi(`/series/${id}`, {
@@ -79,7 +80,7 @@ export const seriesApi = {
     }),
 
   getIssues: (id: string) =>
-    fetchApi(`/series/${id}/issues`),
+    fetchApi<{ data: Issue[] }>(`/series/${id}/issues`),
 
   activate: (id: string) =>
     fetchApi(`/series/${id}/activate`, {
@@ -102,13 +103,13 @@ export const seriesApi = {
     }),
 
   list: () =>
-    fetchApi<{ series: Record<string, unknown>[] }>('/series'),
+    fetchApi<{ series: Series[] }>('/series'),
 };
 
 // API client for issue management
 export const issueApi = {
   get: (id: string) =>
-    fetchApi(`/issues/${id}`),
+    fetchApi<{ data: Issue }>(`/issues/${id}`),
 
   update: (id: string, updates: Record<string, unknown>) =>
     fetchApi(`/issues/${id}`, {
@@ -137,7 +138,7 @@ export const issueApi = {
 // API client for source management
 export const sourceApi = {
   list: () =>
-    fetchApi('/sources'),
+    fetchApi<{ data: Source[] }>('/sources'),
 
   submitUrl: (url: string) =>
     fetchApi('/sources/urls', {
@@ -146,7 +147,7 @@ export const sourceApi = {
     }),
 
   get: (id: string) =>
-    fetchApi(`/sources/${id}`),
+    fetchApi<{ data: Source }>(`/sources/${id}`),
 
   preview: (id: string) =>
     fetchApi(`/sources/${id}/preview`),

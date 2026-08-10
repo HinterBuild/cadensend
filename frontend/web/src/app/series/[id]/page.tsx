@@ -2,14 +2,40 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Calendar, Send, RefreshCw, BarChart3, Users } from 'lucide-react';
+import { ArrowLeft, Plus } from 'lucide-react';
+
+type SeriesDetail = {
+  id: string;
+  topic: string;
+  goal: string;
+  level: string;
+  timezone: string;
+  status: string;
+  created_at: string;
+};
+
+type SeriesIssue = {
+  id: string;
+  subject: string;
+  sequence_no: number;
+  status: string;
+  scheduled_at: string;
+  created_at: string;
+};
+
+type SeriesSource = {
+  id: string;
+  url?: string;
+  name?: string;
+  status: string;
+};
 
 export default function SeriesViewPage({ params }: { params: { id: string } }) {
   const { id } = params;
   const router = useRouter();
-  const [series, setSeries] = useState(null);
-  const [issues, setIssues] = useState([]);
-  const [sources, setSources] = useState([]);
+  const [series, setSeries] = useState<SeriesDetail | null>(null);
+  const [issues, setIssues] = useState<SeriesIssue[]>([]);
+  const [sources, setSources] = useState<SeriesSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'issues' | 'sources' | 'plan'>('issues');
 
@@ -102,10 +128,10 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
-            {['issues', 'sources', 'plan'].map((tab) => (
+            {(['issues', 'sources', 'plan'] as const).map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab as any)}
+                onClick={() => setActiveTab(tab)}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab
                     ? 'border-blue-500 text-blue-600'
@@ -129,7 +155,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
             </div>
             
             <div className="space-y-4">
-              {issues.map((issue: any) => (
+              {issues.map((issue) => (
                 <div key={issue.id} className="bg-white rounded-lg shadow p-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -170,7 +196,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
               </div>
             ) : (
               <div className="space-y-4">
-                {sources.map((source: any) => (
+                {sources.map((source) => (
                   <div key={source.id} className="bg-white rounded-lg shadow p-4">
                     <p className="font-medium text-gray-900">{source.url || source.name}</p>
                     <span className={`text-xs px-2 py-1 rounded-full ${

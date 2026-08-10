@@ -4,10 +4,22 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Search, FileText } from 'lucide-react';
 
-const router = useRouter();
+type Run = {
+  id: string;
+  operation: string;
+  status: string;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost: number;
+  created_at: string;
+  completed_at?: string;
+  error_code?: string;
+};
 
 export default function RunCenterPage() {
-  const [runs, setRuns] = useState([]);
+  const router = useRouter();
+  const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -83,7 +95,7 @@ export default function RunCenterPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {runs.map((run: any) => (
+            {runs.map((run) => (
               <div key={run.id} className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
