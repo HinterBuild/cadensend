@@ -33,9 +33,9 @@ Based on the product plan, Cadensend is intentionally NOT:
 
 ## Demo
 
-![Cadensend architecture diagram](logo.png)
+![Cadensend logo](logo.png)
 
-*The Cadensend logo representing the platform's learning-focused design.*
+*Cadensend's Create Series wizard: turn a learning goal into an editable curriculum plan.*
 
 ## Features
 
