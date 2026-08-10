@@ -5,96 +5,102 @@
 package main
 
 import (
-    "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
-    "github.com/gin-gonic/gin/middleware/logger"
-    "github.com/gin-gonic/gin/middleware/recovery"
-    "github.com/gin-gonic/gin/middleware/cors"
+	"github.com/gin-gonic/gin"
 
-    "github.com/prometheus/client_golang/prometheus"
-
-    "backend/control-worker/internal/config"
-    "backend/control-worker/internal/database"
-    "backend/control-worker/internal/logger"
-    "backend/control-worker/internal/telemetry"
-    "backend/control-worker/internal/scheduler"
-    "backend/control-worker/internal/delivery"
+	"backend/control-worker/internal/config"
+	"backend/control-worker/internal/database"
+	"backend/control-worker/internal/delivery"
+	applogger "backend/control-worker/internal/logger"
+	"backend/control-worker/internal/scheduler"
+	"backend/control-worker/internal/telemetry"
 )
 
 var cfg *config.Config
 
 func init() {
-    cfg = config.LoadConfig()
-    
-    database.Init(cfg.DatabaseURL)
-    go scheduler.StartScheduler(cfg)
-    go delivery.StartDeliveryWorker(cfg)
+	cfg = config.LoadConfig()
+
+	database.Init(cfg.DatabaseURL)
+	go scheduler.StartScheduler(cfg)
+	go delivery.StartDeliveryWorker(cfg)
 }
 
 func main() {
-    gin.SetMode(gin.ReleaseMode)
-    r := gin.New()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
 
-    r.Use(logger.SetLogger(&logger.Config{
-        Level:   cfg.LogLevel,
-        UTC:     true,
-        SkipPaths: []string{"/healthz", "/metrics"},
-    }))
-    r.Use(recovery.Recovery())
-    r.Use(cors.New(cors.Config{
-        AllowAllOrigins:  true,
-        AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-        AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-        AllowCredentials: true,
-    }))
-    r.Use(telemetry.Middleware("cadensend-control-worker"))
+	applogger.SetLogger(&applogger.Config{
+		Level: cfg.LogLevel,
+		UTC:   true,
+	})
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
+	r.Use(corsMiddleware())
+	r.Use(telemetry.Middleware("cadensend-control-worker"))
 
-    r.GET("/healthz", healthHandler)
-    r.GET("/metrics", metricsHandler)
+	r.GET("/healthz", healthHandler)
+	r.GET("/metrics", metricsHandler)
 
-    srv := &http.Server{
-        Addr:    ":" + cfg.Port,
-        Handler: r,
-        ReadTimeout:  30 * time.Second,
-        WriteTimeout: 30 * time.Second,
-        IdleTimeout:  120 * time.Second,
-    }
+	srv := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      r,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-    go func() {
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("Failed to start server: %v", err)
-        }
-    }()
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
 
-    log.Println("Control worker started")
+	log.Println("Control worker started")
 
-    <-quit
-    log.Println("Shutting down worker...")
+	<-quit
+	log.Println("Shutting down worker...")
 
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-    if err := srv.Shutdown(ctx); err != nil {
-        log.Fatalf("Server forced to shutdown: %v", err)
-    }
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
 
-    log.Println("Worker exited")
+	log.Println("Worker exited")
 }
 
 func healthHandler(c *gin.Context) {
-    c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 }
 
 func metricsHandler(c *gin.Context) {
-    c.JSON(http.StatusOK, gin.H{"metrics": "enabled"})
+	c.JSON(http.StatusOK, gin.H{"metrics": "enabled"})
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+		c.Header("Access-Control-Expose-Headers", "Content-Length")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
 }

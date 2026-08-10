@@ -1,4 +1,4 @@
-"""API routes for series management.""""""
+"""API routes for series management."""
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
