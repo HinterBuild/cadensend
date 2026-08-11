@@ -221,6 +221,31 @@ func (s *UserService) AuthenticateUser(email, password string) (*User, string, e
     return &user, token, nil
 }
 
+// AuthenticateUserByID retrieves a user by ID and generates a JWT
+func (s *UserService) AuthenticateUserByID(userID string) (*User, string, error) {
+    var user User
+    if err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            return nil, "", errors.New("user not found")
+        }
+        return nil, "", err
+    }
+
+    token, err := auth.GenerateJWT(&auth.User{
+        ID:          user.ID,
+        Email:       user.Email,
+        Name:        user.Name,
+        Timezone:    user.Timezone,
+        Status:      user.Status,
+        WorkspaceID: user.WorkspaceID,
+    }, s.jwtSecret, s.jwtExpiry)
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to generate token: %w", err)
+    }
+
+    return &user, token, nil
+}
+
 // GenerateMagicLink generates a magic link for passwordless authentication
 func (s *UserService) GenerateMagicLink(email string) (string, error) {
     var user User
@@ -251,19 +276,29 @@ func (s *UserService) GenerateMagicLink(email string) (string, error) {
     return token, nil
 }
 
-// ValidateMagicLink validates a magic link token
+// ValidateMagicLink validates a magic link token and returns the user ID
 func (s *UserService) ValidateMagicLink(token string) (string, error) {
-    var magicLink MagicLinkToken
-    now := time.Now()
+	var magicLink MagicLinkToken
+	now := time.Now()
 
-    if err := s.db.Where("token = ? AND expires_at > ?", token, now).First(&magicLink).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return "", errors.New("invalid or expired token")
-        }
-        return "", err
-    }
+	if err := s.db.Where("token = ? AND expires_at > ?", token, now).First(&magicLink).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", errors.New("invalid or expired token")
+		}
+		return "", err
+	}
 
-    return magicLink.UserID, nil
+	return magicLink.UserID, nil
+}
+
+// VerifyMagicLink validates a magic link token and returns the user with a JWT
+func (s *UserService) VerifyMagicLink(token string) (*User, string, error) {
+	userID, err := s.ValidateMagicLink(token)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return s.AuthenticateUserByID(userID)
 }
 
 // GetUser retrieves a user by ID
