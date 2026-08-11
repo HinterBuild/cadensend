@@ -106,6 +106,7 @@ func main() {
 			users.POST("", createUserHandler(db, userService))
 			users.POST("/login", loginHandler(db, userService))
 			users.POST("/magic-link", magicLinkHandler(db, userService))
+			users.POST("/magic-link/verify", verifyMagicLinkHandler(db, userService))
 			users.GET("/:id", getUserHandler(db, userService))
 		}
 
@@ -113,9 +114,9 @@ func main() {
 		api := v1.Group("")
 		api.Use(authMW)
 		{
-			// Series endpoints
 			series := api.Group("/series")
 			{
+				series.GET("", listSeriesHandler(db))
 				series.POST("", createSeriesHandler(db))
 				series.GET("/:id", getSeriesHandler(db))
 				series.PATCH("/:id", updateSeriesHandler(db))

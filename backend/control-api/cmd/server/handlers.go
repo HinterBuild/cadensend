@@ -75,6 +75,20 @@ func getSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+func listSeriesHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var series []service.Series
+
+		if err := db.Where("workspace_id = ? AND deleted_at IS NULL", c.GetString("workspace_id")).
+			Order("created_at DESC").Find(&series).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"series": series})
+	}
+}
+
 func updateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -317,6 +331,27 @@ func magicLinkHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"token": token})
+	}
+}
+
+func verifyMagicLinkHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Token string `json:"token" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		user, jwtToken, err := svc.VerifyMagicLink(req.Token)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"user": user, "token": jwtToken})
 	}
 }
 
