@@ -6,12 +6,12 @@ export default async function handler(
 ) {
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
   
-  let path = req.url || ''
-  if (path.startsWith('/')) path = path.substring(1)
+  const url = new URL(req.url || '', 'http://localhost')
+  const path = url.pathname.replace('/api/v1/', '')
   
   const targetUrl = `${backendUrl}/v1/${path}`
-  
-  const token = req.cookies.token
+
+  const token = req.cookies.token || req.headers.authorization?.split(' ')[1]
   
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

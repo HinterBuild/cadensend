@@ -195,7 +195,7 @@ cadensend/
 │       └── visuals/            # Visual generation (Mermaid/D2)
 ├── packages/
 │   ├── contracts/              # Go data contracts
-│   ├── email-templates/        # SendGrid email templates
+│   ├── email-templates/        # Brevo email templates
 │   └── visual-specs/           # Visual specification types
 ├── db/
 │   ├── migrations/             # PostgreSQL migrations

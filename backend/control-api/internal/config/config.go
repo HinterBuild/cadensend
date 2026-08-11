@@ -35,7 +35,7 @@ type Config struct {
 	// Email settings
 	EmailProvider  string
 	SMTPFrom       string
-	SendGridAPIKey string
+	BrevoAPIKey      string
 
 	// JWT settings
 	JWTSecret    string
@@ -59,15 +59,15 @@ func LoadConfig() *Config {
 		Env:                getEnv("ENV", "development"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		DatabaseURL:        getEnv("DATABASE_URL", ""),
-		RedisURL:           getEnv("REDIS_URL", "localhost:6379"),
+		RedisURL:           getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		QdrantURL:          getEnv("QDRANT_URL", "http://localhost:6333"),
 		ObjectStorageURL:   getEnv("OBJECT_STORAGE_URL", "http://localhost:9000"),
 		MinIOAccessKey:     getEnv("MINIO_ACCESS_KEY", ""),
 		MinIOSecretKey:     getEnv("MINIO_SECRET_KEY", ""),
 		MinIOBucketName:    getEnv("MINIO_BUCKET_NAME", "cadensend"),
-		EmailProvider:      getEnv("EMAIL_PROVIDER", "sendgrid"),
+		EmailProvider:      getEnv("EMAIL_PROVIDER", "brevo"),
 		SMTPFrom:           getEnv("SMTP_FROM", "noreply@cadensend.app"),
-		SendGridAPIKey:     getEnv("SENDGRID_API_KEY", ""),
+		BrevoAPIKey:        getEnv("BREVO_API_KEY", ""),
 		JWTSecret:          getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTAlgorithm:       getEnv("JWT_ALGORITHM", "HS256"),
 		JWTExpiry:          time.Hour * 24,

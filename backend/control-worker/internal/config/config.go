@@ -19,7 +19,7 @@ type Config struct {
 	MaxAttempts    int
 	JWTSecret      string
 	JWTExpiry      time.Duration
-	SendGridAPIKey string
+	BrevoAPIKey      string
 	SMTPFrom       string
 	OTELEndpoint   string
 }
@@ -32,11 +32,11 @@ func LoadConfig() *Config {
 		Env:            getEnv("ENV", "development"),
 		LogLevel:       getEnv("LOG_LEVEL", "info"),
 		DatabaseURL:    getEnv("DATABASE_URL", ""),
-		RedisURL:       getEnv("REDIS_URL", "localhost:6379"),
+		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		MaxAttempts:    getEnvInt("MAX_ATTEMPTS", 5),
 		JWTSecret:      getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTExpiry:      time.Hour * 24,
-		SendGridAPIKey: getEnv("SENDGRID_API_KEY", ""),
+		BrevoAPIKey:      getEnv("BREVO_API_KEY", ""),
 		SMTPFrom:       getEnv("SMTP_FROM", "noreply@cadensend.app"),
 		OTELEndpoint:   getEnv("OTEL_ENDPOINT", "http://localhost:4318"),
 	}

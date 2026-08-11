@@ -25,12 +25,6 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:6333/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -71,6 +65,8 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - DEFAULT_MODEL=poolside/laguna-s-2.1:free
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - EMAIL_PROVIDER=brevo
+      - BREVO_API_KEY=${BREVO_API_KEY:-}
       - DEBUG=true
     depends_on:
       postgres:

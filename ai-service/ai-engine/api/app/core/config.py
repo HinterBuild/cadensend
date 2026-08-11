@@ -53,9 +53,9 @@ class Settings(BaseSettings):
     GENERATION_TIMEOUT_SECONDS: int = 300
     
     # Email settings
-    EMAIL_PROVIDER: str = "sendgrid"
+    EMAIL_PROVIDER: str = "brevo"
     SMTP_FROM: str = "no-reply@cadensend.app"
-    SENDGRID_API_KEY: Optional[str] = None
+    BREVO_API_KEY: Optional[str] = None
     
     # Environment
     ENVIRONMENT: str = "development"
