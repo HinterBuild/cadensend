@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -25,17 +26,33 @@ const (
 // createSeriesHandler creates a new series
 func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		rawBody, err := c.GetRawData()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
 		var req struct {
 			Topic     string `json:"topic" binding:"required"`
 			Goal      string `json:"goal" binding:"required"`
 			Level     string `json:"level"`
 			Timezone  string `json:"timezone" binding:"required"`
-			BriefJSON string `json:"brief_json" binding:"required"`
+			BriefJSON string `json:"brief_json"`
 		}
 
-		if err := c.ShouldBindJSON(&req); err != nil {
+		if err := json.Unmarshal(rawBody, &req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+
+		if req.Topic == "" || req.Goal == "" || req.Timezone == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "topic, goal, and timezone are required"})
+			return
+		}
+
+		briefJSON := req.BriefJSON
+		if briefJSON == "" {
+			briefJSON = string(rawBody)
 		}
 
 		s := &service.Series{
@@ -57,7 +74,7 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusCreated, gin.H{"data": s})
+		c.JSON(http.StatusCreated, gin.H{"data": s, "brief_json": briefJSON})
 	}
 }
 

@@ -1,148 +1,89 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
+import { issueApi, seriesApi } from '@/lib/api';
+import { Issue, IssueContent } from '@/types';
 
-type IssueRecord = {
-  id: string;
-  series_id: string;
-  sequence_no: number;
-  subject: string;
-  status: string;
-  scheduled_at: string;
-};
-
-type ContentCitation = {
-  source_id: string;
-  chunk_id: string;
-  locator: string;
-};
-
-type ContentBlock = {
-  id: string;
-  type: string;
-  title?: string;
-  text: string;
-  citations: ContentCitation[];
-};
-
-type IssueContentState = {
-  subject: string;
-  preheader: string;
-  blocks: ContentBlock[];
-};
-
-export default function IssueEditorPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function IssueEditorPage() {
   const router = useRouter();
-  const [issue, setIssue] = useState<IssueRecord | null>(null);
-  const [content, setContent] = useState<IssueContentState>({
-    subject: '',
-    preheader: '',
-    blocks: [],
-  });
+  const params = useParams<{ id: string }>();
+  const id = params?.id ?? '';
+  const [issue, setIssue] = useState<Issue | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [content, setContent] = useState({
+    subject: '',
+    preheader: '',
+    blocks: [] as Array<{ id: string; type: string; title?: string; text: string }>,
+  });
 
   useEffect(() => {
-    loadIssue();
+    if (id) {
+      loadIssue();
+    }
   }, [id]);
 
   const loadIssue = async () => {
+    if (!id) return;
     setLoading(true);
+    setError(null);
     try {
-      // Mock data
-      setIssue({
-        id,
-        series_id: 'series-1',
-        sequence_no: 1,
-        subject: 'Welcome to Kubernetes Fundamentals',
-        status: 'draft',
-        scheduled_at: '2024-01-22T09:00:00Z',
-      });
+      const response = await issueApi.get(id);
+      const issueData = response.data;
+      setIssue(issueData);
       setContent({
-        subject: 'Welcome to Kubernetes Fundamentals',
-        preheader: 'Your first lesson in Kubernetes fundamentals',
-        blocks: [
-          {
-            id: '1',
-            type: 'hero',
-            title: 'Welcome to Kubernetes',
-            text: 'Kubernetes is an open-source container orchestration system...',
-            citations: [
-              { source_id: 'src-1', chunk_id: 'chunk-1', locator: 'Line 1-10' }
-            ],
-          },
-        ],
+        subject: '',
+        preheader: '',
+        blocks: [],
       });
+    } catch (err: any) {
+      setError(err.message || 'Failed to load issue');
     } finally {
       setLoading(false);
     }
   };
 
   const generateIssue = async () => {
+    if (!id) return;
     setGenerating(true);
     try {
-      // Call the AI engine API to generate the issue
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/issues/${id}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
-      
-      if (!response.ok) throw new Error('Failed to generate issue');
-      
-      const data = await response.json();
-      // Update content with generated issue
-      setContent(prev => ({
-        ...prev,
-        subject: data.issue?.subject || prev.subject,
-        preheader: data.issue?.preheader || prev.preheader,
-        blocks: data.issue?.content_blocks || prev.blocks,
-      }));
-    } catch (err) {
+      const response = await issueApi.generate(id);
+      setGenerating(false);
+    } catch (err: any) {
       console.error('Failed to generate issue:', err);
-    } finally {
       setGenerating(false);
     }
   };
 
   const saveIssue = async () => {
+    if (!id) return;
     setSaving(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/issues/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          content: content,
-        }),
+      await issueApi.update(id, {
+        subject: content.subject,
+        preheader: content.preheader,
+        content_blocks: content.blocks,
       });
-      
-      if (!response.ok) throw new Error('Failed to save issue');
-    } catch (err) {
+      setSaving(false);
+    } catch (err: any) {
       console.error('Failed to save issue:', err);
-    } finally {
       setSaving(false);
     }
   };
 
   const approveIssue = async () => {
+    if (!id) return;
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/issues/${id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
-      
-      if (!response.ok) throw new Error('Failed to approve issue');
-      
+      await issueApi.approve(id);
       if (issue) {
         router.push(`/series/${issue.series_id}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to approve issue:', err);
     }
   };
@@ -158,6 +99,16 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
@@ -165,13 +116,13 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.push(`/series/${issue?.series_id}`)}
+                onClick={() => issue && router.push(`/series/${issue.series_id}`)}
                 className="text-gray-600 hover:text-gray-900"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <h1 className="text-2xl font-bold text-gray-900">
-                #{issue?.sequence_no} {issue?.subject}
+                #{issue?.sequence_no} {content.subject || 'Untitled Issue'}
               </h1>
             </div>
             <div className="flex items-center space-x-4">
@@ -221,7 +172,6 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
           </div>
         </div>
 
-        {/* Content editor */}
         <div className="bg-white rounded-lg shadow p-6 space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -252,7 +202,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
               Content Blocks
             </label>
             <div className="space-y-4">
-              {content.blocks.map((block) => (
+              {content.blocks.map((block, idx) => (
                 <div key={block.id} className="border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-gray-700">{block.type}</span>
@@ -263,9 +213,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                       value={block.title}
                       onChange={(e) => {
                         const newBlocks = [...content.blocks];
-                        newBlocks.forEach((b) => {
-                          if (b.id === block.id) b.title = e.target.value;
-                        });
+                        newBlocks[idx].title = e.target.value;
                         setContent({ ...content, blocks: newBlocks });
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
@@ -276,9 +224,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                     value={block.text}
                     onChange={(e) => {
                       const newBlocks = [...content.blocks];
-                      newBlocks.forEach((b) => {
-                        if (b.id === block.id) b.text = e.target.value;
-                      });
+                      newBlocks[idx].text = e.target.value;
                       setContent({ ...content, blocks: newBlocks });
                     }}
                     rows={5}
