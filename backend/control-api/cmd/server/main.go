@@ -12,8 +12,11 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -220,8 +223,9 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func startWorkers() {
+	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
 	scheduler := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: cfg.RedisURL},
+		asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum},
 		asynq.Config{Concurrency: 10},
 	)
 
@@ -248,4 +252,26 @@ func deliverIssueTask(ctx context.Context, t *asynq.Task) error {
 func ingestSourceTask(ctx context.Context, t *asynq.Task) error {
 	log.Printf("Processing source ingestion task: %s", t.Type())
 	return nil
+}
+
+func parseRedisURL(rawURL string) (addr string, dbNum int, password string) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL, 0, ""
+	}
+
+	addr = u.Host
+	if u.User != nil {
+		password, _ = u.User.Password()
+	}
+
+	if u.Path != "" && u.Path != "/" {
+		path := strings.TrimPrefix(u.Path, "/")
+		parts := strings.Split(path, "/")
+		if len(parts) > 0 && parts[0] != "" {
+			dbNum, _ = strconv.Atoi(parts[0])
+		}
+	}
+
+	return addr, dbNum, password
 }

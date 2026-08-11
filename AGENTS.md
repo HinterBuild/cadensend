@@ -43,7 +43,7 @@ docker-compose build
 - Qdrant for vector storage and retrieval
 - PostgreSQL for relational data
 - MinIO for object storage
-- SendGrid for email delivery
+- Brevo for email delivery
 - Redis for job queue (Asynq)
 
 ### Testing Approach

@@ -34,19 +34,19 @@ type EmailProvider interface {
 	SendEmail(ctx context.Context, req EmailRequest) (*EmailResponse, error)
 }
 
-// SendGridProvider implements EmailProvider for SendGrid
-type SendGridProvider struct {
+// BrevoProvider implements EmailProvider for Brevo (formerly Sendin.blue)
+type BrevoProvider struct {
 	apiKey string
 	from   string
 }
 
-// NewSendGridProvider creates a new SendGrid provider
-func NewSendGridProvider(apiKey, from string) *SendGridProvider {
-	return &SendGridProvider{apiKey: apiKey, from: from}
+// NewBrevoProvider creates a new Brevo provider
+func NewBrevoProvider(apiKey, from string) *BrevoProvider {
+	return &BrevoProvider{apiKey: apiKey, from: from}
 }
 
-func (p *SendGridProvider) SendEmail(ctx context.Context, req EmailRequest) (*EmailResponse, error) {
-	// In production, this would use the actual SendGrid library
+func (p *BrevoProvider) SendEmail(ctx context.Context, req EmailRequest) (*EmailResponse, error) {
+	// In production, this would use the actual Brevo API client
 	return &EmailResponse{
 		MessageID: uuid.New().String(),
 		Status:    "202",
@@ -56,7 +56,7 @@ func (p *SendGridProvider) SendEmail(ctx context.Context, req EmailRequest) (*Em
 // StartDeliveryWorker starts the delivery worker
 func StartDeliveryWorker(cfg *config.Config) *DeliveryWorker {
 	db := database.Get()
-	provider := NewSendGridProvider(cfg.SendGridAPIKey, cfg.SMTPFrom)
+	provider := NewBrevoProvider(cfg.BrevoAPIKey, cfg.SMTPFrom)
 
 	dw := &DeliveryWorker{
 		db:       db,

@@ -1,7 +1,7 @@
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/web/package.json frontend/web/ ./
-RUN npm ci --legacy-peer-deps
+RUN npm install --legacy-peer-deps
 COPY frontend/web/ ./
 RUN npm run build
 
@@ -25,18 +25,22 @@ RUN go mod download
 COPY backend/control-worker/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /control-worker ./cmd/server
 
-FROM node:20-alpine AS app
+FROM python:3.11-slim AS app
 WORKDIR /app
 
-# Install Python
-RUN apk add --no-cache python3 py3-pip
+# Install Node.js 20 LTS binary matching architecture
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y ca-certificates curl xz-utils \
+    && curl -fsSL https://nodejs.org/dist/v20.18.1/node-v20.18.1-linux-${TARGETARCH}.tar.xz \
+    | tar -xJf - -C /usr/local --strip-components=1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy Python dependencies from ai-deps stage
+# Copy Python dependencies (same Python version as ai-deps stage)
 COPY --from=ai-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=ai-deps /usr/local/bin /usr/local/bin
 COPY --from=ai-deps /app/ai-engine /app/ai-engine
 
-# Copy Go binaries
+# Copy Go binaries (statically compiled)
 COPY --from=control-api-builder /control-api /app/control-api
 COPY --from=control-worker-builder /control-worker /app/control-worker
 
@@ -45,15 +49,15 @@ COPY --from=frontend-builder /app/.next/standalone /app/frontend
 COPY --from=frontend-builder /app/.next/static /app/frontend/.next/static
 COPY --from=frontend-builder /app/public /app/frontend/public
 
+# Startup script that waits for postgres
+COPY db/startup.sh /app/startup.sh
+RUN chmod +x /app/startup.sh
+
 ENV PYTHONPATH=/app/ai-engine
+ENV PYTHONUNBUFFERED=1
 ENV NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_AI_API_URL=http://localhost:8000
 
 EXPOSE 3000 8080 8000
 
-CMD ["sh", "-c", "\
-  /app/control-api & \
-  /app/control-worker & \
-  cd /app/ai-engine/api && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 & \
-  cd /app/frontend && node server.js \
-"]
+CMD ["/app/startup.sh"]

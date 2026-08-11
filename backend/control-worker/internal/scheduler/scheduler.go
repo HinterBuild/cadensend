@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -44,8 +47,9 @@ func (Schedule) TableName() string {
 func StartScheduler(cfg *config.Config) {
 	db := database.Get()
 
-	// Create Asynq client
-	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: cfg.RedisURL})
+	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+
+	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum})
 	defer asynqClient.Close()
 
 	// Create scheduler
@@ -71,7 +75,7 @@ func StartScheduler(cfg *config.Config) {
 	mux.HandleFunc("schedule:run", tasks.ScheduleRunTask)
 
 	server := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: cfg.RedisURL},
+		asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum},
 		asynq.Config{Concurrency: 10},
 	)
 
@@ -173,4 +177,26 @@ func (s *Scheduler) enqueueTask(ctx context.Context, taskType string, schedule *
 	)
 
 	return err
+}
+
+func parseRedisURL(rawURL string) (addr string, dbNum int, password string) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL, 0, ""
+	}
+
+	addr = u.Host
+	if u.User != nil {
+		password, _ = u.User.Password()
+	}
+
+	if u.Path != "" && u.Path != "/" {
+		path := strings.TrimPrefix(u.Path, "/")
+		parts := strings.Split(path, "/")
+		if len(parts) > 0 && parts[0] != "" {
+			dbNum, _ = strconv.Atoi(parts[0])
+		}
+	}
+
+	return addr, dbNum, password
 }
