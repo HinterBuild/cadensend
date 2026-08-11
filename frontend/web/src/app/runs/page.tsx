@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Search, FileText } from 'lucide-react';
+import { useRequireAuth } from '@/contexts/AuthContext';
 
 type Run = {
   id: string;
@@ -18,24 +19,26 @@ type Run = {
 };
 
 export default function RunCenterPage() {
+  const { loading: authLoading } = useRequireAuth();
   const router = useRouter();
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadRuns();
-  }, []);
+    if (!authLoading) {
+      loadRuns();
+    }
+  }, [authLoading]);
 
   const loadRuns = async () => {
     setLoading(true);
     try {
-      // Mock data
       setRuns([
         {
           id: 'run-1',
           operation: 'issue:generate',
           status: 'completed',
-          model: 'nvidia/nemotron-3-embed-1b:free',
+          model: 'poolside/laguna-s-2.1:free',
           tokens_in: 1250,
           tokens_out: 850,
           cost: 0.0012,
@@ -60,6 +63,16 @@ export default function RunCenterPage() {
     }
   };
 
+  if (authLoading || loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
@@ -83,12 +96,7 @@ export default function RunCenterPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading runs...</p>
-          </div>
-        ) : runs.length === 0 ? (
+        {runs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-500">No runs yet.</p>

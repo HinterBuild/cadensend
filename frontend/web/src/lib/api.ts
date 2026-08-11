@@ -140,10 +140,10 @@ export const sourceApi = {
   list: () =>
     fetchApi<{ data: Source[] }>('/sources'),
 
-  submitUrl: (url: string) =>
+  submitUrl: (url: string, type: string = 'url', scope: string = 'workspace') =>
     fetchApi('/sources/urls', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, type, scope }),
     }),
 
   get: (id: string) =>

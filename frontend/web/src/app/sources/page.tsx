@@ -27,9 +27,9 @@ export default function SourcesPage() {
     }
   };
 
-  const addUrlSource = async (url: string) => {
+  const submitUrlSource = async (url: string) => {
     try {
-      await sourceApi.submitUrl(url);
+      await sourceApi.submitUrl(url, 'url', 'workspace');
       setShowAddDialog(false);
       loadSources();
     } catch (err) {
@@ -131,7 +131,7 @@ export default function SourcesPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => addUrlSource('https://example.com')}
+                  onClick={() => submitUrlSource('https://example.com')}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg"
                 >
                   Add
