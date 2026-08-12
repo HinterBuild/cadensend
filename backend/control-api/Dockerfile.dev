@@ -1,6 +1,6 @@
 FROM golang:1.22-alpine AS base
 WORKDIR /src
-ENV PATH=$PATH:$(go env GOPATH)/bin
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
 RUN apk add --no-cache git
 RUN go install github.com/cosmtrek/air@latest
 COPY go.mod go.sum ./
