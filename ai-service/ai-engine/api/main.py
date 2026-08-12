@@ -4,9 +4,15 @@ Cadensend AI Engine API - FastAPI application.
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+import warnings
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"The default value of `allowed_objects` will change in a future version\..*",
+)
 
 from app.core.config import settings
 from app.core.database import init_db, close_db

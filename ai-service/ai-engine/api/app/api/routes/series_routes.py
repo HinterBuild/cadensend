@@ -80,7 +80,7 @@ async def generate_plan_stream(series_id: str, request: PlanGenerateRequest):
 
             async for event in compiled.astream_events(
                 initial_state,
-                config={"thread_id": f"stream-{series_id}"},
+                config={"configurable": {"thread_id": f"stream-{series_id}"}},
                 version="v1",
             ):
                 if event["event"] == "on_chat_model_stream":

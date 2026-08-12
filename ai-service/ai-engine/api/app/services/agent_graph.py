@@ -216,7 +216,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         try:
             result = await compiled.ainvoke(
                 initial_state,
-                config={"thread_id": thread_id},
+                config={"configurable": {"thread_id": thread_id}},
             )
 
             return {
@@ -276,7 +276,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         try:
             result = await compiled.ainvoke(
                 initial_state,
-                config={"thread_id": thread_id},
+                config={"configurable": {"thread_id": thread_id}},
             )
 
             return {
@@ -306,12 +306,16 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         memories = await self.memory_store.asearch(
             namespace,
             query="series brief goals style preferences",
-            coops=[],
-            auth=__import__("langgraph.store.base.acl", fromlist=["ContainerAuth"]).ContainerAuth(),
             limit=5,
         )
 
-        memory_context = [{"id": m.id, "content": json.dumps(m.value)} for m in memories]
+        memory_context = [
+            {
+                "id": f"{'/'.join(m.namespace)}:{m.key}",
+                "content": json.dumps(m.value),
+            }
+            for m in memories
+        ]
         state["memory_context"] = memory_context
         return state
 
@@ -637,9 +641,6 @@ Output the revised issue as JSON.
                 namespace,
                 "latest_plan",
                 {"plan": plan, "created_at": datetime.now().isoformat()},
-                coops=[],
-                auth=__import__("langgraph.store.base.acl", fromlist=["ContainerAuth"]).ContainerAuth(),
-                update=True,
             )
 
         return state

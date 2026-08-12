@@ -11,7 +11,13 @@ import asyncio
 import logging
 import json
 import uuid
+import warnings
 from datetime import datetime, timezone
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"The default value of `allowed_objects` will change in a future version\..*",
+)
 
 from app.core.config import settings
 from app.services.model_service import ModelService

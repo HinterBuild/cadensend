@@ -3,17 +3,30 @@
 Uses PostgreSQL to persist conversation memories between generations.
 """
 
-from typing import List, Dict, Any, Optional, Annotated, Sequence
-import logging
-import json
-import hashlib
+from __future__ import annotations
 
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+import asyncio
+import json
+import logging
+from collections.abc import Iterable
+from datetime import datetime
+from typing import Any, Optional
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langgraph.store.base import BaseStore, Item
-from langgraph.store.base.acl import ContainerAuth
-from langgraph.store.base.namespace import Coords
+from langgraph.store.base import (
+    BaseStore,
+    GetOp,
+    Item,
+    ListNamespacesOp,
+    MatchCondition,
+    Op,
+    PutOp,
+    Result,
+    SearchItem,
+    SearchOp,
+)
 
 from app.core.config import settings
 
@@ -21,15 +34,11 @@ logger = logging.getLogger(__name__)
 
 
 class LongTermMemoryStore(BaseStore):
-    """PostgreSQL-backed long-term memory store.
-
-    Stores persistent memories about workspaces, series, and writing style
-    that persist across conversation sessions.
-    """
+    """PostgreSQL-backed long-term memory store."""
 
     def __init__(self, db_url: Optional[str] = None):
         self.db_url = db_url or settings.DATABASE_URL
-        self.llm = None
+        self.llm: ChatOpenAI | None = None
         if settings.OPENROUTER_API_KEY:
             self.llm = ChatOpenAI(
                 base_url="https://openrouter.ai/api/v1",
@@ -39,226 +48,254 @@ class LongTermMemoryStore(BaseStore):
                 max_tokens=2000,
             )
 
-    async def aput(
-        self,
-        namespace: tuple[str, ...],
-        key: str,
-        value: dict,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-        update: bool = False,
-    ) -> None:
-        """Store a memory in a namespace + key path."""
+    def batch(self, ops: Iterable[Op]) -> list[Result]:
+        return asyncio.run(self.abatch(list(ops)))
+
+    async def abatch(self, ops: Iterable[Op]) -> list[Result]:
         import asyncpg
+
+        operations = list(ops)
+        if not operations:
+            return []
 
         conn = await asyncpg.connect(self.db_url)
         try:
-            await conn.execute(
-                """
-                INSERT INTO agent_memories (namespace, key, value, updated_at)
-                VALUES ($1, $2, $3, NOW())
-                ON CONFLICT (namespace, key) DO UPDATE SET
-                    value = EXCLUDED.value,
-                    updated_at = NOW()
-                """,
-                json.dumps(list(namespace)),
-                key,
-                json.dumps(value),
-            )
-        finally:
-            await conn.close()
-        logger.info("Stored memory: namespace=%s, key=%s", namespace, key)
+            results: list[Result] = []
+            for op in operations:
+                if isinstance(op, GetOp):
+                    results.append(await self._handle_get(conn, op))
+                elif isinstance(op, SearchOp):
+                    results.append(await self._handle_search(conn, op))
+                elif isinstance(op, PutOp):
+                    results.append(await self._handle_put(conn, op))
+                elif isinstance(op, ListNamespacesOp):
+                    results.append(await self._handle_list_namespaces(conn, op))
+                else:
+                    raise TypeError(f"Unsupported store operation: {type(op).__name__}")
 
-    async def aget(
-        self,
-        namespace: tuple[str, ...],
-        key: str,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-    ) -> Optional[dict]:
-        """Retrieve a memory by namespace + key."""
-        import asyncpg
-
-        conn = await asyncpg.connect(self.db_url)
-        try:
-            row = await conn.fetchrow(
-                "SELECT value FROM agent_memories WHERE namespace = $1 AND key = $2",
-                json.dumps(list(namespace)),
-                key,
-            )
-            if row:
-                return json.loads(row["value"])
-        finally:
-            await conn.close()
-        return None
-
-    async def asearch(
-        self,
-        namespace: tuple[str, ...],
-        /,
-        query: str,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-        limit: int = 10,
-        **kwargs,
-    ) -> List[Item]:
-        """Search memories matching a query using semantic similarity on key/value text."""
-        import asyncpg
-
-        namespace_str = json.dumps(list(namespace))
-        conn = await asyncpg.connect(self.db_url)
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT key, value, updated_at
-                FROM agent_memories
-                WHERE namespace = $1
-                  AND (key ILIKE $2 OR value::text ILIKE $2)
-                ORDER BY updated_at DESC
-                LIMIT $3
-                """,
-                namespace_str,
-                f"%{query}%",
-                limit,
-            )
+            return results
         finally:
             await conn.close()
 
-        results = []
-        for row in rows:
-            results.append(
-                Item(
-                    namespace=list(namespace),
-                    key=row["key"],
-                    value=json.loads(row["value"]),
-                    updated_at=row["updated_at"],
-                    id=f"{namespace_str}:{row['key']}",
-                )
-            )
-        return results
+    async def _handle_get(self, conn: Any, op: GetOp) -> Item | None:
+        row = await conn.fetchrow(
+            """
+            SELECT namespace, key, value, updated_at
+            FROM agent_memories
+            WHERE namespace = $1 AND key = $2
+            """,
+            self._serialize_namespace(op.namespace),
+            op.key,
+        )
+        if row is None:
+            return None
+        return self._item_from_row(row)
 
-    async def abatch_get(
-        self,
-        specs: Sequence[tuple[str, ...]],
-        /,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-        **kwargs,
-    ) -> List[Optional[dict]]:
-        """Batch retrieval of memories. Not fully implemented."""
-        results = []
-        for spec in specs:
-            results.append(await self.aget(spec[0], spec[1], coops=coops, auth=auth))
-        return results
+    async def _handle_search(self, conn: Any, op: SearchOp) -> list[SearchItem]:
+        params: list[Any] = []
+        conditions: list[str] = []
 
-    async def abatch_aput(
-        self,
-        specs: Sequence[tuple[str, ...]],
-        /,
-        values: Sequence[dict],
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-        **kwargs,
-    ) -> None:
-        """Batch store memories."""
-        for spec, value in zip(specs, values):
-            await self.aput(spec[0], spec[1], value, coops=coops, auth=auth, update=True)
+        namespace_filter = self._namespace_where_clause(op.namespace_prefix, params)
+        if namespace_filter:
+            conditions.append(namespace_filter)
 
-    async def adelete(
-        self,
-        namespace: tuple[str, ...],
-        /,
-        key: str,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-    ) -> None:
-        """Delete a memory."""
-        import asyncpg
+        if op.query:
+            params.append(f"%{op.query}%")
+            query_param = f"${len(params)}"
+            conditions.append(f"(key ILIKE {query_param} OR value::text ILIKE {query_param})")
 
-        conn = await asyncpg.connect(self.db_url)
-        try:
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        limit = max(op.limit, 0)
+        offset = max(op.offset, 0)
+
+        rows = await conn.fetch(
+            f"""
+            SELECT namespace, key, value, updated_at
+            FROM agent_memories
+            {where_clause}
+            ORDER BY updated_at DESC
+            LIMIT {limit}
+            OFFSET {offset}
+            """,
+            *params,
+        )
+
+        results = [self._search_item_from_row(row) for row in rows]
+        if op.filter:
+            results = [item for item in results if self._matches_filter(item.value, op.filter)]
+        return results[:limit]
+
+    async def _handle_put(self, conn: Any, op: PutOp) -> None:
+        namespace = self._serialize_namespace(op.namespace)
+
+        if op.value is None:
             await conn.execute(
                 "DELETE FROM agent_memories WHERE namespace = $1 AND key = $2",
-                json.dumps(list(namespace)),
-                key,
+                namespace,
+                op.key,
             )
-        finally:
-            await conn.close()
+            return None
 
-    async def asearch_delete(
+        await conn.execute(
+            """
+            INSERT INTO agent_memories (namespace, key, value, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (namespace, key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = NOW()
+            """,
+            namespace,
+            op.key,
+            json.dumps(op.value),
+        )
+        logger.info("Stored memory: namespace=%s, key=%s", op.namespace, op.key)
+        return None
+
+    async def _handle_list_namespaces(
         self,
-        namespace: tuple[str, ...],
-        /,
-        query: str,
-        *,
-        coops: Annotated[Sequence[str], Coords],
-        auth: Annotated[ContainerAuth, Coords],
-        **kwargs,
-    ) -> None:
-        """Delete memories matching a query."""
-        import asyncpg
+        conn: Any,
+        op: ListNamespacesOp,
+    ) -> list[tuple[str, ...]]:
+        rows = await conn.fetch("SELECT DISTINCT namespace FROM agent_memories ORDER BY namespace")
 
-        namespace_str = json.dumps(list(namespace))
-        conn = await asyncpg.connect(self.db_url)
-        try:
-            await conn.execute(
-                """
-                DELETE FROM agent_memories
-                WHERE namespace = $1 AND (key ILIKE $2 OR value::text ILIKE $2)
-                """,
-                namespace_str,
-                f"%{query}%",
-            )
-        finally:
-            await conn.close()
+        namespaces = [tuple(json.loads(row["namespace"])) for row in rows]
+        if op.match_conditions:
+            namespaces = [
+                namespace
+                for namespace in namespaces
+                if all(self._matches_namespace(namespace, condition) for condition in op.match_conditions)
+            ]
+
+        if op.max_depth is not None:
+            namespaces = [namespace[: op.max_depth] for namespace in namespaces]
+            namespaces = list(dict.fromkeys(namespaces))
+
+        start = max(op.offset, 0)
+        end = start + max(op.limit, 0)
+        return namespaces[start:end]
+
+    @staticmethod
+    def _serialize_namespace(namespace: tuple[str, ...]) -> str:
+        return json.dumps(list(namespace))
+
+    def _namespace_where_clause(
+        self,
+        namespace_prefix: tuple[str, ...],
+        params: list[Any],
+    ) -> str:
+        if not namespace_prefix:
+            return ""
+
+        exact_namespace = self._serialize_namespace(namespace_prefix)
+        nested_prefix = f"{exact_namespace[:-1]},%"
+
+        params.append(exact_namespace)
+        exact_param = f"${len(params)}"
+        params.append(nested_prefix)
+        nested_param = f"${len(params)}"
+        return f"(namespace = {exact_param} OR namespace LIKE {nested_param})"
+
+    @staticmethod
+    def _matches_filter(value: dict[str, Any], filters: dict[str, Any]) -> bool:
+        for key, expected in filters.items():
+            if value.get(key) != expected:
+                return False
+        return True
+
+    @staticmethod
+    def _matches_namespace(
+        namespace: tuple[str, ...],
+        condition: MatchCondition,
+    ) -> bool:
+        path = condition.path
+        if condition.match_type == "prefix":
+            if len(path) > len(namespace):
+                return False
+            return all(part == "*" or part == namespace[idx] for idx, part in enumerate(path))
+
+        if len(path) > len(namespace):
+            return False
+
+        start_index = len(namespace) - len(path)
+        return all(
+            part == "*" or part == namespace[start_index + idx]
+            for idx, part in enumerate(path)
+        )
+
+    @staticmethod
+    def _item_from_row(row: Any) -> Item:
+        namespace = tuple(json.loads(row["namespace"]))
+        value = row["value"]
+        if isinstance(value, str):
+            value = json.loads(value)
+
+        timestamp = row["updated_at"]
+        return Item(
+            namespace=namespace,
+            key=row["key"],
+            value=value,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+
+    @classmethod
+    def _search_item_from_row(cls, row: Any) -> SearchItem:
+        item = cls._item_from_row(row)
+        return SearchItem(
+            namespace=item.namespace,
+            key=item.key,
+            value=item.value,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            score=None,
+        )
 
     async def summarize_and_store(
         self,
         namespace: tuple[str, ...],
         key: str,
-        conversation: List[BaseMessage],
+        conversation: list[BaseMessage],
     ) -> str:
         """Summarize a conversation thread and store the summary as a memory."""
         if not self.llm:
             logger.warning("Cannot summarize: LLM not configured")
             return ""
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a memory extraction assistant. Summarize the key information from this conversation that should be remembered for future planning sessions. Focus on:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a memory extraction assistant. Summarize the key information from this conversation that should be remembered for future planning sessions. Focus on:
 1. The topic and learning objectives
 2. The writing style preferences
 3. Audience knowledge level
 4. Source materials referenced
 5. Any recurring themes or constraints
 
-Be concise but comprehensive - this will be used as long-term memory for future newsletter generation."""),
-            ("human", "Conversation:\n{conversation}"),
-        ])
+Be concise but comprehensive - this will be used as long-term memory for future newsletter generation.""",
+                ),
+                ("human", "Conversation:\n{conversation}"),
+            ]
+        )
 
-        formatted = "\n".join(f"{'Human' if isinstance(m, HumanMessage) else 'Assistant'}: {m.content}" for m in conversation)
+        formatted = "\n".join(
+            f"{'Human' if isinstance(message, HumanMessage) else 'Assistant'}: {message.content}"
+            for message in conversation
+            if isinstance(message, (HumanMessage, AIMessage))
+        )
 
         try:
             summary = await self.llm.ainvoke(prompt.format_messages(conversation=formatted))
-            summary_text = summary.content if hasattr(summary, 'content') else str(summary)
-        except Exception as e:
-            logger.error("Failed to summarize conversation: %s", e)
+            summary_text = summary.content if isinstance(summary.content, str) else str(summary.content)
+        except Exception as exc:
+            logger.error("Failed to summarize conversation: %s", exc)
             summary_text = formatted[:500]
 
         await self.aput(
             namespace,
             key,
             {"summary": summary_text, "message_count": len(conversation)},
-            coops=[],
-            auth=ContainerAuth(),
-            update=True,
         )
-
         return summary_text
 
 

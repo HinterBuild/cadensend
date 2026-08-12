@@ -9,7 +9,11 @@ import logging
 import uuid
 import aiohttp
 from bs4 import BeautifulSoup
-from markitdown import MarkItDown
+
+try:
+	from markitdown import MarkItDown
+except ImportError:
+	MarkItDown = None
 
 from app.core.config import settings
 from app.services.model_service import ModelService
@@ -68,7 +72,7 @@ class IngestionWorker:
 	def __init__(self, model_service: Optional[ModelService] = None):
 		self.model_service = model_service or ModelService()
 		self.running = False
-		self._markitdown = MarkItDown()
+		self._markitdown = MarkItDown() if MarkItDown is not None else None
 
 	async def start(self):
 		"""Start the ingestion worker background loop."""
@@ -188,8 +192,9 @@ class IngestionWorker:
 	def _parse_file(self, content: bytes, parser_type: str, filename: str) -> str:
 		"""Parse file content based on type."""
 		try:
-			if parser_type in MARKITDOWN_SUPPORTED:
-				return self._markitdown.convert(filename, content=content).text
+			if parser_type in MARKITDOWN_SUPPORTED and self._markitdown is not None:
+				result = self._markitdown.convert(filename, content=content)
+				return getattr(result, "text_content", getattr(result, "text", ""))
 			return content.decode("utf-8", errors="replace")
 		except Exception as e:
 			logger.warning("MarkItDown parsing failed, falling back to text: %s", e)

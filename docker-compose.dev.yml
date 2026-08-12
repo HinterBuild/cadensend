@@ -95,7 +95,7 @@ services:
       context: ./ai-service/ai-engine
       dockerfile: api/Dockerfile.dev
     container_name: cadensend-ai-engine-dev
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/ai-engine
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
@@ -106,6 +106,8 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - DEFAULT_MODEL=poolside/laguna-s-2.1:free
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - PYTHONPATH=/app/ai-engine/api
+    working_dir: /app/ai-engine/api
     volumes:
       - ./ai-service/ai-engine:/app/ai-engine
     depends_on:
@@ -120,7 +122,9 @@ services:
       dockerfile: workers/Dockerfile.dev
     container_name: cadensend-ai-worker-dev
     command: python workers/main.py
+    working_dir: /app/ai-engine
     environment:
+      - PYTHONPATH=/app/ai-engine/api
       - DATABASE_URL=postgres://cadensend:cadensend@postgres:5432/cadensend
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333

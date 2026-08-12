@@ -7,11 +7,6 @@
   --accent-foreground: #ffffff;
   --border: #e5e7eb;
   --input: #d1d5db;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
@@ -56,7 +51,6 @@ body {
   white-space: normal;
 }
 
-/* Skip link for keyboard navigation */
 .skip-link {
   position: absolute;
   top: -40px;
@@ -131,14 +125,13 @@ a:focus-visible {
   opacity: 1 !important;
 }
 
-/* Dark mode placeholder */
 @media (prefers-color-scheme: dark) {
   ::placeholder {
     color: #6b7280 !important;
   }
 }
 
-/* Respect reduced motion preference for all animated elements */
+/* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .animate-spin {
     animation: none;
