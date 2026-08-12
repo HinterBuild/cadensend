@@ -2,7 +2,7 @@ FROM golang:1.22-alpine AS base
 WORKDIR /src
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
 RUN apk add --no-cache git
-RUN go install github.com/cosmtrek/air@latest
+RUN go install github.com/air-verse/air@v1.52.2
 COPY go.mod go.sum ./
 RUN go mod download
 EXPOSE 8081
