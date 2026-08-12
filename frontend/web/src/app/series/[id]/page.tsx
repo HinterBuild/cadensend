@@ -127,7 +127,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
-                  ref={(el) => (tabRefs.current[tab.id] = el)}
+                   ref={(el) => { tabRefs.current[tab.id] = el; }}
                   type="button"
                   role="tab"
                   aria-selected={activeTab === tab.id}

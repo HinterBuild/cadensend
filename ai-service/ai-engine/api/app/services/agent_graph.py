@@ -25,7 +25,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.checkpoint.base import BaseCheckpointBackend, Checkpoint, CheckpointMetadata
+from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata
 from langgraph.store.base import BaseStore
 
 from app.services.agent_tools import NewsletterTools, get_toolbox
@@ -59,7 +59,7 @@ class NewsletterAgent:
         self,
         model_service: Optional[ModelService] = None,
         memory_store: Optional[LongTermMemoryStore] = None,
-        checkpoint_factory: Optional[BaseCheckpointBackend] = None,
+        checkpoint_factory: Optional[BaseCheckpointSaver] = None,
     ):
         self.model_service = model_service or ModelService()
         self.memory_store = memory_store or LongTermMemoryStore()

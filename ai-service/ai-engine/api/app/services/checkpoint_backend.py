@@ -5,27 +5,36 @@ This is the "short-term memory" - it persists the state of each conversation
 thread so the agent can resume and maintain context within a thread.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncIterator
 import json
 import logging
-import hashlib
+import uuid as uuidlib
 
-from langgraph.checkpoint.base import BaseCheckpointBackend, Checkpoint, CheckpointMetadata
+from langgraph.checkpoint.base import (
+    BaseCheckpointSaver,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+    create_checkpoint,
+    get_checkpoint_id,
+    get_checkpoint_metadata,
+)
 from langgraph.store.base import Item
 
 logger = logging.getLogger(__name__)
 
 
-class PostgresCheckpointBackend(BaseCheckpointBackend):
+class PostgresCheckpointBackend(BaseCheckpointSaver):
     """PostgreSQL-backed checkpoint storage for LangGraph threads.
 
     Stores conversation state (short-term memory) per thread, allowing
     the agent to resume conversations with full message history.
     """
 
-    def __init__(self, db_url: Optional[str] = None):
+    def __init__(self, db_url: Optional[str] = None, /, **kwargs: Any):
         from app.core.config import settings
         self.db_url = db_url or settings.DATABASE_URL
+        super().__init__()
 
     async def setup(self):
         """Ensure checkpoint tables exist."""
@@ -53,21 +62,28 @@ class PostgresCheckpointBackend(BaseCheckpointBackend):
         finally:
             await conn.close()
 
+    def _get_thread_info(self, checkpoint: Checkpoint) -> tuple:
+        """Extract thread_id and thread_ts from checkpoint."""
+        thread_id = checkpoint.get("id", "default")
+        thread_ts = checkpoint.get("ts", str(uuidlib.uuid4()))
+        parent_ts = checkpoint.get("metadata", {}).get("parents", {}).get(thread_id) if isinstance(checkpoint.get("metadata"), dict) else None
+        return thread_id, thread_ts, parent_ts
+
     async def aput(
         self,
+        config: Dict[str, Any],
         checkpoint: Checkpoint,
         metadata: Optional[CheckpointMetadata] = None,
-        *args,
+        new_versions: Optional[Dict[str, Any]] = None,
         **kwargs,
-    ) -> Checkpoint:
-        """Store a checkpoint."""
+    ) -> Dict[str, Any]:
+        """Store a checkpoint and return the config."""
         import asyncpg
+
+        thread_id, thread_ts, parent_ts = self._get_thread_info(checkpoint)
 
         conn = await asyncpg.connect(self.db_url)
         try:
-            thread_id = checkpoint.get("thread_id", "default")
-            thread_ts = checkpoint.get("thread_ts", str(hash(str(checkpoint))))
-
             await conn.execute(
                 """
                 INSERT INTO langgraph_checkpoints (thread_id, thread_ts, parent_ts, checkpoint, metadata)
@@ -78,30 +94,37 @@ class PostgresCheckpointBackend(BaseCheckpointBackend):
                 """,
                 thread_id,
                 thread_ts,
-                checkpoint.get("parent_ts"),
+                parent_ts,
                 json.dumps(checkpoint),
                 json.dumps(metadata or {}),
             )
         finally:
             await conn.close()
 
-        logger.info("Checkpoint saved: thread=%s, ts=%s", checkpoint.get("thread_id"), checkpoint.get("thread_ts"))
-        return checkpoint
+        logger.info("Checkpoint saved: thread=%s, ts=%s", thread_id, thread_ts)
+        return {"thread_id": thread_id, "thread_ts": thread_ts}
 
-    async def aget(
+    async def aput_writes(
         self,
-        thread_id: Optional[str] = None,
-        thread_ts: Optional[str] = None,
-        *,
-        checkpoint_id: Optional[str] = None,
+        config: Dict[str, Any],
+        writes: List[tuple],
+        task_id: str,
+        task_path: str = "",
         **kwargs,
-    ) -> Optional[Checkpoint]:
-        """Retrieve a checkpoint by thread_id and thread_ts."""
+    ) -> None:
+        """Store intermediate writes for a task. No-op for now."""
+        pass
+
+    async def aget_tuple(self, config: Dict[str, Any]) -> Optional[CheckpointTuple]:
+        """Retrieve a checkpoint tuple by config."""
         import asyncpg
+
+        thread_id = config.get("thread_id", "default")
+        thread_ts = config.get("thread_ts")
 
         conn = await asyncpg.connect(self.db_url)
         try:
-            if checkpoint_id:
+            if thread_ts:
                 row = await conn.fetchrow(
                     "SELECT checkpoint, metadata FROM langgraph_checkpoints WHERE thread_id = $1 AND thread_ts = $2",
                     thread_id,
@@ -114,20 +137,31 @@ class PostgresCheckpointBackend(BaseCheckpointBackend):
                 )
 
             if row:
-                return json.loads(row["checkpoint"])
+                checkpoint = json.loads(row["checkpoint"])
+                metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                return CheckpointTuple(
+                    config=config,
+                    checkpoint=checkpoint,
+                    metadata=metadata,
+                )
         finally:
             await conn.close()
         return None
 
     async def alist(
         self,
+        config: Optional[Dict[str, Any]] = None,
         *,
-        thread_id: Optional[str] = None,
-        limit: int = 100,
+        filter: Optional[Dict[str, Any]] = None,
+        before: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
         **kwargs,
-    ) -> List[Checkpoint]:
+    ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints for a thread."""
         import asyncpg
+
+        thread_id = config.get("thread_id", "default") if config else None
+        limit_val = limit or 100
 
         conn = await asyncpg.connect(self.db_url)
         try:
@@ -135,44 +169,58 @@ class PostgresCheckpointBackend(BaseCheckpointBackend):
                 rows = await conn.fetch(
                     "SELECT checkpoint, metadata FROM langgraph_checkpoints WHERE thread_id = $1 ORDER BY thread_ts DESC LIMIT $2",
                     thread_id,
-                    limit,
+                    limit_val,
                 )
             else:
                 rows = await conn.fetch(
                     "SELECT checkpoint, metadata FROM langgraph_checkpoints ORDER BY thread_id, thread_ts DESC LIMIT $1",
-                    limit,
+                    limit_val,
                 )
 
-            return [json.loads(row["checkpoint"]) for row in rows]
+            for row in rows:
+                checkpoint = json.loads(row["checkpoint"])
+                metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                yield CheckpointTuple(
+                    config={"thread_id": checkpoint.get("id", "default"), "thread_ts": checkpoint.get("ts")},
+                    checkpoint=checkpoint,
+                    metadata=metadata,
+                )
         finally:
             await conn.close()
 
-    async def abatch(self, *args, **kwargs) -> List[Checkpoint]:
-        """Batch retrieval - not fully supported."""
-        return await self.alist(**kwargs)
+    async def get_tuple(self, config: Dict[str, Any]) -> Optional[CheckpointTuple]:
+        """Sync version - delegates to async."""
+        import asyncio
+        return asyncio.get_event_loop().run_until_complete(self.aget_tuple(config))
 
-    async def delete(
-        self,
-        thread_id: Optional[str] = None,
-        thread_ts: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """Delete checkpoints."""
+    def get(self, config: Dict[str, Any]) -> Optional[Checkpoint]:
+        """Get a single checkpoint."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        tuple_result = loop.run_until_complete(self.aget_tuple(config))
+        return tuple_result.checkpoint if tuple_result else None
+
+    def list(self, config: Optional[Dict[str, Any]] = None, **kwargs) -> Iterator[CheckpointTuple]:
+        """Sync version of alist."""
+        import asyncio
+        async def _collect():
+            result = []
+            async for t in self.alist(config, **kwargs):
+                result.append(t)
+            return result
+        loop = asyncio.get_event_loop()
+        return iter(loop.run_until_complete(_collect()))
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Delete all checkpoints for a thread."""
         import asyncpg
 
         conn = await asyncpg.connect(self.db_url)
         try:
-            if thread_ts:
-                await conn.execute(
-                    "DELETE FROM langgraph_checkpoints WHERE thread_id = $1 AND thread_ts = $2",
-                    thread_id,
-                    thread_ts,
-                )
-            elif thread_id:
-                await conn.execute(
-                    "DELETE FROM langgraph_checkpoints WHERE thread_id = $1",
-                    thread_id,
-                )
+            await conn.execute(
+                "DELETE FROM langgraph_checkpoints WHERE thread_id = $1",
+                thread_id,
+            )
         finally:
             await conn.close()
 
