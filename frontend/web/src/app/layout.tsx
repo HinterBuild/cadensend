@@ -18,6 +18,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
+          <a href="#main-content" className="skip-link">
+            Skip to main content
+          </a>
           {children}
         </AuthProvider>
       </body>
