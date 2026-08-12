@@ -1,18 +1,18 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from 'react'
-import { Plus, BookOpen, Calendar, Send } from 'lucide-react'
-import Link from 'next/link'
-import { useRequireAuth, useAuth } from '@/contexts/AuthContext'
-import { seriesApi } from '@/lib/api'
-import { Series } from '@/types'
+import { useState, useEffect } from 'react';
+import { Plus, BookOpen, Calendar, Send } from 'lucide-react';
+import Link from 'next/link';
+import { useRequireAuth, useAuth } from '@/contexts/AuthContext';
+import { seriesApi } from '@/lib/api';
+import { Series } from '@/types';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const { logout } = useAuth();
-  const [series, setSeries] = useState<Series[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [series, setSeries] = useState<Series[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -43,14 +43,18 @@ export default function DashboardPage() {
             </div>
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <div
+              className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+              role="status"
+              aria-label="Loading series"
+            ></div>
             <p className="mt-4 text-gray-600">Loading series...</p>
           </div>
-        </main>
+        </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -62,8 +66,9 @@ export default function DashboardPage() {
             <div className="flex items-center space-x-4">
               <span className="text-gray-600">{user?.email || 'user@example.com'}</span>
               <button
+                type="button"
                 onClick={logout}
-                className="text-blue-600 hover:text-blue-500"
+                className="text-blue-600 hover:text-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
               >
                 Logout
               </button>
@@ -72,35 +77,46 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Your Series</h2>
-          <Link href="/series/create">
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Create New Series
-            </button>
+          <Link
+            href="/series/create"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Create New Series
           </Link>
         </div>
 
         {error ? (
-          <div className="text-center py-12 text-red-600">{error}</div>
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="text-center py-12 text-red-600"
+          >
+            {error}
+          </div>
         ) : series.length === 0 ? (
           <div className="text-center py-12">
-            <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+            <BookOpen className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden="true" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No series yet</h3>
             <p className="text-gray-600 mb-4">Create your first learning series to get started.</p>
-            <Link href="/series/create">
-              <button className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
-                Create your first series
-              </button>
+            <Link
+              href="/series/create"
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 inline-block focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              Create your first series
             </Link>
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {series.map((s) => (
               <Link key={s.id} href={`/series/${s.id}`}>
-                <div className="bg-white rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer">
+                <div
+                  tabIndex={-1}
+                  className="bg-white rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                >
                   <div className="p-6">
                     <div className="flex items-start justify-between">
                       <div>
@@ -110,24 +126,27 @@ export default function DashboardPage() {
                           {s.level}
                         </span>
                       </div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        s.status === 'active'
-                          ? 'bg-green-100 text-green-800'
-                          : s.status === 'planned'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
+                      <span
+                        className={`px-2 py-1 text-xs rounded-full ${
+                          s.status === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : s.status === 'planned'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                        aria-label={`Status: ${s.status}`}
+                      >
                         {s.status}
                       </span>
                     </div>
                     <div className="mt-4 flex items-center space-x-4 text-sm text-gray-600">
                       <div className="flex items-center">
-                        <Calendar className="h-4 w-4 mr-1" />
-                        Created {new Date(s.created_at).toLocaleDateString()}
+                        <Calendar className="h-4 w-4 mr-1" aria-hidden="true" />
+                        <span>Created {new Date(s.created_at).toLocaleDateString()}</span>
                       </div>
                       <div className="flex items-center">
-                        <Send className="h-4 w-4 mr-1" />
-                        {s.status === 'active' ? 'Sending' : 'Scheduled'}
+                        <Send className="h-4 w-4 mr-1" aria-hidden="true" />
+                        <span>{s.status === 'active' ? 'Sending' : 'Scheduled'}</span>
                       </div>
                     </div>
                   </div>
@@ -136,7 +155,7 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
-  )
+  );
 }
