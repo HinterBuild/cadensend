@@ -75,14 +75,43 @@ body {
   top: 6px;
 }
 
+/* Ensure form inputs always have visible text */
 input,
 textarea,
 select {
-  font-family: inherit;
-  color: var(--foreground);
+  font-family: inherit !important;
+  color: var(--foreground) !important;
 }
 
-/* Use :focus-visible so only keyboard users see the ring */
+/* Ensure input backgrounds are always visible */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+textarea,
+select {
+  background-color: #ffffff !important;
+  color: #171717 !important;
+}
+
+/* Dark mode overrides for inputs */
+@media (prefers-color-scheme: dark) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  input[type="time"],
+  textarea,
+  select {
+    background-color: #1a1a1a !important;
+    color: #ededed !important;
+  }
+}
+
+/* Focus styles for keyboard users only */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
@@ -94,6 +123,19 @@ button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Ensure placeholder text is visible but dimmed */
+::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+/* Dark mode placeholder */
+@media (prefers-color-scheme: dark) {
+  ::placeholder {
+    color: #6b7280 !important;
+  }
 }
 
 /* Respect reduced motion preference for all animated elements */

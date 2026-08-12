@@ -2,8 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import { Mail, Lock, Send, Eye, EyeOff, ArrowRight } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { authApi } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -13,7 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const router = useRouter();
+  const { login, sendMagicLink } = useAuth();
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -35,9 +34,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const response = await authApi.login(email, password);
-      localStorage.setItem('token', response.token);
-      router.push('/dashboard');
+      await login(email, password);
     } catch (err: any) {
       const backendError = err.message || '';
       if (backendError.includes('user not found')) {
@@ -63,7 +60,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await authApi.loginWithMagicLink(email);
+      await sendMagicLink(email);
       setMagicLinkSent(true);
     } catch (err: any) {
       setError(err.message || 'Failed to send magic link. Please try again.');
