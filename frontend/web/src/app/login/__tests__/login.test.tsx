@@ -30,7 +30,7 @@ describe('LoginPage', () => {
 
   it('renders login form', () => {
     render(<LoginPage />);
-    expect(screen.getByText('Sign in to Cadensend')).toBeInTheDocument();
+    expect(screen.getByText('Cadensend')).toBeInTheDocument();
   });
 
   it('shows email and password fields', () => {

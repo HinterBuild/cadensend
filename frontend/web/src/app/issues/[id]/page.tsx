@@ -18,7 +18,7 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
   const [content, setContent] = useState({
     subject: '',
     preheader: '',
-    blocks: [] as Array<{ id: string; type: string; title?: string; text: string }>,
+    blocks: [] as Array<{ id: string; type: string; title?: string; text: string }>
   });
 
   useEffect(() => {
@@ -91,7 +91,11 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <div
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            role="status"
+            aria-label="Loading"
+          ></div>
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
@@ -102,7 +106,9 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600">{error}</p>
+          <p role="alert" aria-live="assertive" className="text-red-600">
+            {error}
+          </p>
         </div>
       </div>
     );
@@ -115,25 +121,30 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <button
+                type="button"
+                aria-label="Back to series"
                 onClick={() => issue && router.push(`/series/${issue.series_id}`)}
-                className="text-gray-600 hover:text-gray-900"
+                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
               <h1 className="text-2xl font-bold text-gray-900">
                 #{issue?.sequence_no} {content.subject || 'Untitled'}
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                issue?.status === 'approved'
-                  ? 'bg-green-100 text-green-800'
-                  : issue?.status === 'sent'
-                  ? 'bg-purple-100 text-purple-800'
-                  : issue?.status === 'pending'
-                  ? 'bg-yellow-100 text-yellow-800'
-                  : 'bg-gray-100 text-gray-800'
-              }`}>
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  issue?.status === 'approved'
+                    ? 'bg-green-100 text-green-800'
+                    : issue?.status === 'sent'
+                    ? 'bg-purple-100 text-purple-800'
+                    : issue?.status === 'pending'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-gray-100 text-gray-800'
+                }`}
+                aria-label={`Issue status: ${issue?.status}`}
+              >
                 {issue?.status}
               </span>
             </div>
@@ -141,33 +152,39 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Issue Editor</h2>
           <div className="flex space-x-2">
             <button
+              type="button"
+              aria-label="Save draft"
               onClick={saveIssue}
               disabled={saving}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700"
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               {saving ? 'Saving...' : 'Save Draft'}
-              <Save className="h-4 w-4" />
+              {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
             </button>
             <button
+              type="button"
+              aria-label="Generate with AI"
               onClick={generateIssue}
               disabled={generating}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-purple-500"
             >
               {generating ? 'Generating...' : 'Generate with AI'}
-              <RefreshCw className="h-4 w-4" />
+              {!generating && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
             </button>
             {issue?.status !== 'approved' && issue?.status !== 'sent' && (
               <button
+                type="button"
+                aria-label="Approve and schedule"
                 onClick={approveIssue}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500"
               >
                 Approve & Schedule
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -175,28 +192,32 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
 
         <div className="bg-white rounded-lg shadow p-6 space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
               Subject
             </label>
             <input
+              id="subject"
               type="text"
               value={content.subject}
               onChange={(e) => setContent({ ...content, subject: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
               placeholder="Enter issue subject"
+              aria-label="Subject"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="preheader" className="block text-sm font-medium text-gray-700 mb-2">
               Preheader
             </label>
             <textarea
+              id="preheader"
               value={content.preheader}
               onChange={(e) => setContent({ ...content, preheader: e.target.value })}
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
               placeholder="Brief summary shown in email previews"
+              aria-label="Preheader text"
             />
           </div>
 
@@ -224,8 +245,9 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                           newBlocks[idx].title = e.target.value;
                           setContent({ ...content, blocks: newBlocks });
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-blue-500"
                         placeholder="Block title"
+                        aria-label={`Block ${idx + 1} title`}
                       />
                     )}
                     <textarea
@@ -236,8 +258,9 @@ export default function IssueEditorPage({ params }: { params: { id: string } }) 
                         setContent({ ...content, blocks: newBlocks });
                       }}
                       rows={5}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-blue-500"
                       placeholder="Block content..."
+                      aria-label={`Block ${idx + 1} content`}
                     />
                   </div>
                 ))

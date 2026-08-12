@@ -34,6 +34,7 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
                 <Link
                   key={item.name}
                   href={item.href}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
                     isActive
                       ? 'bg-blue-50 text-blue-600'
@@ -48,7 +49,7 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
           </nav>
         </div>
       </nav>
-      <main className="flex-1 overflow-y-auto">
+      <main id="main-content" className="flex-1 overflow-y-auto">
         {children}
       </main>
     </div>

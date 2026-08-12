@@ -20,13 +20,14 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-// Mock auth context
-jest.mock('@/contexts/AuthContext', () => ({
-    useRequireAuth: jest.fn(),
-    useAuth: jest.fn(),
-}));
+const mockRequireAuth = { user: { id: '1', email: 'test@example.com' }, loading: false };
+const mockAuth = { user: { id: '1', email: 'test@example.com' }, loading: false, logout: jest.fn() };
 
-import { useRequireAuth, useAuth } from '@/contexts/AuthContext';
+// Inline mock for context in each test
+jest.mock('@/contexts/AuthContext', () => ({
+  useRequireAuth: jest.fn(),
+  useAuth: jest.fn(),
+}));
 
 const mockSeries = [
   {
@@ -46,26 +47,19 @@ const mockSeries = [
 describe('DashboardPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (useRequireAuth as jest.Mock).mockReturnValue({
-      user: { id: '1', email: 'test@example.com' },
-      loading: false,
-    });
-    (useAuth as jest.Mock).mockReturnValue({
-      user: { id: '1', email: 'test@example.com' },
-      loading: false,
-      logout: jest.fn(),
-    });
+    (require('@/contexts/AuthContext') as any).useRequireAuth.mockReturnValue(mockRequireAuth);
+    (require('@/contexts/AuthContext') as any).useAuth.mockReturnValue(mockAuth);
     (seriesApi.list as jest.Mock).mockResolvedValue({ series: mockSeries });
   });
 
   it('renders the dashboard title', async () => {
     render(<DashboardPage />);
-    expect(screen.getByText('Cadensend')).toBeInTheDocument();
+    expect(await screen.findByText('Cadensend')).toBeInTheDocument();
   });
 
   it('shows create new series button', async () => {
     render(<DashboardPage />);
-    expect(screen.getByText('Create New Series')).toBeInTheDocument();
+    expect(await screen.findByText('Create New Series')).toBeInTheDocument();
   });
 
   it('displays series when loaded', async () => {

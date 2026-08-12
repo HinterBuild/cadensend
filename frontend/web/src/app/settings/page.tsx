@@ -83,7 +83,11 @@ export default function SettingsPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <div
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            role="status"
+            aria-label="Loading"
+          ></div>
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
@@ -96,24 +100,34 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
           <button
+            type="button"
+            aria-label="Sign out"
             onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4" aria-hidden="true" />
             Sign Out
           </button>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2"
+          >
+            <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
 
         {success && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center gap-2">
-            <Check className="h-4 w-4 flex-shrink-0" />
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg flex items-center gap-2"
+          >
+            <Check className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             <span>{success}</span>
           </div>
         )}
@@ -122,50 +136,55 @@ export default function SettingsPage() {
           {/* Profile Settings */}
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-3 mb-4">
-              <User className="h-5 w-5 text-gray-600" />
+              <User className="h-5 w-5 text-gray-600" aria-hidden="true" />
               <h2 className="text-xl font-semibold text-gray-900">Profile</h2>
             </div>
 
             <form onSubmit={handleSave} className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                   Full Name
                 </label>
                 <input
+                  id="name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
                   placeholder="Enter your name"
+                  aria-label="Full Name"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
                   <input
+                    id="email"
                     type="email"
                     value={email}
                     disabled
                     className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
+                    aria-label="Email address (cannot be changed)"
                   />
                 </div>
                 <p className="mt-1 text-xs text-gray-500">Email cannot be changed from here.</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
                   Timezone
                 </label>
                 <div className="relative">
-                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
                   <select
+                    id="timezone"
                     value={timezone}
                     onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
                   >
                     <option value="UTC">UTC</option>
                     <option value="America/New_York">America/New_York</option>
@@ -180,10 +199,10 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
                 >
                   {saving ? 'Saving...' : 'Save Changes'}
-                  {!saving && <Save className="h-4 w-4" />}
+                  {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
                 </button>
               </div>
             </form>
@@ -192,53 +211,63 @@ export default function SettingsPage() {
           {/* Password Settings */}
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-3 mb-4">
-              <Lock className="h-5 w-5 text-gray-600" />
+              <Lock className="h-5 w-5 text-gray-600" aria-hidden="true" />
               <h2 className="text-xl font-semibold text-gray-900">Password</h2>
             </div>
 
             <form onSubmit={handlePasswordChange} className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="current-password" className="block text-sm font-medium text-gray-700 mb-2">
                   Current Password
                 </label>
                 <input
+                  id="current-password"
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   required
+                  minLength={8}
+                  aria-label="Current password"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
                   New Password
                 </label>
                 <input
+                  id="new-password"
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
                   placeholder="At least 8 characters"
+                  autoComplete="new-password"
                   required
                   minLength={8}
+                  aria-label="New password"
                 />
                 <p className="mt-1 text-xs text-gray-500">Minimum 8 characters.</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-2">
                   Confirm New Password
                 </label>
                 <input
+                  id="confirm-password"
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
                   placeholder="••••••••"
+                  autoComplete="new-password"
                   required
                   minLength={8}
+                  aria-label="Confirm new password"
                 />
               </div>
 
@@ -246,10 +275,10 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={changingPassword}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
                 >
                   {changingPassword ? 'Changing...' : 'Change Password'}
-                  {!changingPassword && <Lock className="h-4 w-4" />}
+                  {!changingPassword && <Lock className="h-4 w-4" aria-hidden="true" />}
                 </button>
               </div>
             </form>
