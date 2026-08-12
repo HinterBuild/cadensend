@@ -1,0 +1,8 @@
+FROM golang:1.22-alpine AS base
+WORKDIR /src
+ENV PATH=$PATH:$(go env GOPATH)/bin
+RUN apk add --no-cache git
+RUN go install github.com/cosmtrek/air@latest
+COPY go.mod go.sum ./
+RUN go mod download
+EXPOSE 8081

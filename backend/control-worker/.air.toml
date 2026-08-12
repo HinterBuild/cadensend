@@ -1,0 +1,13 @@
+# Config file for air
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "/bin/control-worker"
+  cmd = "go build -o /bin/control-worker ./cmd/server"
+  exclude_dir = ["node_modules", "tmp"]
+  include_ext = ["go", "tpl", "tmpl", "html"]
+
+[run]
+  cmd = "/bin/control-worker server"
+  bin = "/bin/control-worker"

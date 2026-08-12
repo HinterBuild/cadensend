@@ -1,2 +1,5 @@
-server
 .git
+.gitignore
+README.md
+node_modules
+tmp
