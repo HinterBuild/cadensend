@@ -384,6 +384,50 @@ func getUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 	}
 }
 
+func updateUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.Param("id")
+		var req struct {
+			Name     string `json:"name"`
+			Timezone string `json:"timezone"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		user, err := svc.UpdateUser(userID, req.Name, req.Timezone)
+		if err != nil {
+			if err.Error() == "user not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": user})
+	}
+}
+
+func changePasswordHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.Param("id")
+		var req struct {
+			CurrentPassword string `json:"current_password" binding:"required"`
+			NewPassword     string `json:"new_password" binding:"required,min=8"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		err := svc.ChangePassword(userID, req.CurrentPassword, req.NewPassword)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "password updated"})
+	}
+}
+
 // Issue handlers
 func getIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {

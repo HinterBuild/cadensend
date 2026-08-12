@@ -196,14 +196,14 @@ func (s *UserService) CreateUser(email, password, name, timezone, workspaceID st
 
 // AuthenticateUser authenticates a user with email and password
 func (s *UserService) AuthenticateUser(email, password string) (*User, string, error) {
-    var user User
-    if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&user).Error; err != nil {
-        return nil, "", errors.New("invalid credentials")
-    }
+	var user User
+	if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&user).Error; err != nil {
+		return nil, "", errors.New("user not found")
+	}
 
-    if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-        return nil, "", errors.New("invalid credentials")
-    }
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return nil, "", errors.New("incorrect password")
+	}
 
     token, err := auth.GenerateJWT(&auth.User{
         ID:          user.ID,
@@ -316,6 +316,54 @@ func (s *UserService) GetUser(userID string) (*User, error) {
 // UpdateUserEmailVerified marks user email as verified
 func (s *UserService) UpdateUserEmailVerified(userID string) error {
     return s.db.Model(&User{}).Where("id = ?", userID).Update("email_verified", true).Error
+}
+
+// UpdateUser updates user profile information
+func (s *UserService) UpdateUser(userID string, name, timezone string) (*User, error) {
+	var user User
+	if err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, err
+	}
+
+	updates := map[string]interface{}{}
+	if name != "" {
+		updates["name"] = name
+	}
+	if timezone != "" {
+		updates["timezone"] = timezone
+	}
+	updates["updated_at"] = time.Now()
+
+	if err := s.db.Model(&user).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return &user, nil
+}
+
+// ChangePassword changes a user's password
+func (s *UserService) ChangePassword(userID, currentPassword, newPassword string) error {
+	var user User
+	if err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("user not found")
+		}
+		return err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	return s.db.Model(&user).Update("password_hash", string(passwordHash)).Error
 }
 
 // DeleteUser soft deletes a user

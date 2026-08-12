@@ -127,6 +127,13 @@ func main() {
 				series.POST("/:id/resume", resumeSeriesHandler(db))
 			}
 
+			// User management endpoints
+			protectedUsers := api.Group("/users")
+			{
+				protectedUsers.PATCH("/:id", updateUserHandler(db, userService))
+				protectedUsers.PATCH("/:id/password", changePasswordHandler(db, userService))
+			}
+
 			// Issue endpoints
 			issues := api.Group("/issues")
 			{
