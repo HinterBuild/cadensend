@@ -66,7 +66,7 @@ export default function SourcesPage() {
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No sources yet</h3>
-            <p className="text-gray-500 mb-4">Add your first source to start building content.</p>
+            <p className="text-gray-600 mb-4">Add your first source to start building content.</p>
             <button
               onClick={() => setShowAddDialog(true)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"

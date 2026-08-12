@@ -99,7 +99,7 @@ export default function RunCenterPage() {
         {runs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No runs yet.</p>
+            <p className="text-gray-600">No runs yet.</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -132,7 +132,7 @@ export default function RunCenterPage() {
                   </div>
                 )}
                 
-                <div className="flex items-center justify-between text-sm text-gray-500">
+                <div className="flex items-center justify-between text-sm text-gray-600">
                   <span>Cost: ${run.cost.toFixed(4)}</span>
                   <span>Started: {new Date(run.created_at).toLocaleString()}</span>
                   {run.completed_at && (

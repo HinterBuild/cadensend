@@ -100,7 +100,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300'
                 }`}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -121,7 +121,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
 
             {issues.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500">No issues yet.</p>
+                <p className="text-gray-600">No issues yet.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -164,7 +164,7 @@ export default function SeriesViewPage({ params }: { params: { id: string } }) {
             </div>
 
             <div className="text-center py-12">
-              <p className="text-gray-500">No sources added yet.</p>
+              <p className="text-gray-600">No sources added yet.</p>
             </div>
           </div>
         )}

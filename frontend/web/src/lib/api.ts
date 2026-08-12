@@ -53,8 +53,20 @@ export const authApi = {
       body: JSON.stringify({ token }),
     }),
 
-  getUser: (userId: string) =>
+   getUser: (userId: string) =>
     fetchApi<{ data: User }>(`/users/${userId}`),
+
+   updateUser: (userId: string, updates: { name?: string; timezone?: string }) =>
+    fetchApi<{ data: User }>(`/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }),
+
+   changePassword: (userId: string, currentPassword: string, newPassword: string) =>
+    fetchApi<{ message: string }>(`/users/${userId}/password`, {
+      method: 'PATCH',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
 };
 
 // API client for series management
