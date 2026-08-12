@@ -158,7 +158,7 @@ export default function CreateSeriesPage() {
               )}
               <div className="flex items-center justify-center">
                 {currentStep > step.id ? (
-                  <CheckCircle className="h-6 w-6 text-blue-600" />
+                  <CheckCircle className="h-6 w-6 text-blue-600" aria-hidden="true" />
                 ) : (
                   <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
                     currentStep === step.id
@@ -187,55 +187,68 @@ export default function CreateSeriesPage() {
   const renderStep1 = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Topic <span className="text-red-500">*</span>
+        <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">
+          Topic <span className="text-red-500" aria-hidden="true">*</span>
         </label>
         <input
+          id="topic"
           type="text"
           value={formData.topic}
           onChange={(e) => updateField('topic', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
           placeholder="e.g. Introduction to Kubernetes"
           maxLength={100}
+          aria-describedby="topic-count"
         />
-        <p className="mt-1 text-xs text-gray-500">{formData.topic.length}/100 characters</p>
+        <p id="topic-count" className="mt-1 text-xs text-gray-500">{formData.topic.length}/100 characters</p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Goal <span className="text-red-500">*</span>
+        <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
+          Goal <span className="text-red-500" aria-hidden="true">*</span>
         </label>
         <textarea
+          id="goal"
           value={formData.goal}
           onChange={(e) => updateField('goal', e.target.value)}
           rows={4}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white resize-none"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white resize-none"
           placeholder="By the end of this series, you should be able to..."
           maxLength={500}
+          aria-describedby="goal-count"
         />
-        <p className="mt-1 text-xs text-gray-500">{formData.goal.length}/500 characters</p>
+        <p id="goal-count" className="mt-1 text-xs text-gray-500">{formData.goal.length}/500 characters</p>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Audience Level
-        </label>
-        <div className="grid grid-cols-3 gap-3">
-          {levelOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => updateField('level', option.value)}
-              className={`p-3 border rounded-lg text-center transition-all ${
-                formData.level === option.value
-                  ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
-                  : 'border-gray-300 text-gray-700 hover:border-gray-400'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <fieldset className="space-y-3">
+          <legend className="block text-sm font-medium text-gray-700 mb-2">
+            Audience Level
+          </legend>
+          <div className="grid grid-cols-3 gap-3">
+            {levelOptions.map((option) => (
+              <label
+                key={option.value}
+                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
+                  formData.level === option.value
+                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="level"
+                  value={option.value}
+                  checked={formData.level === option.value}
+                  onChange={(e) => updateField('level', e.target.value)}
+                  className="sr-only"
+                  aria-label={`Level: ${option.label}`}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
     </div>
   );
@@ -243,100 +256,122 @@ export default function CreateSeriesPage() {
   const renderStep2 = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Start Date <span className="text-red-500">*</span>
+        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
+          Start Date <span className="text-red-500" aria-hidden="true">*</span>
         </label>
         <div className="relative">
-          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
           <input
+            id="startDate"
             type="date"
             value={formData.startDate}
             onChange={(e) => updateField('startDate', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
           />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Duration <span className="text-red-500">*</span>
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          {durationOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => updateField('duration', option.value)}
-              className={`p-3 border rounded-lg text-center transition-all ${
-                formData.duration === option.value
-                  ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
-                  : 'border-gray-300 text-gray-700 hover:border-gray-400'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <fieldset className="space-y-3">
+          <legend className="block text-sm font-medium text-gray-700 mb-2">
+            Duration <span className="text-red-500" aria-hidden="true">*</span>
+          </legend>
+          <div className="grid grid-cols-2 gap-3">
+            {durationOptions.map((option) => (
+              <label
+                key={option.value}
+                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
+                  formData.duration === option.value
+                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="duration"
+                  value={option.value}
+                  checked={formData.duration === option.value}
+                  onChange={(e) => updateField('duration', e.target.value)}
+                  className="sr-only"
+                  aria-label={`Duration: ${option.label}`}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Cadence <span className="text-red-500">*</span>
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          {cadenceOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => updateField('cadence', option.value)}
-              className={`p-3 border rounded-lg text-center transition-all ${
-                formData.cadence === option.value
-                  ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
-                  : 'border-gray-300 text-gray-700 hover:border-gray-400'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <fieldset className="space-y-3">
+          <legend className="block text-sm font-medium text-gray-700 mb-2">
+            Cadence <span className="text-red-500" aria-hidden="true">*</span>
+          </legend>
+          <div className="grid grid-cols-2 gap-3">
+            {cadenceOptions.map((option) => (
+              <label
+                key={option.value}
+                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
+                  formData.cadence === option.value
+                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="cadence"
+                  value={option.value}
+                  checked={formData.cadence === option.value}
+                  onChange={(e) => updateField('cadence', e.target.value)}
+                  className="sr-only"
+                  aria-label={`Cadence: ${option.label}`}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Send Days <span className="text-red-500">*</span>
+        <label htmlFor="sendDays" className="block text-sm font-medium text-gray-700 mb-2">
+          Send Days <span className="text-red-500" aria-hidden="true">*</span>
         </label>
         <input
+          id="sendDays"
           type="text"
           value={formData.sendDays}
           onChange={(e) => updateField('sendDays', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
           placeholder="e.g. Monday, Wednesday, Friday"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Send Time <span className="text-red-500">*</span>
+        <label htmlFor="sendTime" className="block text-sm font-medium text-gray-700 mb-2">
+          Send Time <span className="text-red-500" aria-hidden="true">*</span>
         </label>
         <div className="relative">
-          <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
           <input
+            id="sendTime"
             type="time"
             value={formData.sendTime}
             onChange={(e) => updateField('sendTime', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
           />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
           Timezone
         </label>
         <select
+          id="timezone"
           value={formData.timezone}
           onChange={(e) => updateField('timezone', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
         >
           <option value="UTC">UTC</option>
           <option value="America/New_York">America/New_York</option>
@@ -351,21 +386,22 @@ export default function CreateSeriesPage() {
   const renderStep3 = () => (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-4">
-          Delivery Preferences
-        </label>
-        <div className="space-y-4">
+        <fieldset className="space-y-4">
+          <legend className="block text-sm font-medium text-gray-700 mb-4">
+            Delivery Preferences
+          </legend>
           <div className="flex items-start p-4 border border-gray-200 rounded-lg">
             <div className="flex-shrink-0 mt-1">
               <input
+                id="verifyRecipient"
                 type="checkbox"
                 checked={formData.verifyRecipient}
                 onChange={(e) => updateField('verifyRecipient', e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 border-gray-300 rounded"
               />
             </div>
             <div className="ml-3">
-              <label className="text-sm font-medium text-gray-700 cursor-pointer">
+              <label htmlFor="verifyRecipient" className="text-sm font-medium text-gray-700 cursor-pointer">
                 Require verified recipients
               </label>
               <p className="text-sm text-gray-500 mt-1">
@@ -377,14 +413,15 @@ export default function CreateSeriesPage() {
           <div className="flex items-start p-4 border border-gray-200 rounded-lg">
             <div className="flex-shrink-0 mt-1">
               <input
+                id="manualApproval"
                 type="checkbox"
                 checked={formData.manualApproval}
                 onChange={(e) => updateField('manualApproval', e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 border-gray-300 rounded"
               />
             </div>
             <div className="ml-3">
-              <label className="text-sm font-medium text-gray-700 cursor-pointer">
+              <label htmlFor="manualApproval" className="text-sm font-medium text-gray-700 cursor-pointer">
                 Manual approval before sending
               </label>
               <p className="text-sm text-gray-500 mt-1">
@@ -392,7 +429,7 @@ export default function CreateSeriesPage() {
               </p>
             </div>
           </div>
-        </div>
+        </fieldset>
       </div>
 
       <div className="bg-gray-50 rounded-lg p-6">
@@ -442,8 +479,12 @@ export default function CreateSeriesPage() {
       <div className="max-w-2xl mx-auto px-4">
         <div className="mb-6">
           <Link href="/dashboard">
-            <button className="flex items-center text-gray-600 hover:text-gray-900 text-sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
+            <button
+              type="button"
+              aria-label="Back to Dashboard"
+              className="flex items-center text-gray-600 hover:text-gray-900 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
               Back to Dashboard
             </button>
           </Link>
@@ -452,38 +493,45 @@ export default function CreateSeriesPage() {
         {renderStepIndicator()}
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm"
+          >
             {error}
           </div>
         )}
 
         <div className="bg-white rounded-xl shadow-lg p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-6">
-            {steps[currentStep - 1].title}
+            Step {currentStep} of {steps.length}: {steps[currentStep - 1].title}
           </h2>
           {renderCurrentStep()}
 
           <div className="flex justify-between items-center mt-10 pt-6 border-t border-gray-200">
             <button
+              type="button"
               onClick={handleBack}
               disabled={isFirstStep}
-              className={`text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
+              className="text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               Back
             </button>
             {isLastStep ? (
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium"
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
               >
                 {submitting ? 'Creating...' : 'Create Series'}
-                <Save className="h-4 w-4" />
+                {!submitting && <Save className="h-4 w-4" aria-hidden="true" />}
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleNextWithValidation}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium"
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
               >
                 Continue
               </button>
