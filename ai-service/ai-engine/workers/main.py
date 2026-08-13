@@ -109,6 +109,7 @@ class AIWorker:
                 workspace_id=job_data.get("workspace_id", ""),
                 series_id=job_data.get("series_id"),
                 thread_id=job_data.get("thread_id"),
+                model=job_data.get("model"),
             )
 
             logger.info("Plan generated: thread=%s, status=%s",
@@ -129,6 +130,7 @@ class AIWorker:
                 issue_number=job_data.get("issue_number", 1),
                 plan_item=job_data.get("plan_item", {}),
                 thread_id=job_data.get("thread_id"),
+                model=job_data.get("model"),
             )
 
             logger.info("Issue generated: thread=%s, status=%s",

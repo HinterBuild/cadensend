@@ -22,7 +22,6 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata
@@ -50,6 +49,7 @@ class NewsletterState(TypedDict):
     citations: List[Dict[str, Any]]
     visual_specs: List[Dict[str, Any]]
     memory_context: List[Dict[str, Any]]
+    model: Optional[str]
 
 
 class NewsletterAgent:
@@ -68,25 +68,15 @@ class NewsletterAgent:
         self.tools_box: NewsletterTools = get_toolbox(self.model_service)
         self.tools = self.tools_box.get_tools()
 
-        self.llm = ChatOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=settings.OPENROUTER_API_KEY,
-            model=settings.DEFAULT_MODEL,
-            temperature=0.7,
-            max_tokens=4000,
-        )
-
-        self.planning_llm = ChatOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=settings.OPENROUTER_API_KEY,
-            model=settings.DEFAULT_MODEL,
-            temperature=0.3,
-            max_tokens=4000,
-        )
-
-        self.planning_llm_with_tools = self.planning_llm.bind_tools(self.tools)
-
         self.graph = self._build_graph()
+
+    def _chat_model(self, state: NewsletterState, temperature: float = 0.7, max_tokens: int = 4000):
+        """OpenRouter chat model for this run (user choice or ENV default)."""
+        return self.model_service.get_chat_model(
+            model=state.get("model"),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph state machine."""
@@ -190,10 +180,12 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         workspace_id: str,
         series_id: Optional[str] = None,
         thread_id: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run the plan generation workflow."""
         thread_id = thread_id or f"plan-{series_id or 'default'}-{datetime.now().isoformat()}"
         memory_namespace = ("cadensend", "workspace", workspace_id, "series", series_id or "default")
+        chosen_model = self.model_service.resolve_model(model or brief.get("model"))
 
         initial_state: NewsletterState = {
             "messages": [],
@@ -209,6 +201,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "citations": [],
             "visual_specs": [],
             "memory_context": [],
+            "model": chosen_model,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -245,9 +238,11 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         issue_number: int,
         plan_item: Dict[str, Any],
         thread_id: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run the issue generation workflow."""
         thread_id = thread_id or f"issue-{series_id}-{issue_number}-{datetime.now().isoformat()}"
+        chosen_model = self.model_service.resolve_model(model or brief.get("model"))
 
         issue_brief = {
             **brief,
@@ -269,6 +264,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "citations": [],
             "visual_specs": [],
             "memory_context": [],
+            "model": chosen_model,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -333,7 +329,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         state["messages"] = messages
 
         try:
-            response = await self.planning_llm.ainvoke(messages)
+            response = await self._chat_model(state, temperature=0.3).ainvoke(messages)
             plan_text = response.content
 
             try:
@@ -460,7 +456,7 @@ Only include citations for claims supported by the retrieved context.
             ]
 
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self._chat_model(state).ainvoke(messages)
                 issue_text = response.content
 
                 try:
@@ -613,7 +609,7 @@ Output the revised issue as JSON.
             ]
 
             try:
-                response = await self.llm.ainvoke(messages)
+                response = await self._chat_model(state).ainvoke(messages)
                 revised = json.loads(response.content)
                 revised["module_index"] = issue.get("module_index", 0)
                 revised["module_title"] = issue.get("module_title", "")

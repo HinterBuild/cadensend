@@ -20,6 +20,7 @@ class IssueGenerateRequest(BaseModel):
     issue_number: Optional[int] = None
     plan_item: Optional[Dict[str, Any]] = None
     brief: Optional[Dict[str, Any]] = None
+    model: Optional[str] = None
 
 
 class IssueGenerateResponse(BaseModel):
@@ -59,6 +60,7 @@ async def generate_issue(issue_id: str, request: IssueGenerateRequest):
             workspace_id=request.workspace_id,
             issue_number=request.issue_number or 1,
             plan_item=plan_item,
+            model=request.model,
         )
 
         issues = result.get("issues", [])

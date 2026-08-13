@@ -14,7 +14,6 @@ from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from langgraph.store.base import (
     BaseStore,
     GetOp,
@@ -29,6 +28,7 @@ from langgraph.store.base import (
 )
 
 from app.core.config import settings
+from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +36,10 @@ logger = logging.getLogger(__name__)
 class LongTermMemoryStore(BaseStore):
     """PostgreSQL-backed long-term memory store."""
 
-    def __init__(self, db_url: Optional[str] = None):
+    def __init__(self, db_url: Optional[str] = None, model_service: Optional[ModelService] = None):
         self.db_url = db_url or settings.DATABASE_URL
-        self.llm: ChatOpenAI | None = None
-        if settings.OPENROUTER_API_KEY:
-            self.llm = ChatOpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=settings.OPENROUTER_API_KEY,
-                model=settings.DEFAULT_MODEL,
-                temperature=0.3,
-                max_tokens=2000,
-            )
+        self.model_service = model_service or ModelService()
+        self.llm = self.model_service.get_chat_model(temperature=0.3, max_tokens=2000)
 
     def batch(self, ops: Iterable[Op]) -> list[Result]:
         return asyncio.run(self.abatch(list(ops)))

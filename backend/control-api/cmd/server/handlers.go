@@ -4,6 +4,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -159,20 +161,28 @@ func buildSeriesUpdates(req struct {
 func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		var req struct {
+			Model string `json:"model"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		model := req.Model
+		if model == "" {
+			model = cfg.DefaultModel
+		}
 
 		plan := &service.SeriesPlan{
-			ID:        uuid.NewString(),
-			SeriesID:  id,
-			Version:   1,
+			ID:       uuid.NewString(),
+			SeriesID: id,
+			Version:  1,
 			Curriculum: service.Curriculum{
-				Objective:     "Learn the fundamentals",
-				Outline:       []string{"Week 1: Introduction", "Week 2: Deep Dive", "Week 3: Advanced Topics", "Week 4: Capstone"},
+				Objective: "Learn the fundamentals",
+				Outline:   []string{"Week 1: Introduction", "Week 2: Deep Dive", "Week 3: Advanced Topics", "Week 4: Capstone"},
 			},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
 
-		c.JSON(http.StatusOK, gin.H{"data": plan})
+		c.JSON(http.StatusOK, gin.H{"data": plan, "model": model})
 	}
 }
 
@@ -388,14 +398,15 @@ func updateUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 		var req struct {
-			Name     string `json:"name"`
-			Timezone string `json:"timezone"`
+			Name           string  `json:"name"`
+			Timezone       string  `json:"timezone"`
+			PreferredModel *string `json:"preferred_model"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		user, err := svc.UpdateUser(userID, req.Name, req.Timezone)
+		user, err := svc.UpdateUser(userID, req.Name, req.Timezone, req.PreferredModel)
 		if err != nil {
 			if err.Error() == "user not found" {
 				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -452,7 +463,15 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		c.JSON(http.StatusOK, gin.H{"message": "issue generation started", "issue_id": id})
+		var req struct {
+			Model string `json:"model"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		model := req.Model
+		if model == "" {
+			model = cfg.DefaultModel
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "issue generation started", "issue_id": id, "model": model})
 	}
 }
 
@@ -674,7 +693,7 @@ func getOperationHandler(db *gorm.DB) gin.HandlerFunc {
 				"id":         id,
 				"target":     "unknown",
 				"status":     "completed",
-				"model":      "gpt-4",
+				"model":      cfg.DefaultModel,
 				"tokens":     map[string]int{"input": 0, "output": 0},
 				"cost":       0.0,
 				"created_at": "2024-01-01T00:00:00Z",
@@ -697,5 +716,65 @@ func emailWebhookHandler(db *gorm.DB) gin.HandlerFunc {
 		_ = provider
 
 		c.JSON(http.StatusOK, gin.H{"message": "webhook received", "provider": provider})
+	}
+}
+
+func listModelsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defaultModel := cfg.DefaultModel
+		models := []gin.H{
+			{
+				"id":         defaultModel,
+				"name":       "Default (" + defaultModel + ")",
+				"is_default": true,
+			},
+		}
+		seen := map[string]bool{defaultModel: true}
+
+		req, err := http.NewRequest(http.MethodGet, "https://openrouter.ai/api/v1/models", nil)
+		if err == nil {
+			req.Header.Set("HTTP-Referer", "https://cadensend.app")
+			req.Header.Set("X-Title", "Cadensend")
+			resp, err := http.DefaultClient.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				var payload struct {
+					Data []struct {
+						ID   string `json:"id"`
+						Name string `json:"name"`
+					} `json:"data"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&payload) == nil {
+					var extras []gin.H
+					for _, m := range payload.Data {
+						if m.ID == "" || seen[m.ID] || strings.Contains(strings.ToLower(m.ID), "embed") {
+							continue
+						}
+						name := m.Name
+						if name == "" {
+							name = m.ID
+						}
+						extras = append(extras, gin.H{"id": m.ID, "name": name, "is_default": false})
+						seen[m.ID] = true
+					}
+					sort.Slice(extras, func(i, j int) bool {
+						iID := extras[i]["id"].(string)
+						jID := extras[j]["id"].(string)
+						iFree := strings.HasSuffix(iID, ":free")
+						jFree := strings.HasSuffix(jID, ":free")
+						if iFree != jFree {
+							return iFree
+						}
+						return iID < jID
+					})
+					models = append(models, extras...)
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"default_model": defaultModel,
+			"models":        models,
+		})
 	}
 }

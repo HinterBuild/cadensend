@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Send, RefreshCw } from 'lucide-react';
 import { seriesApi } from '@/lib/api';
 import { Series, Issue } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 type SeriesDetail = Series & {
   issues?: Issue[];
@@ -13,6 +14,7 @@ type SeriesDetail = Series & {
 export default function SeriesViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { user } = useAuth();
   const [series, setSeries] = useState<SeriesDetail | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,7 +247,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               <button
                 type="button"
                 onClick={() => {
-                  seriesApi.generatePlan(id).catch((err) =>
+                  seriesApi.generatePlan(id, user?.preferred_model).catch((err) =>
                     console.error('Plan generation failed:', err)
                   );
                 }}

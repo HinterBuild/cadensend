@@ -3,15 +3,18 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
-import { authApi } from '@/lib/api';
-import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock } from 'lucide-react';
+import { authApi, modelsApi, OpenRouterModel } from '@/lib/api';
+import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, Sparkles } from 'lucide-react';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
-  const { logout } = useAuth();
+  const { logout, refreshUser } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [timezone, setTimezone] = useState('');
+  const [preferredModel, setPreferredModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
+  const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -25,8 +28,20 @@ export default function SettingsPage() {
       setName(user.name || '');
       setEmail(user.email || '');
       setTimezone(user.timezone || 'UTC');
+      setPreferredModel(user.preferred_model || '');
     }
   }, [user]);
+
+  useEffect(() => {
+    modelsApi.list().then((res) => {
+      setAvailableModels(res.models || []);
+      if (res.default_model) {
+        setDefaultModel(res.default_model);
+      }
+    }).catch(() => {
+      setAvailableModels([]);
+    });
+  }, []);
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -37,7 +52,9 @@ export default function SettingsPage() {
       await authApi.updateUser(user!.id, {
         name: name || undefined,
         timezone: timezone || undefined,
+        preferred_model: preferredModel,
       });
+      await refreshUser();
       setSuccess('Settings updated successfully.');
     } catch (err: any) {
       setError(err.message || 'Failed to update settings.');
@@ -193,6 +210,33 @@ export default function SettingsPage() {
                     <option value="Asia/Tokyo">Asia/Tokyo</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="ai-model" className="block text-sm font-medium text-gray-700 mb-2">
+                  AI model
+                </label>
+                <div className="relative">
+                  <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
+                  <select
+                    id="ai-model"
+                    value={preferredModel === defaultModel ? '' : preferredModel}
+                    onChange={(e) => setPreferredModel(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                  >
+                    <option value="">Default ({defaultModel})</option>
+                    {availableModels
+                      .filter((model) => model.id !== defaultModel)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Used for curriculum planning, series, issues, and visuals via OpenRouter. Leave as default to use {defaultModel}.
+                </p>
               </div>
 
               <div className="flex justify-end">

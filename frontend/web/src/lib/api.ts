@@ -56,7 +56,7 @@ export const authApi = {
    getUser: (userId: string) =>
     fetchApi<{ data: User }>(`/users/${userId}`),
 
-   updateUser: (userId: string, updates: { name?: string; timezone?: string }) =>
+   updateUser: (userId: string, updates: { name?: string; timezone?: string; preferred_model?: string }) =>
     fetchApi<{ data: User }>(`/users/${userId}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
@@ -86,9 +86,10 @@ export const seriesApi = {
       body: JSON.stringify(updates),
     }),
 
-  generatePlan: (id: string) =>
+  generatePlan: (id: string, model?: string) =>
     fetchApi(`/series/${id}/plan`, {
       method: 'POST',
+      body: JSON.stringify(model ? { model } : {}),
     }),
 
   getIssues: (id: string) =>
@@ -185,4 +186,16 @@ export const sourceApi = {
 export const operationsApi = {
   get: (id: string) =>
     fetchApi(`/operations/${id}`),
+};
+
+export type OpenRouterModel = {
+  id: string;
+  name: string;
+  is_default?: boolean;
+};
+
+export const modelsApi = {
+  list: () =>
+    fetchApi<{ default_model: string; models: OpenRouterModel[] }>('/models'),
+};
 };

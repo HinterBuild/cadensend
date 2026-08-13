@@ -18,6 +18,7 @@ class PlanGenerateRequest(BaseModel):
     brief: Dict[str, Any]
     workspace_id: str = Field(..., description="Workspace identifier for RAG isolation")
     series_id: Optional[str] = Field(None, description="Optional series identifier")
+    model: Optional[str] = Field(None, description="OpenRouter model id; defaults to DEFAULT_MODEL")
 
 
 class PlanGenerateResponse(BaseModel):
@@ -39,6 +40,7 @@ async def generate_plan(series_id: str, request: PlanGenerateRequest):
             brief=request.brief,
             workspace_id=request.workspace_id,
             series_id=series_id,
+            model=request.model,
         )
 
         return PlanGenerateResponse(
@@ -76,6 +78,7 @@ async def generate_plan_stream(series_id: str, request: PlanGenerateRequest):
                 "citations": [],
                 "visual_specs": [],
                 "memory_context": [],
+                "model": agent.model_service.resolve_model(request.model or request.brief.get("model")),
             }
 
             async for event in compiled.astream_events(

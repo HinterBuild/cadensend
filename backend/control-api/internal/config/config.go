@@ -49,6 +49,9 @@ type Config struct {
 	EnableSignup       bool
 	EnableMagicLink    bool
 	RequireEmailVerify bool
+
+	// OpenRouter
+	DefaultModel string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -75,6 +78,7 @@ func LoadConfig() *Config {
 		EnableSignup:       getEnvBool("ENABLE_SIGNUP", true),
 		EnableMagicLink:    getEnvBool("ENABLE_MAGIC_LINK", true),
 		RequireEmailVerify: getEnvBool("REQUIRE_EMAIL_VERIFY", false),
+		DefaultModel:       getEnv("DEFAULT_MODEL", "poolside/laguna-s-2.1:free"),
 	}
 
 	// Parse JWT expiry override

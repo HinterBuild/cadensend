@@ -13,7 +13,7 @@ def test_create_visual_spec_mermaid():
 
     # Mock model service
     mock_model = Mock()
-    mock_model.generate_response.return_value = "graph TD\n    A[Start] --> B[End]"
+    mock_model.generate_text.return_value = "graph TD\n    A[Start] --> B[End]"
 
     spec_input = VisualSpecInput(
         content_description="Simple flowchart",
@@ -45,7 +45,7 @@ def test_unsafe_content_rejected():
     service = VisualService()
 
     mock_model = Mock()
-    mock_model.generate_response.return_value = "<script>alert('xss')</script>"
+    mock_model.generate_text.return_value = "<script>alert('xss')</script>"
 
     with pytest.raises(ValueError) as exc:
         service.create_visual_spec(
@@ -67,7 +67,7 @@ def test_render_svg():
             diagram_type="mermaid"
         )
         mock_model = Mock()
-        mock_model.generate_response.return_value = "graph TD\n    A --> B"
+        mock_model.generate_text.return_value = "graph TD\n    A --> B"
 
         visual_spec = service.create_visual_spec(spec, mock_model)
         filepath = service.render_visual(visual_spec)

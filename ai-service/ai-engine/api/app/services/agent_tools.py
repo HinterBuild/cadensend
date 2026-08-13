@@ -9,7 +9,6 @@ import logging
 
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 from app.services.model_service import ModelService
 from app.rag.retrieval.retrieval import retrieval_service
@@ -158,9 +157,11 @@ Output the refined {diagram_type} code only.
 """
 
         if self.model_service:
-            result = self.model_service.generate_response([
-                {"role": "user", "content": prompt}
-            ], temperature=0.3, max_tokens=2000)
+            result = self.model_service.generate_text(
+                [{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2000,
+            )
         else:
             result = f"graph TD\n    A[{description[:50]}] --> B[Result]"
 

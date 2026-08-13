@@ -25,6 +25,7 @@ type User struct {
     UpdatedAt     time.Time  `json:"updated_at" gorm:"not null"`
     DeletedAt     *time.Time `json:"deleted_at,omitempty" gorm:"index"`
     EmailVerified bool       `json:"email_verified" gorm:"not null"`
+    PreferredModel string    `json:"preferred_model" gorm:"column:preferred_model"`
 }
 
 // MagicLinkToken model
@@ -319,7 +320,7 @@ func (s *UserService) UpdateUserEmailVerified(userID string) error {
 }
 
 // UpdateUser updates user profile information
-func (s *UserService) UpdateUser(userID string, name, timezone string) (*User, error) {
+func (s *UserService) UpdateUser(userID string, name, timezone string, preferredModel *string) (*User, error) {
 	var user User
 	if err := s.db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -335,10 +336,17 @@ func (s *UserService) UpdateUser(userID string, name, timezone string) (*User, e
 	if timezone != "" {
 		updates["timezone"] = timezone
 	}
+	if preferredModel != nil {
+		updates["preferred_model"] = *preferredModel
+	}
 	updates["updated_at"] = time.Now()
 
 	if err := s.db.Model(&user).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
 	}
 
 	return &user, nil

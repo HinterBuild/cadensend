@@ -167,6 +167,8 @@ func main() {
 			{
 				operations.GET("/:id", getOperationHandler(db))
 			}
+
+			api.GET("/models", listModelsHandler())
 		}
 
 		// Webhook endpoints (no auth)

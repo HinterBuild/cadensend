@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
 import { issueApi, seriesApi } from '@/lib/api';
 import { Issue } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function IssueEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { user } = useAuth();
   const [issue, setIssue] = useState<Issue | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,7 +53,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     if (!id) return;
     setGenerating(true);
     try {
-      await issueApi.generate(id, {});
+      await issueApi.generate(id, user?.preferred_model ? { model: user.preferred_model } : {});
     } catch (err: any) {
       setError(err.message || 'Failed to generate issue');
     } finally {

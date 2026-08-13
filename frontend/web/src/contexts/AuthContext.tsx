@@ -12,6 +12,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   sendMagicLink: (email: string) => Promise<void>;
   verifyMagicLink: (token: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -72,8 +73,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/dashboard');
   };
 
+  const refreshUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    await verifyToken(token);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, sendMagicLink, verifyMagicLink }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, sendMagicLink, verifyMagicLink, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

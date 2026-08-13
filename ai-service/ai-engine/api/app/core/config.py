@@ -26,9 +26,11 @@ class Settings(BaseSettings):
     MINIO_BUCKET_NAME: str = "cadensend"
     MINIO_SECURE: bool = False
     
-    # OpenRouter settings
+    # OpenRouter settings — the only LLM provider
     OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     DEFAULT_MODEL: str = "poolside/laguna-s-2.1:free"
+    EMBEDDING_MODEL: str = "nvidia/nemotron-3-embed-1b:free"
     
     # Redis settings
     REDIS_URL: str = "redis://localhost:6379/0"

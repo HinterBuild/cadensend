@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Save, Calendar, Clock, Send, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { seriesApi } from '@/lib/api';
+import { seriesApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 type FormValues = {
@@ -19,6 +19,7 @@ type FormValues = {
   sendTime: string;
   verifyRecipient: boolean;
   manualApproval: boolean;
+  model: string;
 };
 
 const steps = [
@@ -53,6 +54,8 @@ export default function CreateSeriesPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
+  const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
 
   const [formData, setFormData] = useState<FormValues>({
     topic: '',
@@ -66,12 +69,30 @@ export default function CreateSeriesPage() {
     sendTime: '09:00',
     verifyRecipient: true,
     manualApproval: true,
+    model: '',
   });
 
   const updateField = (field: keyof FormValues, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setError(null);
   };
+
+  useEffect(() => {
+    if (user?.preferred_model) {
+      setFormData((prev) => ({ ...prev, model: user.preferred_model || '' }));
+    }
+  }, [user?.preferred_model]);
+
+  useEffect(() => {
+    modelsApi.list().then((res) => {
+      setAvailableModels(res.models || []);
+      if (res.default_model) {
+        setDefaultModel(res.default_model);
+      }
+    }).catch(() => {
+      setAvailableModels([]);
+    });
+  }, []);
 
   const handleNext = () => {
     if (currentStep < steps.length) {
@@ -136,6 +157,7 @@ export default function CreateSeriesPage() {
         send_time: formData.sendTime,
         verify_recipient: formData.verifyRecipient,
         manual_approval: formData.manualApproval,
+        model: formData.model || undefined,
       });
       router.push('/dashboard');
     } catch (err: any) {
@@ -432,6 +454,30 @@ export default function CreateSeriesPage() {
         </fieldset>
       </div>
 
+      <div>
+        <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
+          AI model
+        </label>
+        <select
+          id="model"
+          value={formData.model === defaultModel ? '' : formData.model}
+          onChange={(e) => updateField('model', e.target.value)}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+        >
+          <option value="">Default ({defaultModel})</option>
+          {availableModels
+            .filter((model) => model.id !== defaultModel)
+            .map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          Optional. Leave as default to use the OpenRouter model from your environment and settings.
+        </p>
+      </div>
+
       <div className="bg-gray-50 rounded-lg p-6">
         <h3 className="text-sm font-medium text-gray-700 mb-4">Review your settings</h3>
         <div className="space-y-3 text-sm">
@@ -452,6 +498,10 @@ export default function CreateSeriesPage() {
           <div className="flex justify-between">
             <span className="text-gray-600">Cadence:</span>
             <span className="text-gray-900 font-medium">{formData.cadence}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">AI model:</span>
+            <span className="text-gray-900 font-medium">{formData.model || `Default (${defaultModel})`}</span>
           </div>
         </div>
       </div>

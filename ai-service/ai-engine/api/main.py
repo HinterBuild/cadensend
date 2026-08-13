@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.database import init_db, close_db
 from app.services.model_service import ModelService
 from app.services.checkpoint_backend import get_checkpoint_backend
-from app.api.routes import series_routes, issue_routes, source_routes, retrieval_routes, health_routes
+from app.api.routes import series_routes, issue_routes, source_routes, retrieval_routes, health_routes, models_routes
 
 import logging
 
@@ -72,6 +72,7 @@ async def root():
 
 # Include routers
 app.include_router(health_routes.router)
+app.include_router(models_routes.router, prefix="/v1")
 app.include_router(series_routes.router, prefix="/v1")
 app.include_router(issue_routes.router, prefix="/v1")
 app.include_router(source_routes.router, prefix="/v1")
