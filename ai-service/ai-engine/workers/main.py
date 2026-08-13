@@ -56,6 +56,7 @@ class AIWorker:
         checkpoint_backend = get_checkpoint_backend()
         await checkpoint_backend.setup()
 
+        logger.info("Connecting to Qdrant at %s", settings.QDRANT_URL)
         qdrant_service.ensure_collection()
 
         logger.info("AI Worker initialized with LangGraph agent")

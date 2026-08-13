@@ -8,6 +8,9 @@ from qdrant_client.http import models as rest
 from qdrant_client.http.models import Distance, VectorParams
 import hashlib
 import logging
+import time
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,29 +20,43 @@ COLLECTION_NAME = "newsletter_chunks_dense_v1"
 class QdrantService:
     """Service for interacting with Qdrant vector database."""
 
-    def __init__(self, qdrant_url: str = "http://localhost:6333", api_key: Optional[str] = None):
-        self.client = QdrantClient(url=qdrant_url, api_key=api_key)
-        self.collection_name = COLLECTION_NAME
+    def __init__(self, qdrant_url: Optional[str] = None, api_key: Optional[str] = None):
+        self.qdrant_url = qdrant_url or settings.QDRANT_URL
+        self.client = QdrantClient(url=self.qdrant_url, api_key=api_key or settings.QDRANT_API_KEY)
+        self.collection_name = settings.QDRANT_COLLECTION_NAME or COLLECTION_NAME
 
-    def ensure_collection(self, embedding_dim: int = 2048) -> bool:
-        """Create collection if it doesn't exist."""
-        collections = self.client.get_collections()
-        collection_names = [c.name for c in collections.collections]
+    def ensure_collection(self, embedding_dim: int = 2048, retries: int = 15, delay_seconds: float = 2.0) -> bool:
+        """Create collection if it doesn't exist, retrying until Qdrant is reachable."""
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                collections = self.client.get_collections()
+                collection_names = [c.name for c in collections.collections]
 
-        if self.collection_name not in collection_names:
-            self.client.recreate_collection(
-                collection_name=self.collection_name,
-                vectors=VectorParams(
-                    size=embedding_dim,
-                    distance=Distance.COSINE,
+                if self.collection_name not in collection_names:
+                    self.client.recreate_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(
+                            size=embedding_dim,
+                            distance=Distance.COSINE,
+                        )
+                    )
+                    logger.info("Created collection: %s", self.collection_name)
+                    self._create_payload_indexes()
+
+                return True
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Qdrant not ready at %s (attempt %d/%d): %s",
+                    self.qdrant_url,
+                    attempt,
+                    retries,
+                    e,
                 )
-            )
-            logger.info("Created collection: %s", self.collection_name)
+                time.sleep(delay_seconds)
 
-            # Create payload indexes
-            self._create_payload_indexes()
-
-        return True
+        raise last_error or RuntimeError("Failed to connect to Qdrant")
 
     def _create_payload_indexes(self):
         """Create payload indexes for efficient filtering."""

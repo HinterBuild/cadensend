@@ -127,18 +127,18 @@ class IngestionWorker:
 			await self._update_source_version_status(version.id, STATUS_FETCHING)
 			await self._update_source_version_status(version.id, STATUS_PARSING)
 
-            await self._update_source_version_status(version.id, STATUS_CHUNKING)
-            await self._update_source_status(source.id, STATUS_CHUNKING)
+			await self._update_source_version_status(version.id, STATUS_CHUNKING)
+			await self._update_source_status(source.id, STATUS_CHUNKING)
 			chunks = chunking_service.chunk_document(parsed_text)
 			self._annotate_chunks(chunks, workspace_id, series_id, source.id, version.id, source_type)
 
-            await self._update_source_version_status(version.id, STATUS_EMBEDDING)
-            await self._update_source_status(source.id, STATUS_EMBEDDING)
+			await self._update_source_version_status(version.id, STATUS_EMBEDDING)
+			await self._update_source_status(source.id, STATUS_EMBEDDING)
 			texts = [chunk["content"] for chunk in chunks]
 			embeddings = self.model_service.get_embeddings(texts)
 
-            await self._update_source_version_status(version.id, STATUS_INDEXING)
-            await self._update_source_status(source.id, STATUS_INDEXING)
+			await self._update_source_version_status(version.id, STATUS_INDEXING)
+			await self._update_source_status(source.id, STATUS_INDEXING)
 			qdrant_service.upsert_chunks(chunks, embeddings)
 
 			await self._update_source_version_status(version.id, STATUS_READY)

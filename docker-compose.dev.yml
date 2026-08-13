@@ -138,7 +138,12 @@ services:
     volumes:
       - ./ai-service/ai-engine:/app/ai-engine
     depends_on:
-      - ai-engine
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
 
   frontend:
     build:

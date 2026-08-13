@@ -94,3 +94,30 @@ func AutoMigrate(models ...interface{}) error {
     
     return dbInstance.AutoMigrate(models...)
 }
+
+// EnsureAppSchema applies additive column changes that initdb scripts miss
+// on existing Postgres volumes.
+func EnsureAppSchema() error {
+    if dbInstance == nil {
+        Init("")
+    }
+
+    statements := []string{
+        `ALTER TABLE sources ADD COLUMN IF NOT EXISTS series_id UUID`,
+        `CREATE INDEX IF NOT EXISTS idx_sources_series ON sources(series_id)`,
+        `ALTER TABLE sources ADD COLUMN IF NOT EXISTS ingest_error TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE issues ADD COLUMN IF NOT EXISTS content_json JSONB`,
+        `ALTER TABLE issues ADD COLUMN IF NOT EXISTS generate_error TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE series ADD COLUMN IF NOT EXISTS plan_status VARCHAR(50) NOT NULL DEFAULT ''`,
+        `ALTER TABLE series ADD COLUMN IF NOT EXISTS plan_json JSONB`,
+        `ALTER TABLE series ADD COLUMN IF NOT EXISTS plan_error TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_model TEXT NOT NULL DEFAULT ''`,
+    }
+
+    for _, stmt := range statements {
+        if err := dbInstance.Exec(stmt).Error; err != nil {
+            return fmt.Errorf("%s: %w", stmt, err)
+        }
+    }
+    return nil
+}

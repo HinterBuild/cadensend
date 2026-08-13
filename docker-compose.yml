@@ -126,6 +126,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      qdrant:
+        condition: service_started
       ai-engine-api:
         condition: service_started
 

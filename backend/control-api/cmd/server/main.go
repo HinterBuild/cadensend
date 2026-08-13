@@ -55,7 +55,7 @@ func init() {
 	db = database.Get()
 
 	// Auto-migrate models
-	database.AutoMigrate(
+	if err := database.AutoMigrate(
 		&service.User{},
 		&service.MagicLinkToken{},
 		&service.Workspace{},
@@ -65,7 +65,13 @@ func init() {
 		&service.Schedule{},
 		&service.Delivery{},
 		&service.Recipient{},
-	)
+	); err != nil {
+		log.Println("AutoMigrate warning:", err)
+	}
+
+	if err := database.EnsureAppSchema(); err != nil {
+		log.Println("EnsureAppSchema warning:", err)
+	}
 
 	log.Println("Database models migrated")
 }

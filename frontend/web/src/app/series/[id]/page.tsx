@@ -94,13 +94,27 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       const seriesRes = await seriesApi.get(id);
       setSeries(seriesRes.data);
 
-      const issuesRes = await seriesApi.getIssues(id);
-      setIssues(issuesRes.data ?? []);
+      try {
+        const issuesRes = await seriesApi.getIssues(id);
+        setIssues(issuesRes.data ?? []);
+      } catch (err) {
+        console.error('Failed to load issues:', err);
+        setIssues([]);
+      }
 
-      const sourcesRes = await seriesApi.getSources(id);
-      setSources(sourcesRes.data ?? []);
+      try {
+        const sourcesRes = await seriesApi.getSources(id);
+        setSources(sourcesRes.data ?? []);
+      } catch (err) {
+        console.error('Failed to load sources:', err);
+        setSources([]);
+      }
 
-      await refreshPlan();
+      try {
+        await refreshPlan();
+      } catch (err) {
+        console.error('Failed to load plan:', err);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load series data');
     } finally {
