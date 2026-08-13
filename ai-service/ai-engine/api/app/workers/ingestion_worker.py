@@ -87,23 +87,25 @@ class IngestionWorker:
 		logger.info("Ingestion worker stopped")
 
 	async def process_url_source(
-		self, url: str, workspace_id: str, series_id: Optional[str] = None
+		self, url: str, workspace_id: str, series_id: Optional[str] = None, source_id: Optional[str] = None
 	) -> Dict[str, Any]:
 		"""Process a URL source for ingestion."""
 		logger.info("Processing URL source: %s", url)
-		source = await self._create_source_record(url, workspace_id, series_id, "website")
+		source = await self._create_source_record(url, workspace_id, series_id, "website", source_id)
+		await self._update_source_status(source.id, STATUS_FETCHING)
 		parsed_text = await self._fetch_url(url)
 		parsed_text = self._parse_html(parsed_text)
 		return await self._process_source_content(source, workspace_id, series_id, "website", parsed_text)
 
 	async def process_file_source(
-		self, content: bytes, filename: str, workspace_id: str, series_id: Optional[str] = None
+		self, content: bytes, filename: str, workspace_id: str, series_id: Optional[str] = None, source_id: Optional[str] = None
 	) -> Dict[str, Any]:
 		"""Process a file source for ingestion."""
 		ext = "." + filename.split(".")[-1].lower()
 		parser_type = SUPPORTED_EXTENSIONS.get(ext, "text")
 		logger.info("Processing file source: %s (type: %s)", filename, parser_type)
-		source = await self._create_source_record(filename, workspace_id, series_id, parser_type)
+		source = await self._create_source_record(filename, workspace_id, series_id, parser_type, source_id)
+		await self._update_source_status(source.id, STATUS_PARSING)
 		parsed_text = self._parse_file(content, parser_type, filename)
 		return await self._process_source_content(source, workspace_id, series_id, parser_type, parsed_text)
 
@@ -125,15 +127,18 @@ class IngestionWorker:
 			await self._update_source_version_status(version.id, STATUS_FETCHING)
 			await self._update_source_version_status(version.id, STATUS_PARSING)
 
-			await self._update_source_version_status(version.id, STATUS_CHUNKING)
+            await self._update_source_version_status(version.id, STATUS_CHUNKING)
+            await self._update_source_status(source.id, STATUS_CHUNKING)
 			chunks = chunking_service.chunk_document(parsed_text)
 			self._annotate_chunks(chunks, workspace_id, series_id, source.id, version.id, source_type)
 
-			await self._update_source_version_status(version.id, STATUS_EMBEDDING)
+            await self._update_source_version_status(version.id, STATUS_EMBEDDING)
+            await self._update_source_status(source.id, STATUS_EMBEDDING)
 			texts = [chunk["content"] for chunk in chunks]
 			embeddings = self.model_service.get_embeddings(texts)
 
-			await self._update_source_version_status(version.id, STATUS_INDEXING)
+            await self._update_source_version_status(version.id, STATUS_INDEXING)
+            await self._update_source_status(source.id, STATUS_INDEXING)
 			qdrant_service.upsert_chunks(chunks, embeddings)
 
 			await self._update_source_version_status(version.id, STATUS_READY)
@@ -148,7 +153,7 @@ class IngestionWorker:
 
 		except Exception as e:
 			logger.error("Source ingestion failed for %s: %s", source.identifier, e)
-			await self._update_source_status(source.id, STATUS_FAILED)
+			await self._update_source_status(source.id, STATUS_FAILED, str(e))
 			raise
 
 	def _annotate_chunks(
@@ -201,11 +206,11 @@ class IngestionWorker:
 			return content.decode("utf-8", errors="replace")
 
 	async def _create_source_record(
-		self, identifier: str, workspace_id: str, series_id: Optional[str], source_type: str
+		self, identifier: str, workspace_id: str, series_id: Optional[str], source_type: str, source_id: Optional[str] = None
 	) -> SourceRecord:
 		"""Create a source record."""
 		return SourceRecord(
-			id=str(uuid.uuid4()),
+			id=source_id or str(uuid.uuid4()),
 			workspace_id=workspace_id,
 			series_id=series_id,
 			identifier=identifier,
@@ -224,9 +229,33 @@ class IngestionWorker:
 		"""Update source version status."""
 		logger.info("Source version %s status: %s", version_id, status)
 
-	async def _update_source_status(self, source_id: str, status: str):
-		"""Update source status."""
+	async def _update_source_status(self, source_id: str, status: str, error: str = ""):
+		"""Update source status in Postgres so the UI can poll progress."""
 		logger.info("Source %s status: %s", source_id, status)
+		if not source_id:
+			return
+		dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+		try:
+			import asyncpg
+
+			conn = await asyncpg.connect(dsn)
+			try:
+				await conn.execute(
+					"""
+					UPDATE sources
+					SET status = $1,
+					    ingest_error = $2,
+					    updated_at = NOW()
+					WHERE id = $3::uuid
+					""",
+					status,
+					error,
+					source_id,
+				)
+			finally:
+				await conn.close()
+		except Exception as persist_error:
+			logger.error("Failed to persist source status: %s", persist_error)
 
 
 def get_ingestion_worker() -> IngestionWorker:

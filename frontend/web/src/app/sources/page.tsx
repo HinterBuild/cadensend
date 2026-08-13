@@ -10,7 +10,11 @@ export default function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [addMethod, setAddMethod] = useState('url');
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const [urlValue, setUrlValue] = useState('');
+  const [fileValue, setFileValue] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
+  const dialogRef = useRef<HTMLFormElement>(null);
   const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusableRef = useRef<HTMLButtonElement | null>(null);
 
@@ -46,25 +50,63 @@ export default function SourcesPage() {
     };
   }, [showAddDialog]);
 
-  const loadSources = async () => {
-    setLoading(true);
+  const loadSources = async (showSpinner = true) => {
+    if (showSpinner) {
+      setLoading(true);
+    }
     try {
       const response = await sourceApi.list();
       setSources(response.data ?? []);
     } catch (err) {
       console.error('Failed to load sources:', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
-  const submitUrlSource = async (url: string) => {
+  const sourcesBusy = sources.some((source) =>
+    ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
+  );
+
+  useEffect(() => {
+    if (!sourcesBusy) {
+      return;
+    }
+    const timer = setInterval(() => {
+      loadSources(false);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [sourcesBusy]);
+
+  const handleAddSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
     try {
-      await sourceApi.submitUrl(url, 'url', 'workspace');
+      setSaving(true);
+      if (addMethod === 'file') {
+        if (!fileValue) {
+          setFormError('Choose a file to upload');
+          return;
+        }
+        await sourceApi.upload(fileValue, 'workspace');
+      } else {
+        const url = urlValue.trim();
+        if (!url) {
+          setFormError('Enter a URL');
+          return;
+        }
+        await sourceApi.submitUrl(url, 'url', 'workspace');
+      }
       setShowAddDialog(false);
-      loadSources();
-    } catch (err) {
-      console.error('Failed to add URL source:', err);
+      setUrlValue('');
+      setFileValue(null);
+      loadSources(false);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to add source');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -114,6 +156,18 @@ export default function SourcesPage() {
             </button>
           </div>
         ) : (
+          <>
+            {sourcesBusy && (
+              <div className="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-700" aria-hidden="true"></div>
+                  <div>
+                    <p className="text-sm font-medium text-yellow-900">Ingesting sources</p>
+                    <p className="text-sm text-yellow-800">The backend is working on this. You can leave this page and come back.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           <div className="grid gap-4">
             {sources.map((source) => (
               <div key={source.id} className="bg-white rounded-lg shadow p-4">
@@ -121,23 +175,32 @@ export default function SourcesPage() {
                   <div>
                     <h3 className="font-medium text-gray-900">{source.url || 'File source'}</h3>
                     <p className="text-sm text-gray-600">{source.type}</p>
+                    {source.status === 'failed' && source.ingest_error && (
+                      <p className="mt-1 text-sm text-red-600">{source.ingest_error}</p>
+                    )}
                   </div>
                   <span
-                    className={`px-2 py-1 text-xs rounded-full ${
+                    className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
                       source.status === 'ready'
                         ? 'bg-green-100 text-green-800'
-                        : source.status === 'pending'
+                        : source.status === 'failed'
+                        ? 'bg-red-100 text-red-800'
+                        : ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
                         ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-800'
                     }`}
                     aria-label={`Source status: ${source.status}`}
                   >
-                    {source.status}
+                    {['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) && (
+                      <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
+                    )}
+                    {source.status === 'pending' || source.status === 'ingesting' ? 'In progress' : source.status}
                   </span>
                 </div>
               </div>
             ))}
           </div>
+          </>
         )}
 
         {/* Add Source Dialog */}
@@ -149,12 +212,10 @@ export default function SourcesPage() {
             aria-label="Add Source"
             aria-labelledby="dialog-title"
           >
-            <div
-              ref={dialogRef}
-              className="bg-white rounded-lg p-8 w-full max-w-md"
-            >
+            <form onSubmit={handleAddSource} ref={dialogRef} className="bg-white rounded-lg p-8 w-full max-w-md">
               <h3 id="dialog-title" className="text-lg font-semibold mb-4">Add Source</h3>
-              <div className="space-y-3 mb-6">
+              {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
+              <div className="space-y-3 mb-4">
                 <button
                   ref={firstFocusableRef}
                   type="button"
@@ -167,7 +228,6 @@ export default function SourcesPage() {
                   <span>From URL</span>
                 </button>
                 <button
-                  ref={lastFocusableRef}
                   type="button"
                   onClick={() => setAddMethod('file')}
                   className={`w-full p-3 border rounded-lg flex items-center gap-3 ${
@@ -178,6 +238,22 @@ export default function SourcesPage() {
                   <span>Upload File</span>
                 </button>
               </div>
+              {addMethod === 'url' ? (
+                <input
+                  type="url"
+                  value={urlValue}
+                  onChange={(e) => setUrlValue(e.target.value)}
+                  placeholder="https://example.com/article"
+                  className="w-full mb-6 px-3 py-2 border border-gray-300 rounded-lg"
+                  required
+                />
+              ) : (
+                <input
+                  type="file"
+                  onChange={(e) => setFileValue(e.target.files?.[0] ?? null)}
+                  className="w-full mb-6 text-sm"
+                />
+              )}
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
@@ -187,14 +263,15 @@ export default function SourcesPage() {
                   Cancel
                 </button>
                 <button
-                  type="button"
-                  onClick={() => submitUrlSource('https://example.com')}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                  ref={lastFocusableRef}
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
                 >
-                  Add
+                  {saving ? 'Adding...' : 'Add'}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         )}
       </main>

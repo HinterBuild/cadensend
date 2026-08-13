@@ -23,20 +23,25 @@ async function proxyRequest(request: NextRequest) {
   const path = url.pathname.replace('/api/v1/', '')
   const targetUrl = `${BACKEND_URL}/v1/${path}`
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
+  const incomingContentType = request.headers.get('content-type') || ''
+  const headers: Record<string, string> = {}
 
   const authHeader = request.headers.get('authorization')
   if (authHeader) {
     headers['Authorization'] = authHeader
   }
 
-  let body: string | undefined
+  let body: BodyInit | undefined
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    const bodyJson = await request.json().catch(() => null)
-    if (bodyJson) {
-      body = JSON.stringify(bodyJson)
+    if (incomingContentType.includes('multipart/form-data')) {
+      headers['Content-Type'] = incomingContentType
+      body = await request.arrayBuffer()
+    } else {
+      headers['Content-Type'] = 'application/json'
+      const bodyJson = await request.json().catch(() => null)
+      if (bodyJson) {
+        body = JSON.stringify(bodyJson)
+      }
     }
   }
 

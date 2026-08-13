@@ -1,0 +1,3 @@
+ALTER TABLE series DROP COLUMN IF EXISTS plan_error;
+ALTER TABLE series DROP COLUMN IF EXISTS plan_json;
+ALTER TABLE series DROP COLUMN IF EXISTS plan_status;

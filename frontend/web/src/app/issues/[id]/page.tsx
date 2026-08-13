@@ -4,8 +4,41 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
 import { issueApi, seriesApi } from '@/lib/api';
-import { Issue } from '@/types';
+import { Issue, ContentBlock } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+
+function parseIssueContent(issue: Issue): {
+  subject: string;
+  preheader: string;
+  blocks: Array<{ id: string; type: string; title?: string; text: string }>;
+} {
+  const raw = issue.content_json;
+  let parsed: Record<string, any> | null = null;
+  if (raw && typeof raw === 'object') {
+    parsed = raw as Record<string, any>;
+  } else if (typeof raw === 'string' && raw) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  const blocks = Array.isArray(parsed?.content_blocks)
+    ? parsed.content_blocks.map((block: ContentBlock & { id?: string }, index: number) => ({
+        id: block.id || `block-${index}`,
+        type: block.type || 'markdown',
+        title: block.title,
+        text: block.text || '',
+      }))
+    : [];
+
+  return {
+    subject: parsed?.subject || issue.objective || '',
+    preheader: parsed?.preheader || '',
+    blocks,
+  };
+}
 
 export default function IssueEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -37,11 +70,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       const response = await issueApi.get(id);
       const issueData = response.data;
       setIssue(issueData);
-      setContent({
-        subject: issueData.objective || '',
-        preheader: '',
-        blocks: [],
-      });
+      setContent(parseIssueContent(issueData));
     } catch (err: any) {
       setError(err.message || 'Failed to load issue');
     } finally {
@@ -49,14 +78,34 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     }
   };
 
+  useEffect(() => {
+    if (!id || issue?.status !== 'generating') {
+      return;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const response = await issueApi.get(id);
+        setIssue(response.data);
+        if (response.data.status !== 'generating') {
+          setContent(parseIssueContent(response.data));
+          setGenerating(false);
+        }
+      } catch (err) {
+        console.error('Failed to refresh issue status:', err);
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [id, issue?.status]);
+
   const generateIssue = async () => {
     if (!id) return;
     setGenerating(true);
+    setError(null);
     try {
       await issueApi.generate(id, user?.preferred_model ? { model: user.preferred_model } : {});
+      setIssue((current) => (current ? { ...current, status: 'generating' } : current));
     } catch (err: any) {
       setError(err.message || 'Failed to generate issue');
-    } finally {
       setGenerating(false);
     }
   };
@@ -104,7 +153,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  if (error) {
+  if (error && !issue) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -141,13 +190,17 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                     ? 'bg-green-100 text-green-800'
                     : issue?.status === 'sent'
                     ? 'bg-purple-100 text-purple-800'
-                    : issue?.status === 'pending'
+                    : issue?.status === 'ready'
+                    ? 'bg-green-100 text-green-800'
+                    : issue?.status === 'failed'
+                    ? 'bg-red-100 text-red-800'
+                    : issue?.status === 'generating' || issue?.status === 'pending'
                     ? 'bg-yellow-100 text-yellow-800'
                     : 'bg-gray-100 text-gray-800'
                 }`}
                 aria-label={`Issue status: ${issue?.status}`}
               >
-                {issue?.status}
+                {issue?.status === 'generating' ? 'Generating' : issue?.status}
               </span>
             </div>
           </div>
@@ -155,6 +208,27 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       </header>
 
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {(issue?.status === 'generating' || generating) && (
+          <div className="mb-6 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
+            <div className="flex items-center gap-3">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-700" aria-hidden="true"></div>
+              <div>
+                <p className="text-sm font-medium text-yellow-900">Generating issue content</p>
+                <p className="text-sm text-yellow-800">The backend is working on this. You can leave this page and come back.</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {issue?.status === 'failed' && (
+          <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4" role="alert">
+            <p className="text-sm text-red-700">{issue.generate_error || error || 'Issue generation failed.'}</p>
+          </div>
+        )}
+        {error && issue && issue.status !== 'failed' && (
+          <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4" role="alert">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Issue Editor</h2>
           <div className="flex space-x-2">
@@ -172,11 +246,11 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               type="button"
               aria-label="Generate with AI"
               onClick={generateIssue}
-              disabled={generating}
+              disabled={generating || issue?.status === 'generating'}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-purple-500"
             >
-              {generating ? 'Generating...' : 'Generate with AI'}
-              {!generating && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+              {(generating || issue?.status === 'generating') ? 'Generating...' : (issue?.status === 'ready' || issue?.status === 'failed' ? 'Regenerate with AI' : 'Generate with AI')}
+              {!(generating || issue?.status === 'generating') && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
             </button>
             {issue?.status !== 'approved' && issue?.status !== 'sent' && (
               <button

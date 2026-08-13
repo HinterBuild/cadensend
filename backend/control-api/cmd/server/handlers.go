@@ -2,13 +2,18 @@
 package main
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -21,8 +26,15 @@ const (
 	SeriesStatusDraft   = "draft"
 	SeriesStatusActive  = "active"
 	SeriesStatusPaused  = "paused"
-	IssueStatusApproved = "approved"
-	SourceStatusPending = "pending"
+	IssueStatusPending    = "pending"
+	IssueStatusGenerating = "generating"
+	IssueStatusReady      = "ready"
+	IssueStatusFailed     = "failed"
+	IssueStatusApproved   = "approved"
+	SourceStatusPending   = "pending"
+	SourceStatusIngesting = "ingesting"
+	SourceStatusReady     = "ready"
+	SourceStatusFailed    = "failed"
 )
 
 // createSeriesHandler creates a new series
@@ -165,24 +177,91 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 			Model string `json:"model"`
 		}
 		_ = c.ShouldBindJSON(&req)
+
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+
+		if series.PlanStatus == "generating" {
+			c.JSON(http.StatusOK, gin.H{
+				"status":    "generating",
+				"series_id": id,
+				"message":   "plan generation already in progress",
+			})
+			return
+		}
+
 		model := req.Model
 		if model == "" {
 			model = cfg.DefaultModel
 		}
 
-		plan := &service.SeriesPlan{
-			ID:       uuid.NewString(),
-			SeriesID: id,
-			Version:  1,
-			Curriculum: service.Curriculum{
-				Objective: "Learn the fundamentals",
-				Outline:   []string{"Week 1: Introduction", "Week 2: Deep Dive", "Week 3: Advanced Topics", "Week 4: Capstone"},
+		job, err := json.Marshal(map[string]interface{}{
+			"task":         "generate_plan",
+			"series_id":    series.ID,
+			"workspace_id": series.WorkspaceID,
+			"model":        model,
+			"brief": map[string]interface{}{
+				"topic": series.Topic,
+				"goal":  series.Goal,
+				"level": series.Level,
+				"model": model,
 			},
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
+			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"data": plan, "model": model})
+		addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+		rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
+		defer rdb.Close()
+
+		if err := rdb.RPush(context.Background(), "generation_queue", job).Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
+			return
+		}
+
+		if err := db.Model(&series).Updates(map[string]interface{}{
+			"plan_status": "generating",
+			"plan_error":  "",
+			"updated_at":  time.Now(),
+		}).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":    "generating",
+			"series_id": id,
+			"model":     model,
+			"message":   "plan generation started",
+		})
+	}
+}
+
+func getPlanHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+
+		var plan any
+		if series.PlanJSON != nil && *series.PlanJSON != "" {
+			_ = json.Unmarshal([]byte(*series.PlanJSON), &plan)
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":    series.PlanStatus,
+			"series_id": series.ID,
+			"plan":      plan,
+			"error":     series.PlanError,
+		})
 	}
 }
 
@@ -198,6 +277,86 @@ func listIssuesHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"data": issues})
+	}
+}
+
+func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		seriesID := c.Param("id")
+		var req struct {
+			Objective   string `json:"objective"`
+			ScheduledAt string `json:"scheduled_at"`
+			Model       string `json:"model"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", seriesID).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+
+		var maxSeq int
+		db.Model(&service.Issue{}).
+			Where("series_id = ? AND deleted_at IS NULL", seriesID).
+			Select("COALESCE(MAX(sequence_no), 0)").
+			Scan(&maxSeq)
+
+		objective := strings.TrimSpace(req.Objective)
+		if objective == "" {
+			objective = fmt.Sprintf("Issue %d", maxSeq+1)
+		}
+
+		issue := &service.Issue{
+			ID:         uuid.NewString(),
+			SeriesID:   seriesID,
+			SequenceNo: maxSeq + 1,
+			Objective:  objective,
+			Status:     IssueStatusGenerating,
+			CreatedBy:  c.GetString("user_id"),
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		}
+		if req.ScheduledAt != "" {
+			if parsed, err := time.Parse(time.RFC3339, req.ScheduledAt); err == nil {
+				issue.ScheduledAt = &parsed
+			} else if parsed, err := time.Parse("2006-01-02", req.ScheduledAt); err == nil {
+				issue.ScheduledAt = &parsed
+			}
+		}
+
+		if err := db.Create(issue).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := queueIssueGeneration(&series, issue, req.Model); err != nil {
+			db.Model(issue).Updates(map[string]interface{}{
+				"status":         IssueStatusFailed,
+				"generate_error": err.Error(),
+				"updated_at":     time.Now(),
+			})
+			issue.Status = IssueStatusFailed
+			issue.GenerateError = err.Error()
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{"data": issue})
+	}
+}
+
+func listSeriesSourcesHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		seriesID := c.Param("id")
+		var srcs []service.Source
+		if err := db.Where("series_id = ? AND deleted_at IS NULL", seriesID).
+			Order("created_at DESC").Find(&srcs).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": srcs})
 	}
 }
 
@@ -467,12 +626,78 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			Model string `json:"model"`
 		}
 		_ = c.ShouldBindJSON(&req)
-		model := req.Model
-		if model == "" {
-			model = cfg.DefaultModel
+
+		var issue service.Issue
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "issue generation started", "issue_id": id, "model": model})
+		if issue.Status == IssueStatusGenerating {
+			c.JSON(http.StatusOK, gin.H{
+				"status":   "generating",
+				"issue_id": id,
+				"message":  "issue generation already in progress",
+			})
+			return
+		}
+
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", issue.SeriesID).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+
+		db.Model(&issue).Updates(map[string]interface{}{
+			"status":         IssueStatusGenerating,
+			"generate_error": "",
+			"updated_at":     time.Now(),
+		})
+
+		if err := queueIssueGeneration(&series, &issue, req.Model); err != nil {
+			db.Model(&issue).Updates(map[string]interface{}{
+				"status":         IssueStatusFailed,
+				"generate_error": err.Error(),
+				"updated_at":     time.Now(),
+			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":   "generating",
+			"issue_id": id,
+			"message":  "issue generation started",
+		})
 	}
+}
+
+func queueIssueGeneration(series *service.Series, issue *service.Issue, model string) error {
+	if model == "" {
+		model = cfg.DefaultModel
+	}
+	job, err := json.Marshal(map[string]interface{}{
+		"task":          "generate_issue",
+		"issue_id":      issue.ID,
+		"series_id":     series.ID,
+		"workspace_id":  series.WorkspaceID,
+		"issue_number":  issue.SequenceNo,
+		"model":         model,
+		"brief": map[string]interface{}{
+			"topic":     series.Topic,
+			"goal":      series.Goal,
+			"level":     series.Level,
+			"objective": issue.Objective,
+			"model":     model,
+		},
+		"plan_item": map[string]interface{}{
+			"title":              issue.Objective,
+			"learning_objectives": []string{issue.Objective},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return enqueueGenerationJob(job)
 }
 
 func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
@@ -528,13 +753,32 @@ func uploadSourceHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		workspaceID := c.GetString("workspace_id")
+		seriesID := c.PostForm("series_id")
+		scope := c.PostForm("scope")
+		if seriesID != "" {
+			var series service.Series
+			if err := db.Where("id = ? AND deleted_at IS NULL", seriesID).First(&series).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+				return
+			}
+			workspaceID = series.WorkspaceID
+			if scope == "" {
+				scope = "series"
+			}
+		}
+		if scope == "" {
+			scope = "workspace"
+		}
+
 		src := &service.Source{
 			ID:          uuid.NewString(),
-			WorkspaceID: c.GetString("workspace_id"),
-			Scope:       c.PostForm("scope"),
+			WorkspaceID: workspaceID,
+			Scope:       scope,
 			Type:        "file",
 			URL:         file.Filename,
-			Status:      SourceStatusPending,
+			SeriesID:    seriesID,
+			Status:      SourceStatusIngesting,
 			CreatedBy:   c.GetString("user_id"),
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
@@ -545,30 +789,83 @@ func uploadSourceHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusCreated, gin.H{"data": src})
+		opened, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read upload"})
+			return
+		}
+		defer opened.Close()
+		content, err := io.ReadAll(opened)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read upload"})
+			return
+		}
+
+		job, _ := json.Marshal(map[string]interface{}{
+			"task":         "ingest_source",
+			"source_type":  "file",
+			"filename":     file.Filename,
+			"content_b64":  base64.StdEncoding.EncodeToString(content),
+			"workspace_id": src.WorkspaceID,
+			"series_id":    src.SeriesID,
+			"source_id":    src.ID,
+		})
+		if err := enqueueGenerationJob(job); err != nil {
+			db.Model(src).Updates(map[string]interface{}{
+				"status":       SourceStatusFailed,
+				"ingest_error": err.Error(),
+				"updated_at":   time.Now(),
+			})
+			src.Status = SourceStatusFailed
+			src.IngestError = err.Error()
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{"data": src})
 	}
 }
 
 func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			URL   string `json:"url" binding:"required,url"`
-			Type  string `json:"type" binding:"required"`
-			Scope string `json:"scope"`
+			URL      string `json:"url" binding:"required,url"`
+			Type     string `json:"type"`
+			Scope    string `json:"scope"`
+			SeriesID string `json:"series_id"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if req.Type == "" {
+			req.Type = "url"
+		}
+		if req.Scope == "" {
+			if req.SeriesID != "" {
+				req.Scope = "series"
+			} else {
+				req.Scope = "workspace"
+			}
+		}
+
+		workspaceID := c.GetString("workspace_id")
+		if req.SeriesID != "" {
+			var series service.Series
+			if err := db.Where("id = ? AND deleted_at IS NULL", req.SeriesID).First(&series).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+				return
+			}
+			workspaceID = series.WorkspaceID
+		}
 
 		src := &service.Source{
 			ID:          uuid.NewString(),
-			WorkspaceID: c.GetString("workspace_id"),
+			WorkspaceID: workspaceID,
 			Scope:       req.Scope,
 			Type:        req.Type,
 			URL:         req.URL,
-			Status:      SourceStatusPending,
+			SeriesID:    req.SeriesID,
+			Status:      SourceStatusIngesting,
 			CreatedBy:   c.GetString("user_id"),
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
@@ -579,8 +876,33 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusCreated, gin.H{"data": src})
+		job, _ := json.Marshal(map[string]interface{}{
+			"task":         "ingest_source",
+			"source_type":  "url",
+			"url":          src.URL,
+			"workspace_id": src.WorkspaceID,
+			"series_id":    src.SeriesID,
+			"source_id":    src.ID,
+		})
+		if err := enqueueGenerationJob(job); err != nil {
+			db.Model(src).Updates(map[string]interface{}{
+				"status":       SourceStatusFailed,
+				"ingest_error": err.Error(),
+				"updated_at":   time.Now(),
+			})
+			src.Status = SourceStatusFailed
+			src.IngestError = err.Error()
+		}
+
+		c.JSON(http.StatusAccepted, gin.H{"data": src})
 	}
+}
+
+func enqueueGenerationJob(job []byte) error {
+	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+	rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
+	defer rdb.Close()
+	return rdb.RPush(context.Background(), "generation_queue", job).Err()
 }
 
 func listSourcesHandler(db *gorm.DB) gin.HandlerFunc {

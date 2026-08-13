@@ -8,10 +8,11 @@ async function fetchApi<T>(
 ): Promise<T> {
   const url = `/api/v1${endpoint}`;
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
-  const defaultHeaders: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
+  const defaultHeaders: HeadersInit = isFormData
+    ? {}
+    : { 'Content-Type': 'application/json' };
 
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
@@ -87,13 +88,30 @@ export const seriesApi = {
     }),
 
   generatePlan: (id: string, model?: string) =>
-    fetchApi(`/series/${id}/plan`, {
+    fetchApi<{ status: string; series_id: string; message?: string }>(`/series/${id}/plan`, {
       method: 'POST',
       body: JSON.stringify(model ? { model } : {}),
     }),
 
+  getPlan: (id: string) =>
+    fetchApi<{
+      status: string;
+      series_id: string;
+      plan: Record<string, unknown> | null;
+      error?: string;
+    }>(`/series/${id}/plan`),
+
   getIssues: (id: string) =>
     fetchApi<{ data: Issue[] }>(`/series/${id}/issues`),
+
+  createIssue: (id: string, payload: { objective: string; scheduled_at?: string; model?: string }) =>
+    fetchApi<{ data: Issue }>(`/series/${id}/issues`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getSources: (id: string) =>
+    fetchApi<{ data: Source[] }>(`/series/${id}/sources`),
 
   activate: (id: string) =>
     fetchApi(`/series/${id}/activate`, {
@@ -153,11 +171,29 @@ export const sourceApi = {
   list: () =>
     fetchApi<{ data: Source[] }>('/sources'),
 
-  submitUrl: (url: string, type: string = 'url', scope: string = 'workspace') =>
-    fetchApi('/sources/urls', {
+  submitUrl: (
+    url: string,
+    type: string = 'url',
+    scope: string = 'workspace',
+    seriesId?: string
+  ) =>
+    fetchApi<{ data: Source }>('/sources/urls', {
       method: 'POST',
-      body: JSON.stringify({ url, type, scope }),
+      body: JSON.stringify({ url, type, scope, series_id: seriesId }),
     }),
+
+  upload: (file: File, scope: string = 'workspace', seriesId?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('scope', scope);
+    if (seriesId) {
+      form.append('series_id', seriesId);
+    }
+    return fetchApi<{ data: Source }>('/sources/uploads', {
+      method: 'POST',
+      body: form,
+    });
+  },
 
   get: (id: string) =>
     fetchApi<{ data: Source }>(`/sources/${id}`),
@@ -197,5 +233,4 @@ export type OpenRouterModel = {
 export const modelsApi = {
   list: () =>
     fetchApi<{ default_model: string; models: OpenRouterModel[] }>('/models'),
-};
 };

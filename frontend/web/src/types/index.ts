@@ -73,6 +73,9 @@ export interface Series {
   level: string;
   timezone: string;
   status: string;
+  plan_status?: string;
+  plan_json?: string | Record<string, unknown> | null;
+  plan_error?: string;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -86,6 +89,8 @@ export interface Issue {
   objective: string;
   scheduled_at: string;
   status: string;
+  content_json?: string | Record<string, unknown> | null;
+  generate_error?: string;
   locked: boolean;
   created_by: string;
   created_at: string;
@@ -134,7 +139,9 @@ export interface Source {
   scope: string;
   type: string;
   url?: string;
+  series_id?: string;
   status: string;
+  ingest_error?: string;
   current_version_id: string;
   created_by: string;
   created_at: string;

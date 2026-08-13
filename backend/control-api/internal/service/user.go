@@ -62,6 +62,9 @@ type Series struct {
     Level       string     `json:"level"`
     Timezone    string     `json:"timezone" gorm:"not null"`
     Status      string     `json:"status" gorm:"not null"`
+    PlanStatus  string     `json:"plan_status"`
+    PlanJSON    *string    `json:"plan_json,omitempty" gorm:"type:jsonb"`
+    PlanError   string     `json:"plan_error"`
     CreatedBy   string     `json:"created_by" gorm:"not null"`
     CreatedAt   time.Time  `json:"created_at" gorm:"not null"`
     UpdatedAt   time.Time  `json:"updated_at" gorm:"not null"`
@@ -75,9 +78,11 @@ type Issue struct {
     SequenceNo  int        `json:"sequence_no" gorm:"not null"`
     Objective   string     `json:"objective"`
     ScheduledAt *time.Time `json:"scheduled_at"`
-    Status      string     `json:"status" gorm:"not null"`
-    Locked      bool       `json:"locked" gorm:"not null;default:false"`
-    CreatedBy   string     `json:"created_by" gorm:"not null"`
+    Status        string     `json:"status" gorm:"not null"`
+    ContentJSON   *string    `json:"content_json,omitempty" gorm:"type:jsonb"`
+    GenerateError string     `json:"generate_error"`
+    Locked        bool       `json:"locked" gorm:"not null;default:false"`
+    CreatedBy     string     `json:"created_by" gorm:"not null"`
     CreatedAt   time.Time  `json:"created_at" gorm:"not null"`
     UpdatedAt   time.Time  `json:"updated_at" gorm:"not null"`
     DeletedAt   *time.Time `json:"deleted_at,omitempty" gorm:"index"`
@@ -90,7 +95,9 @@ type Source struct {
     Scope            string     `json:"scope" gorm:"not null"`
     Type             string     `json:"type" gorm:"not null"`
     URL              string     `json:"url"`
+    SeriesID         string     `json:"series_id"`
     Status           string     `json:"status" gorm:"not null"`
+    IngestError      string     `json:"ingest_error"`
     CurrentVersionID string     `json:"current_version_id"`
     ContentHash      string     `json:"content_hash"`
     CreatedBy        string     `json:"created_by" gorm:"not null"`
