@@ -1,289 +1,550 @@
-# Cadensend
+<p align="center">
+  <img src="logo.png" alt="Cadensend" width="112" />
+</p>
 
-![Logo](logo.png)
+<h1 align="center">Cadensend</h1>
 
-[![Go Version](https://img.shields.io/badge/go-1.22+-blue?style=flat-square)](https://go.dev/doc/go1)
-[![Python Version](https://img.shields.io/badge/python-3.11+-blue?style=flat-square)](https://www.python.org/downloads/release/python-3.11/)
-[![Qdrant](https://img.shields.io/badge/qdrant-1.3+-blue?style=flat-square)](https://github.com/qdrant/qdrant)
+<p align="center">
+  <strong>Turn a learning goal into a grounded, scheduled email course — generated with citations, sent exactly once.</strong>
+</p>
 
-Turn learning goals into grounded, scheduled email courses — delivered exactly once.
+<p align="center">
+  <a href="#quick-start"><img src="https://img.shields.io/badge/quick%20start-docker%20compose-1c1917?style=flat-square" alt="Quick start" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" alt="MIT License" /></a>
+  <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" /></a>
+  <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" /></a>
+  <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js" /></a>
+  <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/contributor%20covenant-2.1-4c1?style=flat-square" alt="Contributor Covenant" /></a>
+</p>
 
-## What is Cadensend?
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#api-surface">API</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#operations">Operations</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 
-Cadensend solves the problem of people wanting to teach through email, not bulk-marketing. Traditional email platforms lack the capability to create personalized, grounded learning experiences. Cadensend provides:
+---
 
-- **Grounded content**: Every factual claim is linked to specific retrieved chunks with citations
-- **Idempotent delivery**: Each issue is sent exactly once, no duplicates
-- **Just-in-time generation**: Issues are created 24-48 hours before delivery
-- **Timezone-aware scheduling**: Delivers at the right local time for each recipient
+## Table of contents
 
-### Non-goals
+- [Why Cadensend](#why-cadensend)
+- [What it does](#what-it-does)
+- [Repository layout](#repository-layout)
+- [Architecture](#architecture)
+- [Data and source of truth](#data-and-source-of-truth)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Service ports](#service-ports)
+- [Usage walkthrough](#usage-walkthrough)
+- [API surface](#api-surface)
+- [Background jobs](#background-jobs)
+- [Development](#development)
+- [Testing](#testing)
+- [Operations](#operations)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
-Based on the product plan, Cadensend is intentionally NOT:
+---
 
-- A CRM system
-- A platform for arbitrary subscriber uploads
-- An A/B testing framework
-- A per-recipient LLM generation system
+## Why Cadensend
 
-## Demo
+Most email tools are built for campaigns. Cadensend is built for **teaching**: a curriculum, sources you actually own, issues with citations, and delivery that cannot double-send.
 
-*Cadensend's Create Series wizard: turn a learning goal into an editable curriculum plan.*
+It is a multi-service platform:
 
-## Features
+| Layer | Responsibility |
+| --- | --- |
+| **Web** | Dashboard, series editor, sources, settings |
+| **Control API** | Auth, tenancy, series/issue/source contracts |
+| **Control worker** | Scheduling and email delivery |
+| **AI engine** | FastAPI surface for generation and RAG |
+| **AI worker** | Plan generation, issue generation, source ingestion |
+| **PostgreSQL** | Canonical business state |
+| **Qdrant** | Rebuildable vector index |
+| **Redis** | Generation queue |
+| **MinIO** | Source files and generated assets |
+| **OpenRouter** | All LLM and embedding inference |
 
-### Planning & Curriculum
-- AI-generated multi-issue learning curriculum from a short brief (topic, outcome, level, timeline)
-- Editable, reorderable, lockable plan timeline with prerequisite/cadence validation
+Cadensend is **not** a CRM, not a bulk-marketing ESP, not per-recipient LLM personalization, and not an A/B testing suite.
 
-### RAG & Grounding
-- Structure-aware chunking with heading-path metadata
-- Qdrant dense vector retrieval with mandatory workspace/tenant filters
-- Structured citations that map every claim to a retrieved chunk
-- Idempotent re-ingestion via deterministic point IDs
+---
 
-### Writing
-- LangGraph-driven issue generation with bounded revision loops
-- Section-level regeneration (no full re-draft)
-- Content-block AST (not raw LLM HTML)
+## What it does
 
-### Visuals
-- Deterministic Mermaid/D2 diagram generation rendered server-side to SVG/PNG
-- Alt-text requirement; unsafe diagrams rejected
+**Curriculum.** A short brief (topic, goal, level, timezone) becomes an editable multi-module plan. Generation is asynchronous: the API returns `202` and the UI polls until the plan is ready or failed.
 
-### Delivery
-- Durable PostgreSQL job scheduler (FOR UPDATE SKIP LOCKED)
-- Delivery idempotency key prevents duplicate sends
-- Signed email webhooks + state-machine delivery tracking
-- Pause/resume + approval reminders
+**Grounding.** Sources are ingested (URL or file), chunked, embedded via OpenRouter (`nvidia/nemotron-3-embed-1b:free` by default), and stored in Qdrant with workspace and series filters.
 
-### Operations
-- OpenTelemetry traces across API → worker → LangGraph → Qdrant → provider
-- Per-model token/cost tracking + per-workspace budgets
-- Backup/restore; Qdrant rebuild path from canonical data
+**Issues.** Issues can be created on a series, generated with LangGraph, edited, approved, and test-sent. Status is polled the same way as plans (`generating` → `ready` / `failed`).
 
-## Quick start
+**Delivery.** The Go worker claims due jobs from PostgreSQL, submits mail through Brevo (optional), and records idempotent delivery state.
 
-```bash
-git clone https://github.com/HinterBuild/cadensend.git
-cd cadensend
-docker compose up -d
-cd frontend/web && npm run dev  # Frontend (dev mode)
+**Operations.** Health endpoints, structured logs, optional OpenTelemetry, and a Run Center in the UI.
+
+---
+
+## Repository layout
+
+```
+cadensend/
+├── frontend/web/                 Next.js 16 App Router dashboard
+├── backend/
+│   ├── control-api/              Go (Gin) control plane — :8080
+│   └── control-worker/           Go scheduler and delivery — :8081
+├── ai-service/ai-engine/
+│   ├── api/                      FastAPI + LangGraph + RAG
+│   └── workers/                  Redis-backed AI worker
+├── packages/
+│   ├── contracts/                Shared Go contracts
+│   ├── email-templates/          Transactional templates
+│   └── visual-specs/             Visual specification types
+├── db/
+│   ├── migrations/               Versioned SQL (up/down)
+│   └── migrations-docker/        Init scripts for Compose volumes
+├── observability/                Prometheus / Grafana / tracing compose
+├── docs/                         ADRs and runbooks
+├── docker-compose.yml            Production-shaped stack
+├── docker-compose.dev.yml        Hot-reload developer stack
+├── .env.example                  Required environment template
+└── LICENSE                       MIT
 ```
 
-### Local stack
+---
 
-- **Frontend**: http://localhost:3000
-- **Control API**: http://localhost:8080 (health: /healthz)
-- **AI API**: http://localhost:8000 (health: /healthz)
+## Architecture
 
-### First milestone smoke test
-
-1. Sign in and create a series brief
-2. Upload one source (PDF/Markdown/HTML)
-3. Watch ingestion and verify chunks appear in Qdrant
-4. Generate the first issue with citations
-5. Create and preview a diagram
-6. Send a test email
-7. Approve the issue
-8. Verify scheduled delivery time
-
-*Note: Local tests replace external models with deterministic fixtures.*
-
-Copy `.env.example` to `.env` and fill in your secrets:
-
-```bash
-cp .env.example .env
-# Edit .env with your values
-```
-
-## How it works
-
-### Architecture Overview
+### System context
 
 ```mermaid
-graph TD
-    WEB["Next.js frontend"] --> API["Go control API"]
-    API --> PG[("PostgreSQL<br/>business state + outbox")]
-    API --> OBJ["S3-compatible storage<br/>sources + assets"]
-    PG --> WORK["Go scheduler/delivery workers"]
-    WORK --> AI["Python AI workers<br/>FastAPI + LangGraph"]
-    AI --> QD[("Qdrant<br/>rebuildable RAG index")]
-    AI --> OBJ
-    WORK --> ESP["Email provider"]
-    ESP --> API
-</graph>
+flowchart LR
+  subgraph Clients
+    W[Next.js web<br/>:3000]
+  end
+
+  subgraph Control plane
+    API[control-api<br/>Gin :8080]
+    CW[control-worker<br/>:8081]
+  end
+
+  subgraph AI plane
+    AE[ai-engine API<br/>FastAPI :8000]
+    AW[ai-worker]
+  end
+
+  subgraph Data
+    PG[(PostgreSQL)]
+    RD[(Redis)]
+    QD[(Qdrant)]
+    S3[(MinIO)]
+  end
+
+  subgraph External
+    OR[OpenRouter]
+    ESP[Brevo]
+  end
+
+  W -->|REST /v1| API
+  API --> PG
+  API -->|RPUSH generation_queue| RD
+  API --> S3
+  CW --> PG
+  CW --> RD
+  CW --> ESP
+  AW -->|LPOP generation_queue| RD
+  AW --> PG
+  AW --> QD
+  AW --> OR
+  AE --> OR
+  AE --> QD
+  AE --> PG
+```
+
+### Plan and issue generation path
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant Web as Next.js
+  participant API as control-api
+  participant Redis as Redis
+  participant Worker as ai-worker
+  participant LLM as OpenRouter
+  participant DB as PostgreSQL
+
+  User->>Web: Generate plan / add issue / add source
+  Web->>API: POST (returns 202)
+  API->>DB: status = generating | ingesting
+  API->>Redis: RPUSH generation_queue
+  Worker->>Redis: LPOP generation_queue
+  Worker->>LLM: chat or embeddings
+  Worker->>DB: status = ready | failed
+  Web->>API: poll GET until terminal status
 ```
 
 ### Service boundaries
 
-- **Frontend**: Forms, editors, previews, monitoring. Does NOT own schedule truth or direct provider credentials.
-- **Go API**: Auth, tenancy, business state, contracts. Does NOT own long model calls or editorial reasoning.
-- **Go Workers**: Job claiming, scheduling, rendering, sending, retries. Owns topic planning and content judgment.
-- **Python AI Workers**: Parsing, embeddings, retrieval, LangGraph generation. Does NOT own users, subscriptions, schedules or billing state.
-- **PostgreSQL**: Canonical metadata, state, outbox, audit. Large original files and vector indexes live in derived stores.
-- **Object Storage**: Original and normalized files, generated assets. Authoritative status transitions happen elsewhere.
-- **Qdrant**: Dense/sparse vectors and retrieval payloads. Derived data only; canonical sources are in PostgreSQL and object storage.
-- **Email Provider**: Message submission and provider events. Final internal delivery state is in PostgreSQL.
+| Service | Owns | Must not own |
+| --- | --- | --- |
+| Frontend | UX, polling, editors | Provider credentials, schedule truth |
+| control-api | Auth, JWT, CRUD, job enqueue | Long-running LLM loops |
+| control-worker | Claim/send/retry of deliveries | Editorial judgment |
+| ai-worker | Ingest, plan, issue generation | Users, billing, subscriptions |
+| PostgreSQL | Canonical series, issues, sources, users | Vector payloads |
+| Qdrant | Dense index of chunks | Source files or consent records |
 
-### Source-of-truth rule
+---
 
-PostgreSQL is the canonical business state. Qdrant contains rebuildable vector indexes derived from:
+## Data and source of truth
+
+PostgreSQL is canonical. Qdrant is **derived** and can be rebuilt:
 
 ```
 PostgreSQL source metadata
         +
-Object storage original/normalized content
-        -> parsing/chunking/embedding
-        -> Qdrant index
+object storage (original / normalized files)
+        → parse → chunk → embed
+        → Qdrant collection newsletter_chunks_dense_v1
 ```
 
-If Qdrant is lost, the product must reindex. Losing Qdrant must not lose user source files, consent records, plans, issues or audit history.
+Losing Qdrant must not lose users, series, plans, issues, or original files. Losing the database is a disaster; losing the index is a reindex.
 
-## Configuration
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| DATABASE_URL | See .env | PostgreSQL business state (set in .env) |
-| REDIS_URL | redis://localhost:6379/0 | Job queue (Asynq) |
-| QDRANT_URL | http://localhost:6333 | Vector search |
-| MINIO_ENDPOINT | localhost:9000 | S3-compatible source/assets |
-| OPENROUTER_API_KEY | — | Model gateway |
-| SMTP_FROM / EMAIL_PROVIDER | — | Delivery adapter |
-
-See `.env.example` and `docker-compose.yml` for detailed environment setup.
-
-## Usage walkthrough
-
-Based on the 10 acceptance criteria from the product plan:
-
-1. **Sign in** → create a series brief
-2. **Generate plan** → edit/reorder/lock plan items
-3. **Attach source** → upload URL or document
-4. **Watch ingestion** → see progress and source errors
-5. **Generate issue** → inspect retrieval context + citations
-6. **Check diagram/preview** → desktop/mobile/plain-text views
-7. **Test send** → send to verified address
-8. **Approve + activate** → schedule for delivery
-9. **Pause/resume** → control in Run Center
-10. **Monitor delivery** → see exactly one issue at configured time
-
-## Development
-
-### Prerequisites
-
-- Go 1.22+
-- Python 3.11+
-- Node 18+
-- Docker
-- Docker Compose
-
-### Repository layout
-
-```
-cadensend/
-├── frontend/
-│   └── web/                    # Next.js frontend dashboard
-├── backend/
-│   ├── control-api/            # Go control API (auth, series, issues, sources)
-│   └── control-worker/         # Go control worker (scheduling, delivery)
-├── ai-service/
-│   └── ai-engine/
-│       ├── api/                # Python FastAPI app (LangGraph, RAG)
-│       ├── workers/            # Python background workers
-│       ├── rag/                # RAG pipeline (chunking, embeddings, retrieval)
-│       └── visuals/            # Visual generation (Mermaid/D2)
-├── packages/
-│   ├── contracts/              # Go data contracts
-│   ├── email-templates/        # Brevo email templates
-│   └── visual-specs/           # Visual specification types
-├── db/
-│   ├── migrations/             # PostgreSQL migrations
-│   └── seeds/                  # Seed data
-├── infra/
-│   ├── docker/
-│   └── terraform/
-├── observability/              # Prometheus, Grafana, Jaeger configs
-├── docs/
-│   ├── adr/                    # Architecture Decisions
-│   └── runbooks/
-└── .github/workflows/
-```
-
-### Testing
-
-Testing pyramid:
-
-- **Unit tests**: Schedule/timezone calculations, state transitions, idempotency keys, tenant-filter injection, etc.
-- **Integration tests**: PostgreSQL concurrency, object-storage uploads, Qdrant ingestion/filtering, reindex from canonical sources.
-- **End-to-end scenario**: Full vertical slice from creating a series to verifying delivery.
-- **Failure tests**: Worker crashes during ingestion, Qdrant unavailable, partial indexing failures, etc.
-
-AI evaluation:
-
-- Retrieval Recall@10 + NDCG@10 on labeled evaluation set
-- Generation schema validation subset
-- Cost and latency measurement
-
-### Branch convention
-
-Feature branches off `dev`. Pull requests to `dev`. Deploy to `staging` before production. The project uses trunk-based development principles.
-
-## Roadmap & releases
-
-### Product releases
-
-| Release | Timeline | Outcome | Primary user |
-|---------|----------|---------|-------------|
-| MVP | Q1 2026 | Personal learning series | Individual learner/creator |
-| Update 1 | Q2 2026 | High-quality grounded content | Technical educators |
-| Update 2 | Q3 2026 | Opt-in audiences | Newsletter creators |
-| Update 3 | Q4 2026 | Adaptive segmented learning | Learning businesses |
-| Update 4 | H1 2027 | Teams, governance and enterprise | Companies and training teams |
-| Update 5 | H2 2027 | Platform APIs and scale | Partners and larger customers |
-
-### Tagging convention
-
-Semantic versioning: `vX.Y.Z` where X = major release, Y = update, Z = patch.
-
-## Contributing
-
-### Code of conduct
-
-Please respect our [Code of Conduct](CODE_OF_CONDUCT.md).
-
-### Development workflow
-
-1. Create a feature branch from `dev`
-2. Make your changes
-3. Run tests locally: `make test` (if available)
-4. Push to your branch
-5. Open a pull request to `dev`
-6. Review and iterate as needed
-
-### Pull request template
-
-We use GitHub's pull request templates to ensure consistent reviews.
-
-## Community & support
-
-- **GitHub Discussions**: For questions, feature requests, and community support
-- **Issues**: For bug reports and feature requests
-- **Discord**: Join our community for real-time discussions
-
-Note: This is a community-supported project. Commercial support is available through enterprise partnerships.
-
-## License
-
-Cadensend is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-### Acknowledgments
-
-- **Qdrant**: Apache-2.0 licensed vector database for RAG
-- **OpenTelemetry**: Observability and tracing
-- **Docker**: Container orchestration
-- **Go**, **Python**, **Node.js**: Core technology stack
+SQL lives in `db/migrations/`. Compose first-boot uses `db/migrations-docker/`. The control API also applies additive `ALTER TABLE ... IF NOT EXISTS` on startup so existing volumes pick up new columns (for example `sources.series_id`, `series.plan_status`).
 
 ---
 
-<sub>Built with ❤️ for lifelong learners</sub>
+## Prerequisites
+
+| Tool | Version |
+| --- | --- |
+| Docker Engine + Compose v2 | Current stable |
+| Git | 2.40+ |
+| OpenRouter account | Required for generation and embeddings |
+| Node.js | 18+ (frontend only if running outside Compose) |
+| Go | 1.22+ (API only if running outside Compose) |
+| Python | 3.11+ (AI only if running outside Compose) |
+
+Hardware: 4 GB RAM minimum for the full Compose stack; 8 GB recommended.
+
+---
+
+## Quick start
+
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/HinterBuild/cadensend.git
+cd cadensend
+cp .env.example .env
+```
+
+Edit `.env` and set at least:
+
+- `OPENROUTER_API_KEY` — without this, plan/issue/source jobs fail closed with an explicit error
+- `JWT_SECRET` — change before any shared or production deployment
+- `BREVO_API_KEY` — optional until you send real mail
+
+### 2. Start the developer stack
+
+This is the supported local path (Air for Go, bind-mounted Python and Next.js):
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Wait until `control-api` logs `Database models migrated` and `ai-worker` logs `AI Worker initialized`.
+
+### 3. Open the product
+
+| Surface | URL |
+| --- | --- |
+| Web | http://localhost:3000 |
+| Control API health | http://localhost:8080/healthz |
+| AI API health | http://localhost:8000/healthz |
+| MinIO console | http://localhost:9001 |
+| Qdrant | http://localhost:6333/dashboard |
+
+Sign in, create a series, generate a curriculum plan, add a source, then add an issue.
+
+### 4. Production-shaped stack
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+Use this when you want image builds rather than bind-mount hot reload.
+
+### Stop and reset
+
+```bash
+docker compose -f docker-compose.dev.yml down
+# Destructive: also drop named volumes
+docker compose -f docker-compose.dev.yml down -v
+```
+
+---
+
+## Configuration
+
+Copy from [`.env.example`](.env.example). Compose injects in-cluster hostnames (`postgres`, `redis`, `qdrant`, `minio`). Values in the table are **host** defaults for running a service on the machine, not inside Docker.
+
+| Variable | Required | Default | Purpose |
+| --- | :---: | --- | --- |
+| `DATABASE_URL` | yes | `postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable` | PostgreSQL DSN |
+| `REDIS_URL` | yes | `redis://localhost:6379/0` | Generation queue and Asynq |
+| `QDRANT_URL` | yes | `http://localhost:6333` | Vector store (`http://qdrant:6333` in Compose) |
+| `QDRANT_API_KEY` | no | empty | Qdrant Cloud / authenticated instances |
+| `OPENROUTER_API_KEY` | **yes for AI** | empty | Chat + embeddings |
+| `DEFAULT_MODEL` | no | `poolside/laguna-s-2.1:free` | Chat model when the user does not pick one |
+| `EMBEDDING_MODEL` | no | `nvidia/nemotron-3-embed-1b:free` | Embedding model |
+| `JWT_SECRET` | yes | `dev-secret-change-in-production` | Access token signing |
+| `JWT_ALGORITHM` | no | `HS256` | JWT algorithm |
+| `MINIO_ENDPOINT` | yes | `localhost:9000` | Object storage |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | yes | `minioadmin` / `minioadmin123` | MinIO credentials |
+| `MINIO_BUCKET_NAME` | no | `cadensend` | Bucket |
+| `EMAIL_PROVIDER` | no | `brevo` | Delivery adapter |
+| `BREVO_API_KEY` | no | empty | Transactional email |
+| `SMTP_FROM` | no | `no-reply@cadensend.app` | From address |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` | Compose | `cadensend` | Database bootstrap |
+
+Never commit `.env`. Rotate `JWT_SECRET` and provider keys if they leak.
+
+---
+
+## Service ports
+
+| Port | Service |
+| ---: | --- |
+| 3000 | Next.js |
+| 8080 | control-api |
+| 8081 | control-worker |
+| 8000 | ai-engine API |
+| 5432 | PostgreSQL |
+| 6379 | Redis |
+| 6333 | Qdrant |
+| 9000 | MinIO S3 API |
+| 9001 | MinIO console |
+
+---
+
+## Usage walkthrough
+
+1. **Sign in** at `/login` (email + password or magic link).
+2. **Create a series** from the dashboard (`topic`, `goal`, `level`, `timezone`).
+3. **Generate a curriculum plan.** The Plan tab shows in-progress until the worker writes `plan_status`. If it stalls, use **Retry generation**.
+4. **Add sources** (URL or file) on the series. Status moves through ingest stages (`fetching`, `chunking`, `embedding`, `ready` / `failed`).
+5. **Add issues.** Generation is queued; open the issue when status is `ready`.
+6. **Approve** and optionally **test-send**.
+7. **Activate / pause / resume** the series from the control API.
+8. **Delete** a series from the dashboard card or the series header (soft delete: `deleted_at`).
+
+---
+
+## API surface
+
+Base path: `http://localhost:8080/v1`. The Next.js app proxies `/api/v1/*` to the control API and forwards `Authorization` plus JSON or multipart bodies.
+
+Unauthenticated:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/healthz` | Liveness |
+| `GET` | `/version` | Build identity |
+| `POST` | `/v1/users` | Register |
+| `POST` | `/v1/users/login` | Password login |
+| `POST` | `/v1/users/magic-link` | Magic link request |
+| `POST` | `/v1/users/magic-link/verify` | Magic link verify |
+
+Authenticated (`Authorization: Bearer <jwt>`):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` / `POST` | `/v1/series` | List / create |
+| `GET` / `PATCH` / `DELETE` | `/v1/series/:id` | Read / update / soft delete |
+| `POST` / `GET` | `/v1/series/:id/plan` | Start generation (`202`) / poll status |
+| `GET` / `POST` | `/v1/series/:id/issues` | List / create issue |
+| `GET` | `/v1/series/:id/sources` | Sources attached to the series |
+| `POST` | `/v1/series/:id/activate\|pause\|resume` | Lifecycle |
+| `GET` / `PATCH` | `/v1/issues/:id` | Issue editor |
+| `POST` | `/v1/issues/:id/generate\|approve\|test-send` | Generation and delivery |
+| `GET` / `POST` / `DELETE` | `/v1/sources` … | Library ingest and management |
+| `GET` | `/v1/models` | OpenRouter model catalog for the picker |
+| `PATCH` | `/v1/users/:id` | Profile, timezone, preferred model |
+
+Asynchronous POSTs set a row status and enqueue Redis. Poll the corresponding GET until `ready` or `failed`.
+
+---
+
+## Background jobs
+
+Redis list `generation_queue` (RPUSH / LPOP):
+
+| `task` | Worker handler | Terminal DB fields |
+| --- | --- | --- |
+| `generate_plan` | `_handle_generate_plan` | `series.plan_status`, `plan_json`, `plan_error` |
+| `generate_issue` | `_handle_generate_issue` | `issues.status`, `content_json`, `generate_error` |
+| `ingest_source` | `_handle_ingest_source` | `sources.status`, `ingest_error` |
+
+The Go control worker separately claims `schedules` rows for delivery (`FOR UPDATE SKIP LOCKED` pattern). Email send is independent of LangGraph.
+
+---
+
+## Development
+
+### Run services without Compose
+
+```bash
+# API
+cd backend/control-api && go run ./cmd/server
+
+# Scheduler
+cd backend/control-worker && go run ./cmd/server
+
+# AI HTTP API
+cd ai-service/ai-engine/api && python -m uvicorn main:app --reload --port 8000
+
+# AI worker (PYTHONPATH must include the API package)
+cd ai-service/ai-engine && PYTHONPATH=api python workers/main.py
+
+# Web
+cd frontend/web && npm install && npm run dev
+```
+
+Point `DATABASE_URL`, `REDIS_URL`, and `QDRANT_URL` at localhost ports from Compose infrastructure if you only run app processes on the host.
+
+### Conventions
+
+- REST under `/v1`
+- SQL migrations in `db/migrations/` with matching docker init scripts when a new volume is created
+- Go: Gin handlers, GORM models
+- Python: FastAPI async, LangGraph agent in `app/services/agent_graph.py`
+- Frontend: Next.js App Router, TypeScript, Jest
+
+PRs target `dev`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Testing
+
+```bash
+go test ./backend/control-api/...
+go test ./backend/control-worker/...
+
+pip install -r ai-service/ai-engine/api/requirements.txt
+python -m pytest ai-service/ai-engine/api/tests/
+
+cd frontend/web && npm test
+```
+
+Recommended coverage:
+
+- **Unit** — timezone/schedule math, status transitions, tenant filters
+- **Integration** — PostgreSQL, Redis enqueue, Qdrant upsert with workspace filter
+- **Contract** — `/v1` JSON shapes used by the web client
+- **Failure** — missing `OPENROUTER_API_KEY`, Qdrant down at worker boot (retries), worker crash leaving `plan_status=generating` (Retry re-enqueues)
+
+---
+
+## Operations
+
+### Health
+
+```bash
+curl -sf http://localhost:8080/healthz
+curl -sf http://localhost:8000/healthz
+```
+
+### Logs
+
+```bash
+docker compose -f docker-compose.dev.yml logs -f control-api ai-worker frontend
+```
+
+Useful worker lines:
+
+- `Connecting to Qdrant at http://qdrant:6333`
+- `Queued job: generate_plan`
+- `Persisted plan status=ready|failed`
+
+### Observability
+
+Optional stack: `observability/docker-compose.monitoring.yml` (Prometheus, Grafana, tracing). Control API registers OpenTelemetry middleware when configured.
+
+### Backups
+
+1. `pg_dump` PostgreSQL (users, series, issues, sources, schedules).
+2. Mirror the MinIO bucket.
+3. Qdrant is optional to snapshot; it can be rebuilt from (1)+(2).
+
+---
+
+## Security
+
+- JWT bearer auth on `/v1` except health, register, and login.
+- Workspace ID is taken from token claims; list queries filter by `workspace_id`.
+- Qdrant searches must include workspace (and series when scoped) filters.
+- Do not expose MinIO, Postgres, or Redis on the public internet in production.
+- Replace default MinIO and Postgres passwords.
+- Store `OPENROUTER_API_KEY` and `BREVO_API_KEY` in a secret manager, not in git.
+- Delivery webhooks should verify provider signatures before mutating delivery rows.
+
+Report vulnerabilities privately to the maintainers; do not file public issues with exploit details.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+| --- | --- | --- |
+| Plan stays **In progress** | Worker down, Redis job lost after crash, or missing API key | Confirm `ai-worker` is running. Click **Retry generation**. Set `OPENROUTER_API_KEY`. |
+| `OPENROUTER_API_KEY is not set` | Empty `.env` | Add the key and recreate the worker container so it picks up env. |
+| `column "series_id" does not exist` | Volume created before that migration | Restart `control-api` (it runs `EnsureAppSchema`) or apply `db/migrations/005_source_series_id.up.sql`. |
+| Worker `Connection refused` to Qdrant | Client used `localhost` inside Docker | `QDRANT_URL` must be `http://qdrant:6333` in Compose. Worker retries on startup. |
+| Frontend `BrandLogo` / stale chunk errors | Turbopack HMR | Hard refresh; `logo.png` is served from `frontend/web/public/`. |
+| `GET /series/:id/plan` every 2s forever | UI polling `generating` | Worker never persisted a terminal status. Retry or inspect worker logs. |
+| Compose init SQL not applied | Postgres volume already existed | Init scripts run **only** on first volume create. Use API `EnsureAppSchema` or run SQL manually. |
+
+---
+
+## Roadmap
+
+| Horizon | Intent |
+| --- | --- |
+| MVP | Personal series: plan, sources, issues, test send |
+| Near term | Stronger citation UI, reindex from canonical files, delivery webhooks |
+| Later | Opt-in audiences, team workspaces, public APIs |
+
+Versioning: `vMAJOR.MINOR.PATCH`. Breaking HTTP or schema changes bump MAJOR.
+
+---
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+1. Fork and branch from `dev` (`feature/…`, `fix/…`, `docs/…`).
+2. Keep PRs focused; include tests where behavior changes.
+3. Open the pull request against `dev`.
+4. Use [GitHub Issues](https://github.com/HinterBuild/cadensend/issues) for bugs and proposals.
+
+---
+
+## License
+
+Cadensend is released under the [MIT License](LICENSE).
+
+Third-party software used at runtime includes PostgreSQL, Redis, Qdrant, MinIO, Next.js, Gin, FastAPI, LangGraph, and the OpenRouter API. Their licenses apply to those components.
+
+---
+
+<p align="center">
+  <sub>Cadensend — grounded courses, delivered once.</sub>
+</p>
