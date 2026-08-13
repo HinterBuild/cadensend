@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Send, RefreshCw } from 'lucide-react';
 import { seriesApi } from '@/lib/api';
@@ -10,8 +10,8 @@ type SeriesDetail = Series & {
   issues?: Issue[];
 };
 
-export default function SeriesViewPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function SeriesViewPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
   const [series, setSeries] = useState<SeriesDetail | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
