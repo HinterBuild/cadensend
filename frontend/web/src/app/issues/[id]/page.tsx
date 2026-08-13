@@ -105,7 +105,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       } catch (err) {
         console.error('Failed to refresh issue status:', err);
       }
-    }, 2000);
+    }, 2500);
     return () => clearInterval(timer);
   }, [id, issue?.status]);
 
@@ -130,6 +130,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
         subject: content.subject,
         preheader: content.preheader,
         content_blocks: content.blocks,
+        scheduled_at: scheduledAt || undefined,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to save issue');
@@ -172,10 +173,10 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-center">
           <div
-            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
             role="status"
             aria-label="Loading"
           ></div>
@@ -187,7 +188,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
 
   if (error && !issue) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-full flex items-center justify-center">
         <div className="text-center">
           <p role="alert" aria-live="assertive" className="text-red-600">
             {error}
@@ -198,7 +199,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -207,7 +208,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 type="button"
                 aria-label="Back to series"
                 onClick={() => issue && router.push(`/series/${issue.series_id}`)}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
+                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -239,7 +240,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
         </div>
       </header>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {(issue?.status === 'generating' || generating) && (
           <div className="mb-6 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
             <div className="flex items-center gap-3">
@@ -274,7 +275,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               aria-label="Save draft"
               onClick={saveIssue}
               disabled={saving}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
             >
               {saving ? 'Saving...' : 'Save Draft'}
               {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
@@ -321,7 +322,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               type="datetime-local"
               value={scheduledAt}
               onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
             />
             <p className="mt-1 text-xs text-gray-500">
               Approve schedules a real send at this time. Send test email only previews content.
@@ -337,7 +338,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               type="text"
               value={content.subject}
               onChange={(e) => setContent({ ...content, subject: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
               placeholder="Enter issue subject"
               aria-label="Subject"
             />
@@ -352,7 +353,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               value={content.preheader}
               onChange={(e) => setContent({ ...content, preheader: e.target.value })}
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
               placeholder="Brief summary shown in email previews"
               aria-label="Preheader text"
             />
@@ -382,7 +383,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                           newBlocks[idx].title = e.target.value;
                           setContent({ ...content, blocks: newBlocks });
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
                         placeholder="Block title"
                         aria-label={`Block ${idx + 1} title`}
                       />
@@ -395,7 +396,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                         setContent({ ...content, blocks: newBlocks });
                       }}
                       rows={5}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
                       placeholder="Block content..."
                       aria-label={`Block ${idx + 1} content`}
                     />
@@ -405,7 +406,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

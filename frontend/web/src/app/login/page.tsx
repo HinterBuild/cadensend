@@ -71,13 +71,13 @@ export default function LoginPage() {
   };
 
   return (
-    <main id="main-content" className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[#f6f3ee] py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="mb-8 flex flex-col items-center text-center">
             <div className="mb-4 flex items-center gap-3">
               <BrandLogo className="h-10 w-10" />
-              <h1 className="text-3xl font-bold text-gray-900">Cadensend</h1>
+              <h1 className="font-display text-3xl text-stone-900">Cadensend</h1>
             </div>
             <p className="text-sm text-gray-600">AI-powered newsletter series platform</p>
           </div>
@@ -105,7 +105,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setMagicLinkSent(false)}
-                className="text-blue-600 hover:text-blue-700 font-medium text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                className="text-stone-800 hover:text-blue-700 font-medium text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
               >
                 Use a different email
               </button>
@@ -125,7 +125,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -134,7 +134,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="w-full py-2.5 px-4 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center justify-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 {loading ? 'Sending...' : 'Send Magic Link'}
                 {!loading && <Send className="h-4 w-4" aria-hidden="true" />}
@@ -144,7 +144,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowMagicLink(false)}
-                  className="font-medium text-blue-600 hover:text-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  className="font-medium text-stone-800 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   Back to password login
                 </button>
@@ -165,7 +165,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -184,7 +184,7 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
                     placeholder="••••••••"
                   />
                   <button
@@ -192,7 +192,7 @@ export default function LoginPage() {
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     aria-pressed={showPassword}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
                   >
                     {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
                   </button>
@@ -203,13 +203,13 @@ export default function LoginPage() {
                 <label className="flex items-center gap-2 text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+                    className="h-4 w-4 rounded border-gray-300 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800"
                   />
                   <span>Remember me</span>
                 </label>
                 <button
                   type="button"
-                  className="font-medium text-blue-600 hover:text-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  className="font-medium text-stone-800 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   Forgot password?
                 </button>
@@ -218,7 +218,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="w-full py-2.5 px-4 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center justify-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 {loading ? 'Signing in...' : 'Sign in'}
                 {!loading && <ArrowRight className="h-4 w-4" aria-hidden="true" />}
@@ -228,7 +228,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowMagicLink(true)}
-                  className="font-medium text-blue-600 hover:text-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  className="font-medium text-stone-800 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   Use magic link instead
                 </button>
