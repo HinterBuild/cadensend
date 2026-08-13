@@ -110,6 +110,8 @@ class QdrantService:
                     "embedding_version": "dense-v1",
                     "visibility": chunk.get("visibility", "series"),
                     "active": True,
+                    "text_preview": (chunk.get("content") or chunk.get("text") or "")[:500],
+                    "content": (chunk.get("content") or chunk.get("text") or "")[:2000],
                 },
             )
             points.append(point)

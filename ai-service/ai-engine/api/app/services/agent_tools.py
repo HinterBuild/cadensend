@@ -58,7 +58,7 @@ class NewsletterTools:
             source_id: Optional source filter to narrow results
             top_k: Maximum number of results to return
         """
-        logger.info("Retrieving context: query=%s, workspace=%s", query, workspace_id)
+        logger.debug("Retrieving context: query=%s, workspace=%s", query, workspace_id)
 
         try:
             embeddings = self.model_service.get_embeddings([query])
@@ -102,13 +102,17 @@ class NewsletterTools:
             series_id: Optional series filter
             top_k: Maximum results
         """
-        embeddings = self.model_service.get_embeddings([query])
-        results = retrieval_service.retrieve(
-            embeddings[0],
-            workspace_id=workspace_id,
-            series_id=series_id,
-            top_k=top_k or 10,
-        )
+        try:
+            embeddings = self.model_service.get_embeddings([query])
+            results = retrieval_service.retrieve(
+                embeddings[0],
+                workspace_id=workspace_id,
+                series_id=series_id,
+                top_k=top_k or 10,
+            )
+        except Exception as e:
+            logger.error("Source search failed: %s", e)
+            return []
 
         formatted = []
         for r in results:
@@ -119,7 +123,7 @@ class NewsletterTools:
                 "score": r["score"],
                 "title": payload.get("title", source_id),
                 "section": payload.get("section_path", []),
-                "preview": payload.get("text_preview", "")[:200],
+                "preview": payload.get("text_preview", payload.get("content", ""))[:200],
             })
         return formatted
 
@@ -189,11 +193,19 @@ Output the refined {diagram_type} code only.
             series_id: The series identifier
             workspace_id: Tenant workspace identifier
         """
+        snippets = self.retrieve_context(
+            query=f"series {series_id}",
+            workspace_id=workspace_id,
+            series_id=series_id,
+            top_k=8,
+        )
+        source_ids = sorted({s.get("source_id") for s in snippets if s.get("source_id")})
         return {
             "series_id": series_id,
             "workspace_id": workspace_id,
-            "sources": [],
+            "sources": source_ids,
             "plan": {},
+            "retrieved_snippets": snippets[:5],
             "recent_issues": [],
         }
 
@@ -298,7 +310,7 @@ Output the refined {diagram_type} code only.
         """
         results = self.retrieve_context(query, workspace_id, series_id, None, top_k)
 
-        if not results or "error" in results[0]:
+        if not results:
             return {"coverage_score": 0.0, "total_results": 0, "sources_hit": []}
 
         scores = [r["score"] for r in results]

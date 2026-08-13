@@ -79,6 +79,7 @@ async def generate_plan_stream(series_id: str, request: PlanGenerateRequest):
                 "visual_specs": [],
                 "memory_context": [],
                 "model": agent.model_service.resolve_model(request.model or request.brief.get("model")),
+                "workflow": "plan",
             }
 
             async for event in compiled.astream_events(

@@ -146,7 +146,7 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
         finally:
             await conn.close()
 
-        logger.info("Checkpoint saved: thread=%s, ts=%s", thread_id, thread_ts)
+        logger.debug("Checkpoint saved: thread=%s, ts=%s", thread_id, thread_ts)
         return self._checkpoint_config(thread_id, thread_ts)
 
     async def aput_writes(

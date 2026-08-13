@@ -266,12 +266,19 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "plan_item": plan_item,
         }
 
+        if plan_item and isinstance(plan_item.get("modules"), list):
+            plan = {"modules": plan_item["modules"]}
+        elif plan_item:
+            plan = {"modules": [plan_item]}
+        else:
+            plan = {"modules": []}
+
         initial_state: NewsletterState = {
             "messages": [],
             "brief": issue_brief,
             "workspace_id": workspace_id,
             "series_id": series_id,
-            "plan": None,
+            "plan": plan,
             "issues": [],
             "retrieved_context": [],
             "revision_count": 0,
@@ -377,28 +384,35 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         return state
 
     def _plan_system_prompt(self, brief: Dict[str, Any], memory_context: List[Dict]) -> str:
-        base = self._build_default_system_prompt(brief, memory_context)
-        return base + """
+        memory_summary = ""
+        if memory_context:
+            memory_summary = "\nPrior notes:\n" + "\n".join(
+                f"- {mem.get('content', '')[:400]}" for mem in memory_context[:3]
+            )
+        topic = brief.get("topic") or "this subject"
+        goal = brief.get("goal") or "teach the topic thoroughly"
+        level = brief.get("level") or "intermediate"
+        return f"""You are a curriculum designer for a short email course.
 
-Return ONLY JSON with this shape:
-{
-  "modules": [
-    {
-      "title": "short unique lesson title",
-      "summary": "one sentence on what this lesson covers and why it comes next",
-      "learning_objectives": ["specific outcome 1", "specific outcome 2"],
-      "duration_weeks": 1
-    }
-  ],
-  "prerequisites": ["..."],
-  "total_weeks": 4
-}
+Series topic: {topic}
+Learner goal: {goal}
+Audience level: {level}
+{memory_summary}
 
-Rules:
-- 4 to 8 modules that build on each other from fundamentals to the series goal.
-- Titles must be unique and descriptive (not "Module 1", "Module 2").
-- Learning objectives must be specific skills, not a copy of the series goal.
-- Match the audience level in the brief.
+Design 4-8 sequential lessons a busy professional can finish in one sitting each.
+Return ONLY a JSON object. No markdown, no tools, no commentary.
+
+Good titles are concrete, e.g. "vLLM vs Hugging Face serving", "Continuous batching and paged attention".
+Bad titles: "Module 1", "Introduction", "Overview", or repeating the series goal.
+
+Each module needs:
+- title: unique lesson name
+- summary: why this lesson exists and what comes after
+- learning_objectives: 2-3 specific skills (not the series goal copied)
+- duration_weeks: 1
+
+JSON shape:
+{{"modules":[{{"title":"...","summary":"...","learning_objectives":["..."],"duration_weeks":1}}],"prerequisites":["..."],"total_weeks":4}}
 """
 
     async def _generate_plan_json(
@@ -557,58 +571,65 @@ Rules:
         brief = state["brief"]
         plan = state.get("plan") or {}
         context = state.get("retrieved_context", [])
-        workspace_id = state["workspace_id"]
 
         plan_items = plan.get("modules", [])
         issues = []
+        issue_schema = {
+            "subject": "string",
+            "preheader": "string",
+            "content_blocks": [
+                {
+                    "type": "markdown",
+                    "title": "string",
+                    "text": "string",
+                    "citations": [{"source_id": "string", "chunk_id": "string", "text": "string"}],
+                }
+            ],
+            "visual_specs": [{"type": "mermaid", "content": "string", "alt_text": "string"}],
+        }
 
         for i, module in enumerate(plan_items):
-            module_context = [c for c in context if c.get("related_objective") in module.get("learning_objectives", [])]
+            objectives = module.get("learning_objectives", [])
+            module_context = [
+                c for c in context
+                if c.get("related_objective") in objectives
+            ]
+            if not module_context:
+                module_context = [c for c in context if isinstance(c, dict)]
 
-            system_prompt = self._build_default_system_prompt(brief, state.get("memory_context", []))
-            system_prompt += f"""
-
-Generate a newsletter issue for module {i + 1}:
-- Title: {module.get('title', '')}
-- Objectives: {module.get('learning_objectives', [])}
-- Duration: {module.get('duration_weeks', 1)} weeks
-
-The issue should include:
-1. A compelling subject line
-2. A brief preheader
-3. Content blocks (markdown text with inline citations)
-4. Any relevant visual specifications
-
-Citations format: {{ "source_id": "...", "chunk_id": "...", "text": "..." }}
-Only include citations for claims supported by the retrieved context.
-"""
-
+            system_prompt = (
+                "You write a single email lesson for a professional learning series. "
+                "Return only JSON. Ground claims in retrieved context. "
+                "Cite sources as {\"source_id\":\"...\",\"chunk_id\":\"...\",\"text\":\"...\"}."
+            )
             context_text = ""
             if module_context:
-                context_text = "\n\n## Retrieved Context\n" + "\n".join(
-                    f"[{c.get('source_id', '')}] {c.get('content', '')[:300]}"
-                    for c in module_context[:5]
-                    if "error" not in c
+                context_text = "\n\nRetrieved context:\n" + "\n".join(
+                    f"[{c.get('source_id', '')}] {c.get('content', '')[:400]}"
+                    for c in module_context[:6]
                 )
 
-            messages: List[BaseMessage] = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=f"Generate issue for: {json.dumps(module, indent=2)}\n{context_text}"),
+            user_prompt = (
+                f"Lesson {i + 1}: {json.dumps(module, indent=2)}\n"
+                f"Series topic: {brief.get('topic', '')}\n"
+                f"Audience level: {brief.get('level', '')}\n"
+                f"{context_text}"
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ]
 
             try:
-                response = await self._chat_model(state).ainvoke(messages)
-                issue_text = response.content
-
-                try:
-                    issue = json.loads(issue_text)
-                except json.JSONDecodeError:
-                    import re
-                    json_match = re.search(r'[\{\[]', issue_text, re.DOTALL)
-                    if json_match:
-                        issue = json.loads(json_match.group())
-                    else:
-                        issue = self._default_issue(module)
+                issue = await self.model_service.generate_structured_output(
+                    messages,
+                    issue_schema,
+                    model=state.get("model"),
+                    max_retries=1,
+                    temperature=0.4,
+                )
+                if not isinstance(issue, dict) or "subject" not in issue:
+                    issue = self._default_issue(module)
 
                 issue["module_index"] = i
                 issue["module_title"] = module.get("title", "")
@@ -616,7 +637,18 @@ Only include citations for claims supported by the retrieved context.
 
             except Exception as e:
                 logger.error("Issue generation failed for module %d: %s", i, e)
-                issues.append(self._default_issue(module))
+                try:
+                    raw = await self.model_service.generate_response(
+                        messages + [{"role": "user", "content": "Return only a JSON object."}],
+                        model=state.get("model"),
+                        temperature=0.4,
+                    )
+                    parsed = self._parse_json_object(raw) or self._default_issue(module)
+                except Exception:
+                    parsed = self._default_issue(module)
+                parsed["module_index"] = i
+                parsed["module_title"] = module.get("title", "")
+                issues.append(parsed)
 
         state["issues"] = issues
         state["status"] = "issues_generated"
@@ -766,11 +798,12 @@ Output the revised issue as JSON.
         """Save key context to long-term memory."""
         namespace = ("cadensend", "workspace", state["workspace_id"], "series", state.get("series_id") or "default")
 
-        await self.memory_store.summarize_and_store(
-            namespace,
-            "latest_conversation",
-            state.get("messages", []),
-        )
+        if state.get("workflow") != "plan":
+            await self.memory_store.summarize_and_store(
+                namespace,
+                "latest_conversation",
+                state.get("messages", []),
+            )
 
         plan = state.get("plan", {})
         if plan:
