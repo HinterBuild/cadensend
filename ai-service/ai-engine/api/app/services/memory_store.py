@@ -141,7 +141,7 @@ class LongTermMemoryStore(BaseStore):
             op.key,
             json.dumps(op.value),
         )
-        logger.info("Stored memory: namespace=%s, key=%s", op.namespace, op.key)
+        logger.debug("Stored memory: namespace=%s, key=%s", op.namespace, op.key)
         return None
 
     async def _handle_list_namespaces(

@@ -135,7 +135,10 @@ class IngestionWorker:
 			await self._update_source_version_status(version.id, STATUS_EMBEDDING)
 			await self._update_source_status(source.id, STATUS_EMBEDDING)
 			texts = [chunk["content"] for chunk in chunks]
-			embeddings = self.model_service.get_embeddings(texts)
+			embeddings: list = []
+			batch_size = max(int(settings.EMBEDDING_BATCH_SIZE or 20), 1)
+			for start in range(0, len(texts), batch_size):
+				embeddings.extend(self.model_service.get_embeddings(texts[start:start + batch_size]))
 
 			await self._update_source_version_status(version.id, STATUS_INDEXING)
 			await self._update_source_status(source.id, STATUS_INDEXING)

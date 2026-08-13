@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
 from langchain_openai import ChatOpenAI
@@ -13,6 +15,8 @@ from openai import OpenAI
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+_EMBED_CACHE: OrderedDict[str, List[float]] = OrderedDict()
+_EMBED_CACHE_MAX = 512
 
 
 def openrouter_api_key() -> str:
@@ -124,7 +128,7 @@ class ModelService:
                 )
                 result = response.choices[0].message.content
                 parsed = json.loads(result)
-                logger.info("Generated structured output (attempt %d) using %s", attempt + 1, model_id)
+                logger.debug("Generated structured output (attempt %d) using %s", attempt + 1, model_id)
                 return parsed
             except Exception as e:
                 last_error = e
@@ -135,20 +139,50 @@ class ModelService:
         raise last_error
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Embed texts with the OpenRouter embedding model."""
-        try:
-            response = self.client.embeddings.create(
-                model=self.embedding_model_name,
-                input=texts,
-                encoding_format="float",
-            )
-            ordered = sorted(response.data, key=lambda item: item.index)
-            embeddings = [item.embedding for item in ordered]
-            logger.info("Generated %d embeddings with %s", len(embeddings), self.embedding_model_name)
-            return embeddings
-        except Exception as e:
-            logger.error("Failed to generate embeddings: %s", e)
-            raise
+        """Embed texts with the OpenRouter embedding model, with an in-process cache."""
+        keys = [
+            hashlib.sha256(f"{self.embedding_model_name}\0{text}".encode("utf-8")).hexdigest()
+            for text in texts
+        ]
+        results: List[List[float] | None] = [None] * len(texts)
+        missing_indexes: List[int] = []
+        for index, key in enumerate(keys):
+            cached = _EMBED_CACHE.get(key)
+            if cached is not None:
+                _EMBED_CACHE.move_to_end(key)
+                results[index] = cached
+            else:
+                missing_indexes.append(index)
+
+        if missing_indexes:
+            to_embed = [texts[i] for i in missing_indexes]
+            try:
+                response = self.client.embeddings.create(
+                    model=self.embedding_model_name,
+                    input=to_embed,
+                    encoding_format="float",
+                )
+                ordered = sorted(response.data, key=lambda item: item.index)
+                for local_i, item in enumerate(ordered):
+                    original_index = missing_indexes[local_i]
+                    vector = item.embedding
+                    results[original_index] = vector
+                    cache_key = keys[original_index]
+                    _EMBED_CACHE[cache_key] = vector
+                    _EMBED_CACHE.move_to_end(cache_key)
+                    while len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
+                        _EMBED_CACHE.popitem(last=False)
+                logger.debug(
+                    "Generated %d embeddings (%d cached) with %s",
+                    len(to_embed),
+                    len(texts) - len(to_embed),
+                    self.embedding_model_name,
+                )
+            except Exception as e:
+                logger.error("Failed to generate embeddings: %s", e)
+                raise
+
+        return [vector or [] for vector in results]
 
     def list_chat_models(self) -> Dict[str, Any]:
         """List OpenRouter chat models; default is always first."""

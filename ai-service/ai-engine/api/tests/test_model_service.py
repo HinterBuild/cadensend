@@ -29,6 +29,9 @@ class TestModelService:
         assert service.resolve_model("custom/model:free") == "custom/model:free"
 
     def test_get_embeddings_uses_openrouter_client(self):
+        from app.services import model_service as model_service_mod
+
+        model_service_mod._EMBED_CACHE.clear()
         service = ModelService.__new__(ModelService)
         service.embedding_model_name = "nvidia/nemotron-3-embed-1b:free"
         mock_client = Mock()

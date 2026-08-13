@@ -19,10 +19,10 @@ export default function HomePage() {
   }, [user, loading, router]);
 
   return (
-    <main id="main-content" className="flex min-h-screen items-center justify-center bg-gray-50">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[#f6f3ee]">
       <div className="text-center">
         <div
-          className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+          className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
           role="status"
           aria-label="Loading page"
         ></div>
