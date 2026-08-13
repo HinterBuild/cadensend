@@ -98,10 +98,10 @@ export default function SettingsPage() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-center">
           <div
-            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
             role="status"
             aria-label="Loading"
           ></div>
@@ -112,7 +112,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
@@ -120,7 +120,7 @@ export default function SettingsPage() {
             type="button"
             aria-label="Sign out"
             onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
             Sign Out
@@ -167,7 +167,7 @@ export default function SettingsPage() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   placeholder="Enter your name"
                   aria-label="Full Name"
                 />
@@ -201,7 +201,7 @@ export default function SettingsPage() {
                     id="timezone"
                     value={timezone}
                     onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   >
                     <option value="UTC">UTC</option>
                     <option value="America/New_York">America/New_York</option>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                     id="ai-model"
                     value={preferredModel === defaultModel ? '' : preferredModel}
                     onChange={(e) => setPreferredModel(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   >
                     <option value="">Default ({defaultModel})</option>
                     {availableModels
@@ -243,7 +243,7 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                  className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
                 >
                   {saving ? 'Saving...' : 'Save Changes'}
                   {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
@@ -269,7 +269,7 @@ export default function SettingsPage() {
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   placeholder="••••••••"
                   autoComplete="current-password"
                   required
@@ -287,7 +287,7 @@ export default function SettingsPage() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   placeholder="At least 8 characters"
                   autoComplete="new-password"
                   required
@@ -306,7 +306,7 @@ export default function SettingsPage() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
                   placeholder="••••••••"
                   autoComplete="new-password"
                   required
@@ -319,7 +319,7 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={changingPassword}
-                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                  className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
                 >
                   {changingPassword ? 'Changing...' : 'Change Password'}
                   {!changingPassword && <Lock className="h-4 w-4" aria-hidden="true" />}

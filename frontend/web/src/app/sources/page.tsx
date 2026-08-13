@@ -76,7 +76,7 @@ export default function SourcesPage() {
     }
     const timer = setInterval(() => {
       loadSources(false);
-    }, 2000);
+    }, 2500);
     return () => clearInterval(timer);
   }, [sourcesBusy]);
 
@@ -111,21 +111,21 @@ export default function SourcesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <h1 className="text-2xl font-bold text-gray-900">Sources</h1>
         </div>
       </header>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Source Library</h2>
           <button
             type="button"
             aria-label="Add Source"
             onClick={() => setShowAddDialog(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+            className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
           >
             <Upload className="h-4 w-4" aria-hidden="true" />
             Add Source
@@ -135,7 +135,7 @@ export default function SourcesPage() {
         {loading ? (
           <div className="text-center py-12">
             <div
-              className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+              className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
               role="status"
               aria-label="Loading sources"
             ></div>
@@ -150,7 +150,7 @@ export default function SourcesPage() {
               type="button"
               aria-label="Add Source"
               onClick={() => setShowAddDialog(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+              className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
             >
               Add Source
             </button>
@@ -221,8 +221,8 @@ export default function SourcesPage() {
                   type="button"
                   onClick={() => setAddMethod('url')}
                   className={`w-full p-3 border rounded-lg flex items-center gap-3 ${
-                    addMethod === 'url' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500`}
+                    addMethod === 'url' ? 'border-stone-800 bg-stone-100' : 'border-gray-300'
+                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800`}
                 >
                   <Link2 className="h-5 w-5" aria-hidden="true" />
                   <span>From URL</span>
@@ -231,8 +231,8 @@ export default function SourcesPage() {
                   type="button"
                   onClick={() => setAddMethod('file')}
                   className={`w-full p-3 border rounded-lg flex items-center gap-3 ${
-                    addMethod === 'file' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500`}
+                    addMethod === 'file' ? 'border-stone-800 bg-stone-100' : 'border-gray-300'
+                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800`}
                 >
                   <Upload className="h-5 w-5" aria-hidden="true" />
                   <span>Upload File</span>
@@ -258,7 +258,7 @@ export default function SourcesPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddDialog(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   Cancel
                 </button>
@@ -266,7 +266,7 @@ export default function SourcesPage() {
                   ref={lastFocusableRef}
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                  className="px-4 py-2 bg-stone-900 text-white rounded-lg disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
                 >
                   {saving ? 'Adding...' : 'Add'}
                 </button>
@@ -274,7 +274,7 @@ export default function SourcesPage() {
             </form>
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

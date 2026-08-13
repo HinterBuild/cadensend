@@ -26,7 +26,11 @@ export function AppSidebar() {
       <div className="space-y-1 px-3">
         {navigation.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const inSeriesFlow = pathname.startsWith('/series') || pathname.startsWith('/issues');
+          const isActive =
+            item.href === '/dashboard'
+              ? pathname === '/dashboard' || pathname.startsWith('/dashboard/') || inSeriesFlow
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.name}
