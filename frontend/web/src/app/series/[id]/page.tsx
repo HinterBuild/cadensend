@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Send, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
 import { seriesApi, sourceApi } from '@/lib/api';
 import { Series, Issue, Source } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -78,6 +78,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [plan, setPlan] = useState<Record<string, any> | null>(null);
   const [planError, setPlanError] = useState<string>('');
   const [startingPlan, setStartingPlan] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -179,6 +180,20 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       setPlanError(err.message || 'Failed to start plan generation');
     } finally {
       setStartingPlan(false);
+    }
+  };
+
+  const handleDeleteSeries = async () => {
+    if (!window.confirm(`Delete “${series?.topic}”? This cannot be undone.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await seriesApi.delete(id);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete series');
+      setDeleting(false);
     }
   };
 
@@ -304,6 +319,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               >
                 {series?.status}
               </span>
+              <button
+                type="button"
+                aria-label="Delete series"
+                onClick={handleDeleteSeries}
+                disabled={deleting}
+                className="rounded-lg p-2 text-gray-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </div>
@@ -545,6 +569,14 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                   <p className="mt-1 text-sm text-gray-600">
                     The backend is working on this. You can leave this page and come back.
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePlan}
+                    disabled={startingPlan}
+                    className="mt-6 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Retry generation
+                  </button>
                 </div>
               )}
 

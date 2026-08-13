@@ -134,6 +134,7 @@ func main() {
 				series.POST("/:id/activate", activateSeriesHandler(db))
 				series.POST("/:id/pause", pauseSeriesHandler(db))
 				series.POST("/:id/resume", resumeSeriesHandler(db))
+				series.DELETE("/:id", deleteSeriesHandler(db))
 			}
 
 			// User management endpoints

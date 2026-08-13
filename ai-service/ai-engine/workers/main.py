@@ -21,7 +21,7 @@ warnings.filterwarnings(
 )
 
 from app.core.config import settings
-from app.services.model_service import ModelService
+from app.services.model_service import ModelService, openrouter_api_key
 from app.services.agent_graph import get_agent
 from app.services.checkpoint_backend import get_checkpoint_backend
 from app.workers.ingestion_worker import IngestionWorker
@@ -78,8 +78,11 @@ class AIWorker:
             import aioredis
 
             redis = await aioredis.from_url(settings.REDIS_URL)
+            try:
+                msg = await redis.lpop("generation_queue")
+            finally:
+                await redis.close()
 
-            msg = await redis.lpop("generation_queue")
             if msg:
                 job_data = json.loads(msg)
                 task_name = job_data.get("task", "")
@@ -97,15 +100,37 @@ class AIWorker:
                     self.tasks[task_id] = asyncio.create_task(
                         self._handle_ingest_source(job_data)
                     )
+                else:
+                    logger.warning("Unknown generation task: %s", task_name)
+                    return
 
+                self.tasks[task_id].add_done_callback(
+                    lambda t, name=task_name: None
+                    if t.cancelled()
+                    else logger.error("Job %s crashed: %s", name, t.exception())
+                    if t.exception()
+                    else None
+                )
                 logger.info("Queued job: %s (%s)", task_name, task_id)
 
         except Exception as e:
-            logger.debug("No pending jobs or Redis error: %s", e)
+            logger.warning("Job poll failed: %s", e)
 
     async def _handle_generate_plan(self, job_data: dict):
         """Handle a generate-plan job using the LangGraph agent."""
+        series_id = job_data.get("series_id")
         try:
+            if openrouter_api_key() == "not-configured":
+                await self._persist_plan_result(
+                    series_id,
+                    {
+                        "status": "failed",
+                        "plan": {},
+                        "error": "OPENROUTER_API_KEY is not set. Add it to .env and restart the AI worker.",
+                    },
+                )
+                return
+
             result = await self.agent.run_plan_generation(
                 brief=job_data.get("brief", {}),
                 workspace_id=job_data.get("workspace_id", ""),

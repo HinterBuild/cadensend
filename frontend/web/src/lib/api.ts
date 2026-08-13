@@ -128,6 +128,11 @@ export const seriesApi = {
       method: 'POST',
     }),
 
+  delete: (id: string) =>
+    fetchApi(`/series/${id}`, {
+      method: 'DELETE',
+    }),
+
   testSend: () =>
     fetchApi('/series/test-send', {
       method: 'POST',

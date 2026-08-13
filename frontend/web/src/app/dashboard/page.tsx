@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Plus, BookOpen, Calendar, Send, ArrowUpRight } from 'lucide-react';
+import { Plus, BookOpen, Calendar, Send, ArrowUpRight, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRequireAuth, useAuth } from '@/contexts/AuthContext';
 import { seriesApi } from '@/lib/api';
@@ -14,6 +14,7 @@ export default function DashboardPage() {
   const [series, setSeries] = useState<Series[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -36,6 +37,23 @@ export default function DashboardPage() {
 
   const greetingName = user?.name?.trim() || user?.email?.split('@')[0] || 'there';
   const activeCount = series.filter((item) => item.status === 'active').length;
+
+  const handleDeleteSeries = async (e: React.MouseEvent, seriesId: string, topic: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Delete “${topic}”? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingId(seriesId);
+    try {
+      await seriesApi.delete(seriesId);
+      setSeries((current) => current.filter((item) => item.id !== seriesId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete series');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (authLoading || loading) {
     return (
@@ -165,16 +183,35 @@ export default function DashboardPage() {
                     )}
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs capitalize ${
-                        s.status === 'active'
+                        s.plan_status === 'generating'
+                          ? 'bg-yellow-50 text-yellow-800'
+                          : s.plan_status === 'ready'
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : s.plan_status === 'failed'
+                          ? 'bg-red-50 text-red-800'
+                          : s.status === 'active'
                           ? 'bg-emerald-50 text-emerald-800'
                           : s.status === 'planned' || s.status === 'draft'
                           ? 'bg-amber-50 text-amber-800'
                           : 'bg-stone-100 text-stone-700'
                       }`}
-                      aria-label={`Status: ${s.status}`}
+                      aria-label={`Status: ${s.plan_status === 'generating' ? 'plan generating' : s.status}`}
                     >
-                      {s.status}
+                      {s.plan_status === 'generating'
+                        ? 'Plan in progress'
+                        : s.plan_status === 'failed'
+                        ? 'Plan failed'
+                        : s.status}
                     </span>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${s.topic}`}
+                      disabled={deletingId === s.id}
+                      onClick={(e) => handleDeleteSeries(e, s.id, s.topic)}
+                      className="ml-auto rounded-full p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                   <div className="mt-5 flex items-center gap-4 text-xs text-stone-500">
                     <div className="flex items-center">

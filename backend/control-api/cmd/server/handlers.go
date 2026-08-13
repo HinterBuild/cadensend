@@ -184,15 +184,6 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if series.PlanStatus == "generating" {
-			c.JSON(http.StatusOK, gin.H{
-				"status":    "generating",
-				"series_id": id,
-				"message":   "plan generation already in progress",
-			})
-			return
-		}
-
 		model := req.Model
 		if model == "" {
 			model = cfg.DefaultModel
@@ -426,6 +417,28 @@ func resumeSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "series resumed"})
+	}
+}
+
+func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		now := time.Now()
+		result := db.Model(&service.Series{}).
+			Where("id = ? AND deleted_at IS NULL", id).
+			Updates(map[string]interface{}{
+				"deleted_at": now,
+				"updated_at": now,
+			})
+		if result.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+			return
+		}
+		if result.RowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "series deleted"})
 	}
 }
 
