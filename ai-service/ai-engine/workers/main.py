@@ -13,14 +13,14 @@ import json
 import uuid
 import warnings
 import base64
-from datetime import datetime, timezone
+
+import asyncpg
+import redis.asyncio as redis_async
 
 warnings.filterwarnings(
     "ignore",
     message=r"The default value of `allowed_objects` will change in a future version\..*",
 )
-
-import redis.asyncio as redis_async
 
 from app.core.config import settings
 from app.services.model_service import ModelService, openrouter_api_key
@@ -50,6 +50,7 @@ class AIWorker:
         self.running = False
         self.tasks: dict[str, asyncio.Task] = {}
         self._redis: redis_async.Redis | None = None
+        self._pg: asyncpg.Pool | None = None
 
     async def start(self):
         """Start the AI worker - ingests new sources and processes generation jobs."""
@@ -66,7 +67,7 @@ class AIWorker:
 
         while self.running:
             await self._process_pending_jobs()
-            await asyncio.sleep(5)
+            self._reap_tasks()
 
     async def stop(self):
         """Stop the AI worker and cancel pending tasks."""
@@ -76,6 +77,9 @@ class AIWorker:
         if self._redis is not None:
             await self._redis.aclose()
             self._redis = None
+        if self._pg is not None:
+            await self._pg.close()
+            self._pg = None
         logger.info("AI Worker stopped")
 
     def _redis_client(self) -> redis_async.Redis:
@@ -86,44 +90,67 @@ class AIWorker:
             )
         return self._redis
 
+    async def _pg_pool(self) -> asyncpg.Pool:
+        if self._pg is None:
+            dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+            self._pg = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
+        return self._pg
+
+    def _reap_tasks(self):
+        finished = [task_id for task_id, task in self.tasks.items() if task.done()]
+        for task_id in finished:
+            del self.tasks[task_id]
+
     async def _process_pending_jobs(self):
-        """Process pending generation jobs from the queue."""
+        """Block on the queue, then drain a small burst of ready jobs."""
         try:
-            msg = await self._redis_client().lpop("generation_queue")
-            if not msg:
+            redis = self._redis_client()
+            popped = await redis.brpop("generation_queue", timeout=5)
+            if not popped:
                 return
-
-            job_data = json.loads(msg)
-            task_name = job_data.get("task", "")
-            task_id = str(uuid.uuid4())
-
-            if task_name == "generate_plan":
-                self.tasks[task_id] = asyncio.create_task(
-                    self._handle_generate_plan(job_data)
-                )
-            elif task_name == "generate_issue":
-                self.tasks[task_id] = asyncio.create_task(
-                    self._handle_generate_issue(job_data)
-                )
-            elif task_name == "ingest_source":
-                self.tasks[task_id] = asyncio.create_task(
-                    self._handle_ingest_source(job_data)
-                )
-            else:
-                logger.warning("Unknown generation task: %s", task_name)
-                return
-
-            self.tasks[task_id].add_done_callback(
-                lambda t, name=task_name: None
-                if t.cancelled()
-                else logger.error("Job %s crashed: %s", name, t.exception())
-                if t.exception()
-                else None
-            )
-            logger.info("Queued job: %s (%s)", task_name, task_id)
-
+            messages = [popped[1]]
+            for _ in range(4):
+                extra = await redis.lpop("generation_queue")
+                if not extra:
+                    break
+                messages.append(extra)
+            for msg in messages:
+                self._dispatch_job(msg)
         except Exception as e:
             logger.warning("Job poll failed: %s", e)
+
+    def _dispatch_job(self, msg: str):
+        job_data = json.loads(msg)
+        task_name = job_data.get("task", "")
+        task_id = str(uuid.uuid4())
+        series_id = job_data.get("series_id")
+        issue_id = job_data.get("issue_id")
+        source_id = job_data.get("source_id")
+
+        if task_name == "generate_plan":
+            self.tasks[task_id] = asyncio.create_task(self._handle_generate_plan(job_data))
+        elif task_name == "generate_issue":
+            self.tasks[task_id] = asyncio.create_task(self._handle_generate_issue(job_data))
+        elif task_name == "ingest_source":
+            self.tasks[task_id] = asyncio.create_task(self._handle_ingest_source(job_data))
+        else:
+            logger.warning("Unknown generation task: %s", task_name)
+            return
+
+        self.tasks[task_id].add_done_callback(
+            lambda t, name=task_name, sid=series_id, iid=issue_id, src=source_id: None
+            if t.cancelled()
+            else logger.error(
+                "Job %s crashed series=%s issue=%s source=%s: %s",
+                name, sid, iid, src, t.exception(),
+            )
+            if t.exception()
+            else None
+        )
+        logger.info(
+            "Queued job=%s id=%s series=%s issue=%s source=%s",
+            task_name, task_id, series_id, issue_id, source_id,
+        )
 
     async def _handle_generate_plan(self, job_data: dict):
         """Handle a generate-plan job using the LangGraph agent."""
@@ -148,16 +175,14 @@ class AIWorker:
                 model=job_data.get("model"),
             )
 
-            logger.info("Plan generated: thread=%s, status=%s",
-                        result.get("thread_id"), result.get("status"))
-            await self._persist_plan_result(job_data.get("series_id"), result)
+            logger.info("Plan generated series=%s thread=%s status=%s",
+                        series_id, result.get("thread_id"), result.get("status"))
+            await self._persist_plan_result(series_id, result)
 
         except Exception as e:
-            logger.error("Plan generation job failed: %s", e)
-            import traceback
-            traceback.print_exc()
+            logger.exception("Plan generation job failed series=%s", series_id)
             await self._persist_plan_result(
-                job_data.get("series_id"),
+                series_id,
                 {"status": "failed", "plan": {}, "error": str(e)},
             )
 
@@ -180,31 +205,25 @@ class AIWorker:
             if not error:
                 error = status or "plan generation failed"
 
-        dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
         try:
-            import asyncpg
-
-            conn = await asyncpg.connect(dsn)
-            try:
-                await conn.execute(
-                    """
-                    UPDATE series
-                    SET plan_status = $1,
-                        plan_json = $2::jsonb,
-                        plan_error = $3,
-                        updated_at = NOW()
-                    WHERE id = $4::uuid
-                    """,
-                    plan_status,
-                    json.dumps(plan),
-                    error,
-                    series_id,
-                )
-            finally:
-                await conn.close()
+            pool = await self._pg_pool()
+            await pool.execute(
+                """
+                UPDATE series
+                SET plan_status = $1,
+                    plan_json = $2::jsonb,
+                    plan_error = $3,
+                    updated_at = NOW()
+                WHERE id = $4::uuid
+                """,
+                plan_status,
+                json.dumps(plan),
+                error,
+                series_id,
+            )
             logger.info("Persisted plan status=%s for series=%s", plan_status, series_id)
         except Exception as persist_error:
-            logger.error("Failed to persist plan result: %s", persist_error)
+            logger.exception("Failed to persist plan result series=%s: %s", series_id, persist_error)
 
     async def _handle_generate_issue(self, job_data: dict):
         """Handle a generate-issue job using the LangGraph agent."""
@@ -224,9 +243,7 @@ class AIWorker:
             await self._persist_issue_result(job_data.get("issue_id"), result)
 
         except Exception as e:
-            logger.error("Issue generation job failed: %s", e)
-            import traceback
-            traceback.print_exc()
+            logger.exception("Issue generation job failed issue=%s", job_data.get("issue_id"))
             await self._persist_issue_result(
                 job_data.get("issue_id"),
                 {"status": "failed", "issues": [], "error": str(e)},
@@ -249,31 +266,25 @@ class AIWorker:
             issue_status = "ready"
             content = issues[0] if isinstance(issues[0], dict) else {"content": issues[0]}
 
-        dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
         try:
-            import asyncpg
-
-            conn = await asyncpg.connect(dsn)
-            try:
-                await conn.execute(
-                    """
-                    UPDATE issues
-                    SET status = $1,
-                        content_json = $2::jsonb,
-                        generate_error = $3,
-                        updated_at = NOW()
-                    WHERE id = $4::uuid
-                    """,
-                    issue_status,
-                    json.dumps(content),
-                    error,
-                    issue_id,
-                )
-            finally:
-                await conn.close()
+            pool = await self._pg_pool()
+            await pool.execute(
+                """
+                UPDATE issues
+                SET status = $1,
+                    content_json = $2::jsonb,
+                    generate_error = $3,
+                    updated_at = NOW()
+                WHERE id = $4::uuid
+                """,
+                issue_status,
+                json.dumps(content),
+                error,
+                issue_id,
+            )
             logger.info("Persisted issue status=%s for issue=%s", issue_status, issue_id)
         except Exception as persist_error:
-            logger.error("Failed to persist issue result: %s", persist_error)
+            logger.exception("Failed to persist issue result issue=%s: %s", issue_id, persist_error)
 
     async def _handle_ingest_source(self, job_data: dict):
         """Handle a source ingestion job."""

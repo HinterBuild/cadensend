@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -208,11 +209,7 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		addr, dbNum, password := parseRedisURL(cfg.RedisURL)
-		rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
-		defer rdb.Close()
-
-		if err := rdb.RPush(context.Background(), "generation_queue", job).Err(); err != nil {
+		if err := enqueueGenerationJob(job); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
 			return
 		}
@@ -631,7 +628,64 @@ func getIssueHandler(db *gorm.DB) gin.HandlerFunc {
 
 func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"message": "issue updated"})
+		id := c.Param("id")
+		var req struct {
+			Subject       string          `json:"subject"`
+			Preheader     string          `json:"preheader"`
+			ContentBlocks json.RawMessage `json:"content_blocks"`
+			ScheduledAt   string          `json:"scheduled_at"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		var issue service.Issue
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+			return
+		}
+		if issue.Locked {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue is locked"})
+			return
+		}
+
+		content := parseJSONMap(issue.ContentJSON)
+		content["subject"] = req.Subject
+		content["preheader"] = req.Preheader
+		if len(req.ContentBlocks) > 0 && string(req.ContentBlocks) != "null" {
+			var blocks any
+			if err := json.Unmarshal(req.ContentBlocks, &blocks); err == nil {
+				content["content_blocks"] = blocks
+			}
+		}
+		encoded, err := json.Marshal(content)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		encodedStr := string(encoded)
+		updates := map[string]interface{}{
+			"content_json": encodedStr,
+			"updated_at":   time.Now().UTC(),
+		}
+		if req.ScheduledAt != "" {
+			parsed, err := parseScheduledAt(req.ScheduledAt)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scheduled_at must be a valid date or datetime"})
+				return
+			}
+			updates["scheduled_at"] = parsed
+		}
+		if err := db.Model(&issue).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := db.Where("id = ?", id).First(&issue).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": issue})
 	}
 }
 
@@ -705,10 +759,7 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 			"objective": issue.Objective,
 			"model":     model,
 		},
-		"plan_item": map[string]interface{}{
-			"title":               issue.Objective,
-			"learning_objectives": []string{issue.Objective},
-		},
+		"plan_item": planItemForIssue(series, issue),
 	})
 	if err != nil {
 		return err
@@ -966,6 +1017,41 @@ func sendTestEmail(to, subject, htmlBody string) error {
 	})
 }
 
+func planItemForIssue(series *service.Series, issue *service.Issue) map[string]interface{} {
+	item := map[string]interface{}{
+		"title":               issue.Objective,
+		"learning_objectives": []string{issue.Objective},
+	}
+	plan := parseJSONMap(series.PlanJSON)
+	modules, _ := plan["modules"].([]interface{})
+	idx := issue.SequenceNo - 1
+	if idx < 0 || idx >= len(modules) {
+		return item
+	}
+	mod, ok := modules[idx].(map[string]interface{})
+	if !ok {
+		return item
+	}
+	if title, _ := mod["title"].(string); strings.TrimSpace(title) != "" {
+		item["title"] = title
+	}
+	if summary, _ := mod["summary"].(string); summary != "" {
+		item["summary"] = summary
+	}
+	if objs, ok := mod["learning_objectives"].([]interface{}); ok {
+		goals := make([]string, 0, len(objs))
+		for _, obj := range objs {
+			if s, ok := obj.(string); ok && strings.TrimSpace(s) != "" {
+				goals = append(goals, s)
+			}
+		}
+		if len(goals) > 0 {
+			item["learning_objectives"] = goals
+		}
+	}
+	return item
+}
+
 func parseJSONMap(raw *string) map[string]any {
 	if raw == nil || strings.TrimSpace(*raw) == "" || *raw == "null" {
 		return map[string]any{}
@@ -1131,11 +1217,21 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+var (
+	generationRedisOnce sync.Once
+	generationRedis     *redis.Client
+)
+
+func generationQueue() *redis.Client {
+	generationRedisOnce.Do(func() {
+		addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+		generationRedis = redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
+	})
+	return generationRedis
+}
+
 func enqueueGenerationJob(job []byte) error {
-	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
-	rdb := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
-	defer rdb.Close()
-	return rdb.RPush(context.Background(), "generation_queue", job).Err()
+	return generationQueue().RPush(context.Background(), "generation_queue", job).Err()
 }
 
 func listSourcesHandler(db *gorm.DB) gin.HandlerFunc {

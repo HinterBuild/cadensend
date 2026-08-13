@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 
 	"backend/control-api/internal/config"
@@ -198,9 +197,6 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start background workers
-	go startWorkers()
-
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -241,38 +237,6 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-func startWorkers() {
-	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
-	scheduler := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum},
-		asynq.Config{Concurrency: 10},
-	)
-
-	mux := asynq.NewServeMux()
-	mux.HandleFunc("issue:generate", generateIssueTask)
-	mux.HandleFunc("issue:deliver", deliverIssueTask)
-	mux.HandleFunc("source:ingest", ingestSourceTask)
-
-	if err := scheduler.Run(mux); err != nil {
-		log.Fatalf("Failed to start scheduler: %v", err)
-	}
-}
-
-func generateIssueTask(ctx context.Context, t *asynq.Task) error {
-	log.Printf("Processing issue generation task: %s", t.Type())
-	return nil
-}
-
-func deliverIssueTask(ctx context.Context, t *asynq.Task) error {
-	log.Printf("Processing issue delivery task: %s", t.Type())
-	return nil
-}
-
-func ingestSourceTask(ctx context.Context, t *asynq.Task) error {
-	log.Printf("Processing source ingestion task: %s", t.Type())
-	return nil
 }
 
 func parseRedisURL(rawURL string) (addr string, dbNum int, password string) {
