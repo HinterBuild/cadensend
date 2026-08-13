@@ -65,10 +65,10 @@ export default function RunCenterPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-center">
           <div
-            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
             role="status"
             aria-label="Loading"
           ></div>
@@ -79,7 +79,7 @@ export default function RunCenterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -88,7 +88,7 @@ export default function RunCenterPage() {
                 type="button"
                 aria-label="Go back"
                 onClick={() => router.back()}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
+                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -102,7 +102,7 @@ export default function RunCenterPage() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {runs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden="true" />
@@ -126,7 +126,7 @@ export default function RunCenterPage() {
                         : run.status === 'failed'
                         ? 'bg-red-100 text-red-800'
                         : run.status === 'running'
-                        ? 'bg-blue-100 text-blue-800'
+                        ? 'bg-stone-200 text-stone-800'
                         : 'bg-gray-100 text-gray-800'
                     }`}
                     aria-label={`Run status: ${run.status}`}
@@ -153,7 +153,7 @@ export default function RunCenterPage() {
             ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
