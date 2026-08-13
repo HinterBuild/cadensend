@@ -31,6 +31,7 @@
 
 ## Table of contents
 
+- [Product](#product)
 - [Why Cadensend](#why-cadensend)
 - [What it does](#what-it-does)
 - [Repository layout](#repository-layout)
@@ -51,6 +52,20 @@
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
+
+---
+
+## Product
+
+The dashboard is the operator surface for series, curriculum status, sources, and delivery.
+
+<p align="center">
+  <img src="DASHBOARD.png" alt="Cadensend dashboard — series overview, plan status, and workspace navigation" width="920" />
+</p>
+
+<p align="center">
+  <em>Series inventory with plan-in-progress and active delivery states.</em>
+</p>
 
 ---
 
