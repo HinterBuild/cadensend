@@ -140,6 +140,7 @@ class ModelService:
             response = self.client.embeddings.create(
                 model=self.embedding_model_name,
                 input=texts,
+                encoding_format="float",
             )
             ordered = sorted(response.data, key=lambda item: item.index)
             embeddings = [item.embedding for item in ordered]

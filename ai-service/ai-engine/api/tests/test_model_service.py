@@ -45,6 +45,7 @@ class TestModelService:
         mock_client.embeddings.create.assert_called_once_with(
             model="nvidia/nemotron-3-embed-1b:free",
             input=["text one", "text two"],
+            encoding_format="float",
         )
         assert embeddings == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 

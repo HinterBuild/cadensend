@@ -20,6 +20,8 @@ warnings.filterwarnings(
     message=r"The default value of `allowed_objects` will change in a future version\..*",
 )
 
+import redis.asyncio as redis_async
+
 from app.core.config import settings
 from app.services.model_service import ModelService, openrouter_api_key
 from app.services.agent_graph import get_agent
@@ -47,6 +49,7 @@ class AIWorker:
         self.ingestion_worker = IngestionWorker(self.model_service)
         self.running = False
         self.tasks: dict[str, asyncio.Task] = {}
+        self._redis: redis_async.Redis | None = None
 
     async def start(self):
         """Start the AI worker - ingests new sources and processes generation jobs."""
@@ -70,48 +73,54 @@ class AIWorker:
         self.running = False
         for task_id, task in self.tasks.items():
             task.cancel()
+        if self._redis is not None:
+            await self._redis.aclose()
+            self._redis = None
         logger.info("AI Worker stopped")
+
+    def _redis_client(self) -> redis_async.Redis:
+        if self._redis is None:
+            self._redis = redis_async.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+            )
+        return self._redis
 
     async def _process_pending_jobs(self):
         """Process pending generation jobs from the queue."""
         try:
-            import aioredis
+            msg = await self._redis_client().lpop("generation_queue")
+            if not msg:
+                return
 
-            redis = await aioredis.from_url(settings.REDIS_URL)
-            try:
-                msg = await redis.lpop("generation_queue")
-            finally:
-                await redis.close()
+            job_data = json.loads(msg)
+            task_name = job_data.get("task", "")
+            task_id = str(uuid.uuid4())
 
-            if msg:
-                job_data = json.loads(msg)
-                task_name = job_data.get("task", "")
-                task_id = str(uuid.uuid4())
-
-                if task_name == "generate_plan":
-                    self.tasks[task_id] = asyncio.create_task(
-                        self._handle_generate_plan(job_data)
-                    )
-                elif task_name == "generate_issue":
-                    self.tasks[task_id] = asyncio.create_task(
-                        self._handle_generate_issue(job_data)
-                    )
-                elif task_name == "ingest_source":
-                    self.tasks[task_id] = asyncio.create_task(
-                        self._handle_ingest_source(job_data)
-                    )
-                else:
-                    logger.warning("Unknown generation task: %s", task_name)
-                    return
-
-                self.tasks[task_id].add_done_callback(
-                    lambda t, name=task_name: None
-                    if t.cancelled()
-                    else logger.error("Job %s crashed: %s", name, t.exception())
-                    if t.exception()
-                    else None
+            if task_name == "generate_plan":
+                self.tasks[task_id] = asyncio.create_task(
+                    self._handle_generate_plan(job_data)
                 )
-                logger.info("Queued job: %s (%s)", task_name, task_id)
+            elif task_name == "generate_issue":
+                self.tasks[task_id] = asyncio.create_task(
+                    self._handle_generate_issue(job_data)
+                )
+            elif task_name == "ingest_source":
+                self.tasks[task_id] = asyncio.create_task(
+                    self._handle_ingest_source(job_data)
+                )
+            else:
+                logger.warning("Unknown generation task: %s", task_name)
+                return
+
+            self.tasks[task_id].add_done_callback(
+                lambda t, name=task_name: None
+                if t.cancelled()
+                else logger.error("Job %s crashed: %s", name, t.exception())
+                if t.exception()
+                else None
+            )
+            logger.info("Queued job: %s (%s)", task_name, task_id)
 
         except Exception as e:
             logger.warning("Job poll failed: %s", e)

@@ -50,6 +50,7 @@ class NewsletterState(TypedDict):
     visual_specs: List[Dict[str, Any]]
     memory_context: List[Dict[str, Any]]
     model: Optional[str]
+    workflow: str
 
 
 class NewsletterAgent:
@@ -98,7 +99,14 @@ class NewsletterAgent:
         graph.add_edge(START, "load_memory")
         graph.add_edge("load_memory", "plan")
         graph.add_edge("plan", "validate_plan")
-        graph.add_edge("validate_plan", "retrieve_context")
+        graph.add_conditional_edges(
+            "validate_plan",
+            self._after_plan,
+            {
+                "plan_done": "save_memory",
+                "generate": "retrieve_context",
+            },
+        )
         graph.add_edge("retrieve_context", "generate_issue")
         graph.add_edge("generate_issue", "analyze_coverage")
         graph.add_edge("analyze_coverage", "generate_visuals")
@@ -117,6 +125,12 @@ class NewsletterAgent:
         graph.add_edge("save_memory", END)
 
         return graph
+
+    def _after_plan(self, state: NewsletterState) -> str:
+        """Plan jobs stop after validation; issue jobs continue into retrieval."""
+        if state.get("workflow") == "plan":
+            return "plan_done"
+        return "generate"
 
     def _build_default_system_prompt(self, brief: Dict[str, Any], memory_context: List[Dict]) -> str:
         """Build the system prompt for the agent."""
@@ -202,6 +216,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "visual_specs": [],
             "memory_context": [],
             "model": chosen_model,
+            "workflow": "plan",
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -265,6 +280,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "visual_specs": [],
             "memory_context": [],
             "model": chosen_model,
+            "workflow": "issue",
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -446,8 +462,9 @@ Only include citations for claims supported by the retrieved context.
             context_text = ""
             if module_context:
                 context_text = "\n\n## Retrieved Context\n" + "\n".join(
-                    f"[{c['source_id']}] {c.get('content', '')[:300]}"
+                    f"[{c.get('source_id', '')}] {c.get('content', '')[:300]}"
                     for c in module_context[:5]
+                    if "error" not in c
                 )
 
             messages: List[BaseMessage] = [

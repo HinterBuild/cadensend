@@ -83,7 +83,7 @@ class NewsletterTools:
             return formatted
         except Exception as e:
             logger.error("Context retrieval failed: %s", e)
-            return [{"error": str(e)}]
+            return []
 
     def search_sources(
         self,
