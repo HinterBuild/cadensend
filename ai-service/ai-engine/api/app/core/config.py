@@ -55,9 +55,11 @@ class Settings(BaseSettings):
     GENERATION_TIMEOUT_SECONDS: int = 300
     
     # Email settings
-    EMAIL_PROVIDER: str = "brevo"
-    SMTP_FROM: str = "no-reply@cadensend.app"
+    EMAIL_PROVIDER: str = ""
+    SMTP_FROM: str = ""
+    SMTP_FROM_NAME: str = ""
     BREVO_API_KEY: Optional[str] = None
+    BREVO_API_URL: str = ""
     
     # Environment
     ENVIRONMENT: str = "development"

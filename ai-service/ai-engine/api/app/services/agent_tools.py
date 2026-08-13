@@ -6,6 +6,7 @@ that the LangGraph agent can call during execution.
 
 from typing import List, Dict, Any, Optional
 import logging
+import re
 
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -217,13 +218,23 @@ Output the refined {diagram_type} code only.
         elif len(modules) > 20:
             warnings.append(f"Plan has {len(modules)} modules - consider splitting")
 
+        titles = []
         for i, module in enumerate(modules):
-            if not module.get("title"):
+            title = str(module.get("title") or "").strip()
+            titles.append(title.lower())
+            if not title:
                 issues.append(f"Module {i + 1} missing a title")
+            elif re.fullmatch(r"module\s+\d+", title, re.IGNORECASE):
+                issues.append(f"Module {i + 1} has a placeholder title")
             if not module.get("learning_objectives"):
                 issues.append(f"Module {i + 1} has no learning objectives")
-            if module.get("duration_weeks", 0) <= 0:
+            duration = module.get("duration_weeks", 1)
+            if duration is not None and duration <= 0:
                 issues.append(f"Module {i + 1} has invalid duration")
+
+        unique_titles = {t for t in titles if t}
+        if modules and len(unique_titles) < min(3, len(modules)):
+            issues.append("Modules must have distinct titles")
 
         total_weeks = plan.get("total_weeks", 0)
         if total_weeks <= 0:

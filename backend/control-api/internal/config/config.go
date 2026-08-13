@@ -32,10 +32,12 @@ type Config struct {
 	MinIOSecretKey   string
 	MinIOBucketName  string
 
-	// Email settings
-	EmailProvider  string
-	SMTPFrom       string
-	BrevoAPIKey      string
+	// Email settings (from environment only)
+	EmailProvider string
+	SMTPFrom      string
+	SMTPFromName  string
+	BrevoAPIKey   string
+	BrevoAPIURL   string
 
 	// JWT settings
 	JWTSecret    string
@@ -68,9 +70,11 @@ func LoadConfig() *Config {
 		MinIOAccessKey:     getEnv("MINIO_ACCESS_KEY", ""),
 		MinIOSecretKey:     getEnv("MINIO_SECRET_KEY", ""),
 		MinIOBucketName:    getEnv("MINIO_BUCKET_NAME", "cadensend"),
-		EmailProvider:      getEnv("EMAIL_PROVIDER", "brevo"),
-		SMTPFrom:           getEnv("SMTP_FROM", "noreply@cadensend.app"),
+		EmailProvider:      getEnv("EMAIL_PROVIDER", ""),
+		SMTPFrom:           getEnv("SMTP_FROM", ""),
+		SMTPFromName:       getEnv("SMTP_FROM_NAME", ""),
 		BrevoAPIKey:        getEnv("BREVO_API_KEY", ""),
+		BrevoAPIURL:        getEnv("BREVO_API_URL", ""),
 		JWTSecret:          getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTAlgorithm:       getEnv("JWT_ALGORITHM", "HS256"),
 		JWTExpiry:          time.Hour * 24,

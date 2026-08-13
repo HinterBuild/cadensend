@@ -11,6 +11,7 @@ issue generation, retrieval, and visual creation with:
 from typing import List, Dict, Any, Optional, Annotated, TypedDict, Sequence
 import logging
 import json
+import re
 import asyncio
 from datetime import datetime
 
@@ -334,46 +335,169 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
     async def _plan_node(self, state: NewsletterState) -> NewsletterState:
         """Generate a curriculum plan from the brief."""
         brief = state["brief"]
-        system_prompt = self._build_default_system_prompt(brief, state.get("memory_context", []))
-        system_prompt += "\n\nGenerate a detailed curriculum plan in JSON format with modules, learning objectives, prerequisites, and total weeks."
-
-        messages: List[BaseMessage] = [
+        system_prompt = self._plan_system_prompt(brief, state.get("memory_context", []))
+        user_prompt = (
+            "Create a progressive email-course curriculum for this series.\n"
+            f"{json.dumps(brief, indent=2)}\n\n"
+            "Each module must have a unique title and unique learning objectives. "
+            "Do not name modules 'Module 1'. Do not repeat the series goal as every objective."
+        )
+        lc_messages: List[BaseMessage] = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Create a curriculum plan for: {json.dumps(brief, indent=2)}"),
+            HumanMessage(content=user_prompt),
         ]
-
-        state["messages"] = messages
+        state["messages"] = lc_messages
 
         try:
-            response = await self._chat_model(state, temperature=0.3).ainvoke(messages)
-            plan_text = response.content
+            plan = await self._generate_plan_json(state, brief, user_prompt, system_prompt)
+            if self._is_placeholder_plan(plan, brief):
+                plan = await self._generate_plan_json(
+                    state,
+                    brief,
+                    user_prompt + "\nThe previous draft was a placeholder. Produce 4-8 distinct modules.",
+                    system_prompt,
+                )
 
-            try:
-                plan = json.loads(plan_text)
-            except json.JSONDecodeError:
-                import re
-                json_match = re.search(r'[\{\[].*[\}\]]', plan_text, re.DOTALL)
-                if json_match:
-                    plan = json.loads(json_match.group())
-                else:
-                    plan = self._default_plan(brief)
-
-            if "plan" not in plan and "modules" in plan:
-                pass
-            elif "plan" in plan:
-                plan = plan["plan"]
+            if self._is_placeholder_plan(plan, brief):
+                state["plan"] = {}
+                state["error"] = "Model returned a placeholder curriculum instead of distinct modules."
+                state["status"] = "planning_failed"
+                return state
 
             state["plan"] = plan
             state["status"] = "planning_complete"
-            state["messages"] = messages + [AIMessage(content=json.dumps(plan, indent=2)[:2000])]
-
+            state["error"] = None
+            state["messages"] = lc_messages + [AIMessage(content=json.dumps(plan, indent=2)[:2000])]
         except Exception as e:
             logger.error("Plan generation failed: %s", e)
-            state["plan"] = self._default_plan(brief)
+            state["plan"] = {}
             state["error"] = str(e)
             state["status"] = "planning_failed"
 
         return state
+
+    def _plan_system_prompt(self, brief: Dict[str, Any], memory_context: List[Dict]) -> str:
+        base = self._build_default_system_prompt(brief, memory_context)
+        return base + """
+
+Return ONLY JSON with this shape:
+{
+  "modules": [
+    {
+      "title": "short unique lesson title",
+      "summary": "one sentence on what this lesson covers and why it comes next",
+      "learning_objectives": ["specific outcome 1", "specific outcome 2"],
+      "duration_weeks": 1
+    }
+  ],
+  "prerequisites": ["..."],
+  "total_weeks": 4
+}
+
+Rules:
+- 4 to 8 modules that build on each other from fundamentals to the series goal.
+- Titles must be unique and descriptive (not "Module 1", "Module 2").
+- Learning objectives must be specific skills, not a copy of the series goal.
+- Match the audience level in the brief.
+"""
+
+    async def _generate_plan_json(
+        self,
+        state: NewsletterState,
+        brief: Dict[str, Any],
+        user_prompt: str,
+        system_prompt: str,
+    ) -> Dict[str, Any]:
+        schema = {
+            "modules": [
+                {
+                    "title": "string",
+                    "summary": "string",
+                    "learning_objectives": ["string"],
+                    "duration_weeks": 1,
+                }
+            ],
+            "prerequisites": ["string"],
+            "total_weeks": 4,
+        }
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            parsed = await self.model_service.generate_structured_output(
+                messages,
+                schema,
+                model=state.get("model"),
+                max_retries=1,
+                temperature=0.4,
+            )
+        except Exception as exc:
+            logger.warning("Structured plan output failed (%s); using plain completion", exc)
+            text = await self.model_service.generate_response(
+                messages + [{"role": "user", "content": "Return only a JSON object. No markdown fences."}],
+                model=state.get("model"),
+                temperature=0.4,
+            )
+            parsed = self._parse_json_object(text)
+            if parsed is None:
+                raise ValueError("Plan model did not return JSON") from exc
+        return self._normalize_plan(parsed)
+
+    @staticmethod
+    def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+        raw = (text or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+        try:
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else None
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not match:
+                return None
+            try:
+                value = json.loads(match.group())
+            except json.JSONDecodeError:
+                return None
+            return value if isinstance(value, dict) else None
+
+    @staticmethod
+    def _normalize_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+        if "plan" in plan and "modules" not in plan:
+            nested = plan.get("plan")
+            if isinstance(nested, dict):
+                plan = nested
+        modules = plan.get("modules") or []
+        total = plan.get("total_weeks") or sum(int(m.get("duration_weeks") or 1) for m in modules) or len(modules)
+        return {
+            "modules": modules,
+            "prerequisites": plan.get("prerequisites") or [],
+            "total_weeks": total,
+        }
+
+    @staticmethod
+    def _is_placeholder_plan(plan: Optional[Dict[str, Any]], brief: Dict[str, Any]) -> bool:
+        if not plan:
+            return True
+        modules = plan.get("modules") or []
+        if len(modules) < 3:
+            return True
+        titles = [str(m.get("title") or "").strip() for m in modules]
+        if all(re.fullmatch(r"Module\s+\d+", title, re.IGNORECASE) for title in titles):
+            return True
+        if len({title.lower() for title in titles if title}) < min(3, len(titles)):
+            return True
+        goal = str(brief.get("goal") or "").strip().lower()
+        objectives = [
+            str(obj).strip().lower()
+            for m in modules
+            for obj in (m.get("learning_objectives") or [])
+        ]
+        if goal and objectives and all(obj == goal for obj in objectives):
+            return True
+        return False
 
     async def _validate_plan_node(self, state: NewsletterState) -> NewsletterState:
         """Validate the generated plan."""

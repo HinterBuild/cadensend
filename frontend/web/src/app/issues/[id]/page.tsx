@@ -40,6 +40,14 @@ function parseIssueContent(issue: Issue): {
   };
 }
 
+function toLocalInput(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export default function IssueEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -48,7 +56,10 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testNotice, setTestNotice] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
 
   const [content, setContent] = useState({
     subject: '',
@@ -71,6 +82,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       const issueData = response.data;
       setIssue(issueData);
       setContent(parseIssueContent(issueData));
+      setScheduledAt(toLocalInput(issueData.scheduled_at));
     } catch (err: any) {
       setError(err.message || 'Failed to load issue');
     } finally {
@@ -126,10 +138,30 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     }
   };
 
+  const sendTestEmail = async () => {
+    if (!id) return;
+    setSendingTest(true);
+    setError(null);
+    setTestNotice('');
+    try {
+      const result = await issueApi.testSend(id);
+      const email = (result as { email?: string }).email || user?.email || 'your inbox';
+      setTestNotice(`Test email sent to ${email}.`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send test email');
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   const approveIssue = async () => {
     if (!id) return;
+    if (!scheduledAt) {
+      setError('Set a send time before approving.');
+      return;
+    }
     try {
-      await issueApi.approve(id);
+      await issueApi.approve(id, { scheduled_at: new Date(scheduledAt).toISOString() });
       if (issue) {
         router.push(`/series/${issue.series_id}`);
       }
@@ -229,6 +261,11 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
             <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
+        {testNotice && (
+          <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4" role="status">
+            <p className="text-sm text-green-800">{testNotice}</p>
+          </div>
+        )}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Issue Editor</h2>
           <div className="flex space-x-2">
@@ -252,6 +289,15 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               {(generating || issue?.status === 'generating') ? 'Generating...' : (issue?.status === 'ready' || issue?.status === 'failed' ? 'Regenerate with AI' : 'Generate with AI')}
               {!(generating || issue?.status === 'generating') && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
             </button>
+            <button
+              type="button"
+              onClick={sendTestEmail}
+              disabled={sendingTest || generating || issue?.status === 'generating'}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700"
+            >
+              {sendingTest ? 'Sending…' : 'Send test email'}
+              {!sendingTest && <Send className="h-4 w-4" aria-hidden="true" />}
+            </button>
             {issue?.status !== 'approved' && issue?.status !== 'sent' && (
               <button
                 type="button"
@@ -260,13 +306,28 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500"
               >
                 Approve & Schedule
-                <Send className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
           </div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 space-y-6">
+          <div>
+            <label htmlFor="send-at" className="block text-sm font-medium text-gray-700 mb-2">
+              Send at
+            </label>
+            <input
+              id="send-at"
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-blue-500 text-gray-900 bg-white"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Approve schedules a real send at this time. Send test email only previews content.
+            </p>
+          </div>
+
           <div>
             <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
               Subject

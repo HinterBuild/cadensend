@@ -169,7 +169,7 @@ class AIWorker:
         status = result.get("status") or ""
         plan = result.get("plan") or {}
         error = result.get("error") or ""
-        if status in {"failed", "planning_failed"} and not plan:
+        if status in {"failed", "planning_failed", "validation_failed"}:
             plan_status = "failed"
             if not error:
                 error = status or "plan generation failed"

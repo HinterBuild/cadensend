@@ -7,6 +7,7 @@ thread so the agent can resume and maintain context within a thread.
 
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Optional, Dict, Any
+import base64
 import json
 import logging
 import uuid as uuidlib
@@ -94,6 +95,25 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
             parent_ts = metadata["parents"].get(thread_id)
         return thread_id, thread_ts, parent_ts
 
+    def _encode(self, obj: Any) -> str:
+        """Persist LangGraph values, including LangChain messages."""
+        kind, payload = self.serde.dumps_typed(obj)
+        if isinstance(payload, str):
+            payload = payload.encode("utf-8")
+        return json.dumps({
+            "__lg": True,
+            "t": kind,
+            "d": base64.b64encode(payload).decode("ascii"),
+        })
+
+    def _decode(self, raw: Any) -> Any:
+        if raw is None:
+            return {}
+        data = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
+        if isinstance(data, dict) and data.get("__lg") and "t" in data and "d" in data:
+            return self.serde.loads_typed((data["t"], base64.b64decode(data["d"])))
+        return data
+
     async def aput(
         self,
         config: RunnableConfig,
@@ -120,8 +140,8 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
                 thread_id,
                 thread_ts,
                 parent_ts,
-                json.dumps(checkpoint),
-                json.dumps(metadata or {}),
+                self._encode(checkpoint),
+                self._encode(metadata or {}),
             )
         finally:
             await conn.close()
@@ -163,8 +183,8 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
                 )
 
             if row:
-                checkpoint = json.loads(row["checkpoint"])
-                metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                checkpoint = self._decode(row["checkpoint"])
+                metadata = self._decode(row["metadata"]) if row["metadata"] else {}
                 return CheckpointTuple(
                     config=self._checkpoint_config(thread_id, thread_ts or checkpoint.get("ts")),
                     checkpoint=checkpoint,
@@ -205,8 +225,8 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
                 )
 
             for row in rows:
-                checkpoint = json.loads(row["checkpoint"])
-                metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+                checkpoint = self._decode(row["checkpoint"])
+                metadata = self._decode(row["metadata"]) if row["metadata"] else {}
                 yield CheckpointTuple(
                     config=self._checkpoint_config(
                         str(checkpoint.get("id", thread_id or "default")),

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
-import { seriesApi, sourceApi } from '@/lib/api';
+import { seriesApi, sourceApi, issueApi } from '@/lib/api';
 import { Series, Issue, Source } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -79,6 +79,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [planError, setPlanError] = useState<string>('');
   const [startingPlan, setStartingPlan] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testNotice, setTestNotice] = useState('');
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -194,6 +196,24 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     } catch (err: any) {
       setError(err.message || 'Failed to delete series');
       setDeleting(false);
+    }
+  };
+
+  const handleSendTest = async (moduleIndex?: number) => {
+    setSendingTest(true);
+    setTestNotice('');
+    setError(null);
+    try {
+      const result = await seriesApi.testSend(
+        id,
+        moduleIndex === undefined ? {} : { module_index: moduleIndex },
+      );
+      const email = (result as { email?: string }).email || user?.email || 'your inbox';
+      setTestNotice(`Test email sent to ${email}.`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send test email');
+    } finally {
+      setSendingTest(false);
     }
   };
 
@@ -321,6 +341,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               </span>
               <button
                 type="button"
+                onClick={() => handleSendTest()}
+                disabled={sendingTest}
+                className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-3 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" />
+                {sendingTest ? 'Sending…' : 'Send test email'}
+              </button>
+              <button
+                type="button"
                 aria-label="Delete series"
                 onClick={handleDeleteSeries}
                 disabled={deleting}
@@ -334,6 +363,11 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       </header>
 
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {testNotice && (
+          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800" role="status">
+            {testNotice}
+          </div>
+        )}
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav aria-label="Series sections">
@@ -411,23 +445,45 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             ) : (
               <div className="space-y-4">
                 {issues.map((issue) => (
-                  <button
-                    key={issue.id}
-                    type="button"
-                    onClick={() => router.push(`/issues/${issue.id}`)}
-                    className="w-full text-left bg-white rounded-lg shadow p-4 hover:bg-gray-50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
+                  <div key={issue.id} className="bg-white rounded-lg shadow p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/issues/${issue.id}`)}
+                        className="min-w-0 flex-1 text-left hover:opacity-80"
+                      >
                         <h3 className="font-medium text-gray-900">#{issue.sequence_no} {issue.objective || ''}</h3>
                         <p className="text-sm text-gray-600">
-                          Scheduled: {issue.scheduled_at ? new Date(issue.scheduled_at).toLocaleDateString() : 'Not scheduled'}
+                          Scheduled: {issue.scheduled_at ? new Date(issue.scheduled_at).toLocaleString() : 'Not scheduled'}
                         </p>
                         {issue.status === 'failed' && issue.generate_error && (
                           <p className="mt-1 text-sm text-red-600">{issue.generate_error}</p>
                         )}
-                      </div>
-                      <span
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={sendingTest || issue.status === 'generating' || issue.status === 'failed'}
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            setSendingTest(true);
+                            setTestNotice('');
+                            try {
+                              const result = await issueApi.testSend(issue.id);
+                              const email = (result as { email?: string }).email || user?.email || 'your inbox';
+                              setTestNotice(`Test email sent to ${email}.`);
+                            } catch (err: any) {
+                              setError(err.message || 'Failed to send test email');
+                            } finally {
+                              setSendingTest(false);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          <Send className="h-3 w-3" />
+                          Test
+                        </button>
+                        <span
                         className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
                           issue.status === 'approved'
                             ? 'bg-green-100 text-green-800'
@@ -448,8 +504,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                         )}
                         {progressLabel(issue.status)}
                       </span>
+                      </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -591,9 +648,25 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                   {Array.isArray(plan.modules) && plan.modules.length > 0 ? (
                     plan.modules.map((module: any, index: number) => (
                       <div key={index} className="border border-gray-200 rounded-lg p-4">
-                        <h3 className="font-medium text-gray-900">
-                          {module.title || `Module ${index + 1}`}
-                        </h3>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-medium text-gray-900">
+                              {module.title || `Module ${index + 1}`}
+                            </h3>
+                            {module.summary && (
+                              <p className="mt-1 text-sm text-gray-700">{module.summary}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={sendingTest}
+                            onClick={() => handleSendTest(index)}
+                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <Send className="h-3 w-3" />
+                            Test email
+                          </button>
+                        </div>
                         {Array.isArray(module.learning_objectives) && (
                           <ul className="mt-2 list-disc list-inside text-sm text-gray-600">
                             {module.learning_objectives.map((objective: string, i: number) => (
@@ -655,11 +728,11 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               required
             />
             <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="issue-date">
-              Scheduled date (optional)
+              Send at
             </label>
             <input
               id="issue-date"
-              type="date"
+              type="datetime-local"
               value={issueScheduledAt}
               onChange={(e) => setIssueScheduledAt(e.target.value)}
               className="w-full mb-6 px-3 py-2 border border-gray-300 rounded-lg"

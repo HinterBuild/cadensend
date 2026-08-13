@@ -17,20 +17,22 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"backend/control-api/internal/mail"
 	"backend/control-api/internal/service"
 )
 
 // Status constants for domain entities.
 // These mirror the values defined in packages/contracts and must stay in sync.
 const (
-	SeriesStatusDraft   = "draft"
-	SeriesStatusActive  = "active"
-	SeriesStatusPaused  = "paused"
+	SeriesStatusDraft     = "draft"
+	SeriesStatusActive    = "active"
+	SeriesStatusPaused    = "paused"
 	IssueStatusPending    = "pending"
 	IssueStatusGenerating = "generating"
 	IssueStatusReady      = "ready"
 	IssueStatusFailed     = "failed"
 	IssueStatusApproved   = "approved"
+	IssueStatusSent       = "sent"
 	SourceStatusPending   = "pending"
 	SourceStatusIngesting = "ingesting"
 	SourceStatusReady     = "ready"
@@ -312,11 +314,12 @@ func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			UpdatedAt:  time.Now(),
 		}
 		if req.ScheduledAt != "" {
-			if parsed, err := time.Parse(time.RFC3339, req.ScheduledAt); err == nil {
-				issue.ScheduledAt = &parsed
-			} else if parsed, err := time.Parse("2006-01-02", req.ScheduledAt); err == nil {
-				issue.ScheduledAt = &parsed
+			parsed, err := parseScheduledAt(req.ScheduledAt)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scheduled_at must be a valid date or datetime"})
+				return
 			}
+			issue.ScheduledAt = &parsed
 		}
 
 		if err := db.Create(issue).Error; err != nil {
@@ -689,12 +692,12 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 		model = cfg.DefaultModel
 	}
 	job, err := json.Marshal(map[string]interface{}{
-		"task":          "generate_issue",
-		"issue_id":      issue.ID,
-		"series_id":     series.ID,
-		"workspace_id":  series.WorkspaceID,
-		"issue_number":  issue.SequenceNo,
-		"model":         model,
+		"task":         "generate_issue",
+		"issue_id":     issue.ID,
+		"series_id":    series.ID,
+		"workspace_id": series.WorkspaceID,
+		"issue_number": issue.SequenceNo,
+		"model":        model,
 		"brief": map[string]interface{}{
 			"topic":     series.Topic,
 			"goal":      series.Goal,
@@ -703,7 +706,7 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 			"model":     model,
 		},
 		"plan_item": map[string]interface{}{
-			"title":              issue.Objective,
+			"title":               issue.Objective,
 			"learning_objectives": []string{issue.Objective},
 		},
 	})
@@ -716,45 +719,262 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		result := db.Model(&service.Issue{}).
-			Where("id = ? AND locked = false", id).
-			Updates(map[string]interface{}{
-				"status": IssueStatusApproved,
-				"updated_at": time.Now(),
-			})
+		var req struct {
+			ScheduledAt string `json:"scheduled_at"`
+		}
+		_ = c.ShouldBindJSON(&req)
 
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		var issue service.Issue
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+			return
+		}
+		if issue.Locked {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue is locked"})
 			return
 		}
 
-		if result.RowsAffected == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "issue not found or locked"})
+		if req.ScheduledAt != "" {
+			parsed, err := parseScheduledAt(req.ScheduledAt)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scheduled_at must be a valid date or datetime"})
+				return
+			}
+			issue.ScheduledAt = &parsed
+		}
+		if issue.ScheduledAt == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "set a send time before approving"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "issue approved"})
+		now := time.Now().UTC()
+		updates := map[string]interface{}{
+			"status":       IssueStatusApproved,
+			"scheduled_at": *issue.ScheduledAt,
+			"updated_at":   now,
+		}
+		if err := db.Model(&issue).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := upsertDeliverySchedule(db, &issue, c.GetString("user_id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":      "issue approved and scheduled",
+			"scheduled_at": issue.ScheduledAt,
+		})
 	}
+}
+
+func upsertDeliverySchedule(db *gorm.DB, issue *service.Issue, createdBy string) error {
+	var existing service.Schedule
+	err := db.Where("issue_id = ? AND job_type = ? AND status IN ?", issue.ID, "delivery", []string{"pending", "claimed"}).
+		First(&existing).Error
+	if err == nil {
+		return db.Model(&existing).Updates(map[string]interface{}{
+			"run_at":     *issue.ScheduledAt,
+			"status":     "pending",
+			"error_msg":  "",
+			"updated_at": time.Now().UTC(),
+		}).Error
+	}
+	if err != gorm.ErrRecordNotFound {
+		return err
+	}
+	schedule := &service.Schedule{
+		ID:          uuid.NewString(),
+		IssueID:     &issue.ID,
+		JobType:     "delivery",
+		RunAt:       issue.ScheduledAt.UTC(),
+		Status:      "pending",
+		MaxAttempts: 5,
+		CreatedBy:   createdBy,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	return db.Create(schedule).Error
+}
+
+func parseScheduledAt(raw string) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid datetime")
 }
 
 func testSendIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req struct {
-			Email string `json:"email" binding:"required,email"`
+			Email string `json:"email"`
+		}
+		_ = c.ShouldBindJSON(&req)
+
+		var issue service.Issue
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+			return
+		}
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", issue.SeriesID).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
 		}
 
-		if err := c.ShouldBindJSON(&req); err != nil {
+		content := parseJSONMap(issue.ContentJSON)
+		if len(content) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue has no generated content yet"})
+			return
+		}
+
+		to, err := recipientEmail(c, db, req.Email)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
+		subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true)
+		if err := sendTestEmail(to, "[TEST] "+subject, htmlBody); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"message": "test email queued",
-			"email": req.Email,
+			"message":  "test email sent",
+			"email":    to,
 			"issue_id": id,
+			"subject":  "[TEST] " + subject,
 		})
 	}
+}
+
+func testSendSeriesHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var req struct {
+			Email       string `json:"email"`
+			ModuleIndex *int   `json:"module_index"`
+		}
+		_ = c.ShouldBindJSON(&req)
+
+		var series service.Series
+		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			return
+		}
+
+		to, err := recipientEmail(c, db, req.Email)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		moduleIndex := 0
+		if req.ModuleIndex != nil {
+			moduleIndex = *req.ModuleIndex
+		}
+
+		var issue service.Issue
+		issueErr := db.Where("series_id = ? AND sequence_no = ? AND deleted_at IS NULL", series.ID, moduleIndex+1).
+			First(&issue).Error
+		if issueErr == nil && issue.ContentJSON != nil && strings.TrimSpace(*issue.ContentJSON) != "" && *issue.ContentJSON != "null" {
+			content := parseJSONMap(issue.ContentJSON)
+			subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true)
+			if err := sendTestEmail(to, "[TEST] "+subject, htmlBody); err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"message":  "test email sent",
+				"email":    to,
+				"source":   "issue",
+				"issue_id": issue.ID,
+				"subject":  "[TEST] " + subject,
+			})
+			return
+		}
+
+		plan := parseJSONMap(series.PlanJSON)
+		modules, _ := plan["modules"].([]any)
+		if moduleIndex < 0 || moduleIndex >= len(modules) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "generate a plan first, or pick a module that exists"})
+			return
+		}
+		module, _ := modules[moduleIndex].(map[string]any)
+		if module == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "plan module is invalid"})
+			return
+		}
+		subject, htmlBody := mail.RenderPlanModuleHTML(series.Topic, series.Goal, series.Level, moduleIndex, module)
+		if err := sendTestEmail(to, "[TEST] "+subject, htmlBody); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message":      "test email sent",
+			"email":        to,
+			"source":       "plan",
+			"module_index": moduleIndex,
+			"subject":      "[TEST] " + subject,
+		})
+	}
+}
+
+func recipientEmail(c *gin.Context, db *gorm.DB, requested string) (string, error) {
+	if email := strings.TrimSpace(requested); email != "" {
+		return email, nil
+	}
+	if email := strings.TrimSpace(c.GetString("email")); email != "" {
+		return email, nil
+	}
+	userID := c.GetString("user_id")
+	var user service.User
+	if err := db.Where("id = ? AND deleted_at IS NULL", userID).First(&user).Error; err != nil {
+		return "", fmt.Errorf("could not resolve a recipient email")
+	}
+	if strings.TrimSpace(user.Email) == "" {
+		return "", fmt.Errorf("could not resolve a recipient email")
+	}
+	return user.Email, nil
+}
+
+func sendTestEmail(to, subject, htmlBody string) error {
+	return mail.Send(mail.Config{
+		APIURL:   cfg.BrevoAPIURL,
+		APIKey:   cfg.BrevoAPIKey,
+		From:     cfg.SMTPFrom,
+		FromName: cfg.SMTPFromName,
+	}, mail.Message{
+		To:      to,
+		Subject: subject,
+		HTML:    htmlBody,
+	})
+}
+
+func parseJSONMap(raw *string) map[string]any {
+	if raw == nil || strings.TrimSpace(*raw) == "" || *raw == "null" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(*raw), &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 // Source handlers
@@ -951,7 +1171,7 @@ func previewSourceHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		c.JSON(http.StatusOK, gin.H{
-			"message": "preview not implemented in MVP",
+			"message":   "preview not implemented in MVP",
 			"source_id": id,
 		})
 	}
@@ -1013,7 +1233,7 @@ func retrievalPreviewHandler(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"results":   []interface{}{},
-			"query": req.Query,
+			"query":     req.Query,
 			"series_id": seriesID,
 		})
 	}

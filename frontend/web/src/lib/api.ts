@@ -133,9 +133,10 @@ export const seriesApi = {
       method: 'DELETE',
     }),
 
-  testSend: () =>
-    fetchApi('/series/test-send', {
+  testSend: (id: string, payload?: { email?: string; module_index?: number }) =>
+    fetchApi(`/series/${id}/test-send`, {
       method: 'POST',
+      body: JSON.stringify(payload || {}),
     }),
 
   list: () =>
@@ -159,15 +160,16 @@ export const issueApi = {
       body: JSON.stringify(brief || {}),
     }),
 
-  approve: (id: string) =>
+  approve: (id: string, payload?: { scheduled_at?: string }) =>
     fetchApi(`/issues/${id}/approve`, {
       method: 'POST',
+      body: JSON.stringify(payload || {}),
     }),
 
-  testSend: (id: string, email: string) =>
+  testSend: (id: string, email?: string) =>
     fetchApi(`/issues/${id}/test-send`, {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify(email ? { email } : {}),
     }),
 };
 

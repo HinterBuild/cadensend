@@ -20,6 +20,7 @@ import (
 	"backend/control-worker/internal/delivery"
 	applogger "backend/control-worker/internal/logger"
 	"backend/control-worker/internal/scheduler"
+	"backend/control-worker/internal/tasks"
 	"backend/control-worker/internal/telemetry"
 )
 
@@ -29,8 +30,9 @@ func init() {
 	cfg = config.LoadConfig()
 
 	database.Init(cfg.DatabaseURL)
+	deliveryWorker := delivery.StartDeliveryWorker(cfg)
+	tasks.SetDeliverer(deliveryWorker.DeliverScheduled)
 	go scheduler.StartScheduler(cfg)
-	go delivery.StartDeliveryWorker(cfg)
 }
 
 func main() {

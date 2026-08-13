@@ -175,7 +175,14 @@ func (s *Scheduler) enqueueTask(ctx context.Context, taskType string, schedule *
 		asynq.MaxRetry(3),
 		asynq.Timeout(300*time.Second),
 	)
-
+	if err != nil {
+		s.db.WithContext(ctx).Model(schedule).Updates(map[string]any{
+			"status":     "pending",
+			"claimed_at": nil,
+			"error_msg":  err.Error(),
+			"updated_at": time.Now().UTC(),
+		})
+	}
 	return err
 }
 
