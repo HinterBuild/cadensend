@@ -143,7 +143,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       } catch (err) {
         console.error('Failed to refresh plan status:', err);
       }
-    }, 2000);
+    }, 2500);
     return () => clearInterval(timer);
   }, [id, planStatus]);
 
@@ -167,7 +167,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       } catch (err) {
         console.error('Failed to refresh progress:', err);
       }
-    }, 2000);
+    }, 2500);
     return () => clearInterval(timer);
   }, [id, issuesBusy, sourcesBusy]);
 
@@ -279,10 +279,10 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-center">
           <div
-            className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+            className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
             role="status"
             aria-label="Loading"
           ></div>
@@ -294,7 +294,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-full flex items-center justify-center">
         <div className="text-center">
           <p role="alert" aria-live="assertive" className="text-red-600">
             {error}
@@ -311,7 +311,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   ] as const;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -320,7 +320,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                 type="button"
                 aria-label="Back to Dashboard"
                 onClick={() => router.push('/dashboard')}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 rounded"
+                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -362,7 +362,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
         </div>
       </header>
 
-      <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {testNotice && (
           <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800" role="status">
             {testNotice}
@@ -387,9 +387,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                   id={`tab-${tab.id}`}
                   tabIndex={activeTab === tab.id ? 0 : -1}
                   onClick={() => handleTabChange(tab.id)}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                  className={`py-2 px-1 border-b-2 font-medium text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-blue-500 text-stone-800'
                       : 'border-transparent text-gray-600 hover:text-gray-800 hover:border-gray-300'
                   }`}
                 >
@@ -419,7 +419,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                   setFormError('');
                   setShowIssueDialog(true);
                 }}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 Add Issue
@@ -529,7 +529,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                   setFormError('');
                   setShowSourceDialog(true);
                 }}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 Add Source
@@ -619,7 +619,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               {(planStatus === 'generating' || startingPlan) && (
                 <div className="text-center py-8" role="status" aria-live="polite">
                   <div
-                    className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"
+                    className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
                     aria-label="Generating plan"
                   ></div>
                   <p className="mt-4 text-gray-900 font-medium">Generating curriculum plan</p>
@@ -693,7 +693,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                     type="button"
                     onClick={handleGeneratePlan}
                     disabled={startingPlan}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                    className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
                   >
                     {planStatus === 'ready' || planStatus === 'failed' ? 'Regenerate Plan' : 'Generate Plan'}
                   </button>
@@ -702,7 +702,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
         )}
-      </main>
+      </div>
 
       {showIssueDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -748,7 +748,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               <button
                 type="submit"
                 disabled={savingIssue}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+                className="px-4 py-2 bg-stone-900 text-white rounded-lg disabled:opacity-50"
               >
                 {savingIssue ? 'Adding...' : 'Add Issue'}
               </button>
@@ -804,7 +804,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               <button
                 type="submit"
                 disabled={savingSource}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+                className="px-4 py-2 bg-stone-900 text-white rounded-lg disabled:opacity-50"
               >
                 {savingSource ? 'Adding...' : 'Add Source'}
               </button>

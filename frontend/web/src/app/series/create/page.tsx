@@ -175,16 +175,16 @@ export default function CreateSeriesPage() {
             <li key={step.id} className="flex items-center">
               {idx > 0 && (
                 <div className={`h-px w-12 ${
-                  currentStep > step.id ? 'bg-blue-600' : 'bg-gray-300'
+                  currentStep > step.id ? 'bg-stone-900' : 'bg-gray-300'
                 }`} />
               )}
               <div className="flex items-center justify-center">
                 {currentStep > step.id ? (
-                  <CheckCircle className="h-6 w-6 text-blue-600" aria-hidden="true" />
+                  <CheckCircle className="h-6 w-6 text-stone-800" aria-hidden="true" />
                 ) : (
                   <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
                     currentStep === step.id
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-stone-900 text-white'
                       : 'bg-gray-200 text-gray-600'
                   }`}>
                     {step.id}
@@ -217,7 +217,7 @@ export default function CreateSeriesPage() {
           type="text"
           value={formData.topic}
           onChange={(e) => updateField('topic', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
           placeholder="e.g. Introduction to Kubernetes"
           maxLength={100}
           aria-describedby="topic-count"
@@ -234,7 +234,7 @@ export default function CreateSeriesPage() {
           value={formData.goal}
           onChange={(e) => updateField('goal', e.target.value)}
           rows={4}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white resize-none"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white resize-none"
           placeholder="By the end of this series, you should be able to..."
           maxLength={500}
           aria-describedby="goal-count"
@@ -253,7 +253,7 @@ export default function CreateSeriesPage() {
                 key={option.value}
                 className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
                   formData.level === option.value
-                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                 }`}
               >
@@ -288,7 +288,7 @@ export default function CreateSeriesPage() {
             type="date"
             value={formData.startDate}
             onChange={(e) => updateField('startDate', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
           />
         </div>
       </div>
@@ -304,7 +304,7 @@ export default function CreateSeriesPage() {
                 key={option.value}
                 className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
                   formData.duration === option.value
-                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                 }`}
               >
@@ -335,7 +335,7 @@ export default function CreateSeriesPage() {
                 key={option.value}
                 className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
                   formData.cadence === option.value
-                    ? 'border-blue-600 bg-blue-50 text-blue-900 font-medium'
+                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                 }`}
               >
@@ -364,7 +364,7 @@ export default function CreateSeriesPage() {
           type="text"
           value={formData.sendDays}
           onChange={(e) => updateField('sendDays', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
           placeholder="e.g. Monday, Wednesday, Friday"
         />
       </div>
@@ -380,7 +380,7 @@ export default function CreateSeriesPage() {
             type="time"
             value={formData.sendTime}
             onChange={(e) => updateField('sendTime', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
           />
         </div>
       </div>
@@ -393,7 +393,7 @@ export default function CreateSeriesPage() {
           id="timezone"
           value={formData.timezone}
           onChange={(e) => updateField('timezone', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
         >
           <option value="UTC">UTC</option>
           <option value="America/New_York">America/New_York</option>
@@ -419,7 +419,7 @@ export default function CreateSeriesPage() {
                 type="checkbox"
                 checked={formData.verifyRecipient}
                 onChange={(e) => updateField('verifyRecipient', e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800 border-gray-300 rounded"
               />
             </div>
             <div className="ml-3">
@@ -439,7 +439,7 @@ export default function CreateSeriesPage() {
                 type="checkbox"
                 checked={formData.manualApproval}
                 onChange={(e) => updateField('manualApproval', e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus-visible:ring-2 focus-visible:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800 border-gray-300 rounded"
               />
             </div>
             <div className="ml-3">
@@ -462,7 +462,7 @@ export default function CreateSeriesPage() {
           id="model"
           value={formData.model === defaultModel ? '' : formData.model}
           onChange={(e) => updateField('model', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:border-transparent text-gray-900 bg-white"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
         >
           <option value="">Default ({defaultModel})</option>
           {availableModels
@@ -525,14 +525,14 @@ export default function CreateSeriesPage() {
   const isFirstStep = currentStep === 1;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-full py-12">
       <div className="max-w-2xl mx-auto px-4">
         <div className="mb-6">
           <Link href="/dashboard">
             <button
               type="button"
               aria-label="Back to Dashboard"
-              className="flex items-center text-gray-600 hover:text-gray-900 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              className="flex items-center text-gray-600 hover:text-gray-900 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
             >
               <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
               Back to Dashboard
@@ -563,7 +563,7 @@ export default function CreateSeriesPage() {
               type="button"
               onClick={handleBack}
               disabled={isFirstStep}
-              className="text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+              className="text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
             >
               Back
             </button>
@@ -572,7 +572,7 @@ export default function CreateSeriesPage() {
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 {submitting ? 'Creating...' : 'Create Series'}
                 {!submitting && <Save className="h-4 w-4" aria-hidden="true" />}
@@ -581,7 +581,7 @@ export default function CreateSeriesPage() {
               <button
                 type="button"
                 onClick={handleNextWithValidation}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
               >
                 Continue
               </button>
