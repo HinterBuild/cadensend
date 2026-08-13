@@ -1,8 +1,17 @@
-import { Inter } from 'next/font/google';
+import { Geist, Newsreader } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 
-const inter = Inter({ subsets: ['latin'] });
+const geist = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist',
+});
+
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  variable: '--font-newsreader',
+  style: ['normal', 'italic'],
+});
 
 export const metadata = {
   title: 'Cadensend - AI Newsletter Series Platform',
@@ -15,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className={`${geist.variable} ${newsreader.variable}`}>
+      <body className="font-sans antialiased">
         <AuthProvider>
           <a href="#main-content" className="skip-link">
             Skip to main content

@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { Mail, Lock, Send, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -73,8 +74,11 @@ export default function LoginPage() {
     <main id="main-content" className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-xl shadow-lg p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Cadensend</h1>
+          <div className="mb-8 flex flex-col items-center text-center">
+            <div className="mb-4 flex items-center gap-3">
+              <BrandLogo className="h-10 w-10" />
+              <h1 className="text-3xl font-bold text-gray-900">Cadensend</h1>
+            </div>
             <p className="text-sm text-gray-600">AI-powered newsletter series platform</p>
           </div>
 
