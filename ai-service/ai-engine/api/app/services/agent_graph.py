@@ -22,15 +22,19 @@ from langchain_core.messages import (
 )
 from langgraph.graph import StateGraph, add_messages, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.prebuilt import ToolNode
 
 from app.services.agent_tools import NewsletterTools, get_toolbox
 from app.services.model_service import ModelService
 from app.services.memory_store import LongTermMemoryStore
+from app.services.react_tools import build_react_tools
 from app.services.graph_policy import (
+    collect_retrieval_hits,
     filter_citations,
     is_stub_issue,
     known_source_ids,
     quality_needs_revision,
+    route_after_agent,
     route_after_memory,
     route_after_plan,
     should_revise,
@@ -57,6 +61,8 @@ class NewsletterState(TypedDict):
     model: Optional[str]
     workflow: str
     needs_revision: bool
+    tool_rounds: int
+    force_final: bool
 
 
 class NewsletterAgent:
@@ -73,6 +79,8 @@ class NewsletterAgent:
         self.checkpoint_factory = checkpoint_factory
 
         self.tools_box: NewsletterTools = get_toolbox(self.model_service)
+        self._react_tools = build_react_tools(self.tools_box)
+        self._tool_node = ToolNode(self._react_tools)
         self.graph = self._build_graph()
         self._compiled = None
 
@@ -89,11 +97,11 @@ class NewsletterAgent:
         graph = StateGraph(NewsletterState)
 
         graph.add_node("load_memory", self._load_memory_node)
-        graph.add_node("plan", self._plan_node)
+        graph.add_node("agent", self._agent_node)
+        graph.add_node("tools", self._tools_node)
+        graph.add_node("force_final", self._force_final_node)
+        graph.add_node("finalize", self._finalize_node)
         graph.add_node("validate_plan", self._validate_plan_node)
-        graph.add_node("retrieve_context", self._retrieve_context_node)
-        graph.add_node("generate_issue", self._generate_issue_node)
-        graph.add_node("generate_visuals", self._generate_visuals_node)
         graph.add_node("assemble_issue", self._assemble_issue_node)
         graph.add_node("quality_check", self._quality_check_node)
         graph.add_node("revise_issue", self._revise_issue_node)
@@ -104,23 +112,38 @@ class NewsletterAgent:
             "load_memory",
             self._after_memory,
             {
-                "plan": "plan",
-                "retrieve": "retrieve_context",
+                "plan": "agent",
+                "retrieve": "agent",
                 "abort": "save_memory",
             },
         )
-        graph.add_edge("plan", "validate_plan")
+        graph.add_conditional_edges(
+            "agent",
+            self._after_agent,
+            {
+                "tools": "tools",
+                "finalize": "finalize",
+                "force_final": "force_final",
+            },
+        )
+        graph.add_edge("tools", "agent")
+        graph.add_edge("force_final", "agent")
+        graph.add_conditional_edges(
+            "finalize",
+            self._after_finalize,
+            {
+                "plan": "validate_plan",
+                "issue": "assemble_issue",
+            },
+        )
         graph.add_conditional_edges(
             "validate_plan",
             self._after_plan,
             {
                 "plan_done": "save_memory",
-                "generate": "retrieve_context",
+                "generate": "save_memory",
             },
         )
-        graph.add_edge("retrieve_context", "generate_issue")
-        graph.add_edge("generate_issue", "generate_visuals")
-        graph.add_edge("generate_visuals", "assemble_issue")
         graph.add_edge("assemble_issue", "quality_check")
 
         graph.add_conditional_edges(
@@ -138,6 +161,21 @@ class NewsletterAgent:
 
     def _after_memory(self, state: NewsletterState) -> str:
         return route_after_memory(state.get("workflow") or "plan", state.get("plan"))
+
+    def _after_agent(self, state: NewsletterState) -> str:
+        if state.get("force_final"):
+            return "finalize"
+        messages = state.get("messages") or []
+        last = messages[-1] if messages else None
+        tool_calls = getattr(last, "tool_calls", None) if last is not None else None
+        return route_after_agent(
+            tool_calls,
+            int(state.get("tool_rounds") or 0),
+            settings.MAX_TOOL_CALLS,
+        )
+
+    def _after_finalize(self, state: NewsletterState) -> str:
+        return "plan" if state.get("workflow") == "plan" else "issue"
 
     def _after_plan(self, state: NewsletterState) -> str:
         return route_after_plan(state.get("workflow") or "plan", state.get("status") or "")
@@ -185,6 +223,8 @@ class NewsletterAgent:
             "model": chosen_model,
             "workflow": "plan",
             "needs_revision": False,
+            "tool_rounds": 0,
+            "force_final": False,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -192,7 +232,10 @@ class NewsletterAgent:
         try:
             result = await compiled.ainvoke(
                 initial_state,
-                config={"configurable": {"thread_id": thread_id}},
+                config={
+                    "configurable": {"thread_id": thread_id},
+                    "recursion_limit": settings.MAX_TOOL_CALLS * 2 + 12,
+                },
             )
 
             return {
@@ -257,6 +300,8 @@ class NewsletterAgent:
             "model": chosen_model,
             "workflow": "issue",
             "needs_revision": False,
+            "tool_rounds": 0,
+            "force_final": False,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -264,7 +309,10 @@ class NewsletterAgent:
         try:
             result = await compiled.ainvoke(
                 initial_state,
-                config={"configurable": {"thread_id": thread_id}},
+                config={
+                    "configurable": {"thread_id": thread_id},
+                    "recursion_limit": settings.MAX_TOOL_CALLS * 2 + 12,
+                },
             )
 
             return {
@@ -306,6 +354,149 @@ class NewsletterAgent:
             state["status"] = "failed"
             state["error"] = state.get("error") or "Issue generation needs a plan module."
             state["issues"] = []
+            return state
+        if not state.get("messages"):
+            state["messages"] = self._seed_messages(state)
+        return state
+
+    def _seed_messages(self, state: NewsletterState) -> List[BaseMessage]:
+        brief = state.get("brief") or {}
+        memory = state.get("memory_context") or []
+        if state.get("workflow") == "issue":
+            module = ((state.get("plan") or {}).get("modules") or [{}])[0]
+            system = f"""You are Cadensend's issue writer. Work in a ReAct loop:
+Think about what you still need, Act by calling tools, Observe the tool JSON, then continue.
+Guardrails:
+- Never invent workspace or series ids; tools already scope retrieval.
+- Call retrieve_context (and search_sources if needed) before stating facts.
+- Cite only source_id values returned by tools.
+- At most a few tool calls, then finish.
+When done, do not call tools. Return ONLY JSON:
+{{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[]}}
+Series topic: {brief.get("topic","")} | level: {brief.get("level","")}
+"""
+            user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}"
+        else:
+            system = self._plan_system_prompt(brief, memory) + """
+
+You may use tools (retrieve_context, search_sources, validate_plan, estimate_generation_cost, get_series_context).
+Think about gaps, call tools, observe results, then produce the curriculum.
+When the outline is ready, call validate_plan. If it is invalid, fix it.
+When done, do not call tools. Return ONLY the plan JSON.
+"""
+            user = (
+                "Create a progressive email-course curriculum for this series.\n"
+                f"{json.dumps(brief, indent=2)}\n"
+                "Each module must have a unique title and unique learning objectives."
+            )
+        return [SystemMessage(content=system), HumanMessage(content=user)]
+
+    async def _agent_node(self, state: NewsletterState) -> dict:
+        """Think + Act: model may request tools or emit the final JSON."""
+        rounds = int(state.get("tool_rounds") or 0)
+        max_rounds = settings.MAX_TOOL_CALLS
+        messages = list(state.get("messages") or self._seed_messages(state))
+        chat = self._chat_model(state, temperature=0.4)
+        force = bool(state.get("force_final")) or rounds >= max_rounds
+        try:
+            if force:
+                bound = chat
+                messages = messages + [
+                    HumanMessage(content="Stop calling tools. Return the final JSON object only.")
+                ]
+            else:
+                bound = chat.bind_tools(self._react_tools)
+            response = await bound.ainvoke(messages)
+        except Exception as exc:
+            logger.warning("ReAct chat failed (%s); using structured fallback", exc)
+            parsed = await self._structured_fallback(state)
+            return {
+                "messages": [AIMessage(content=json.dumps(parsed))],
+                "tool_rounds": rounds,
+                "force_final": True,
+            }
+        extra = 1 if getattr(response, "tool_calls", None) else 0
+        return {"messages": [response], "tool_rounds": rounds + extra, "force_final": force}
+
+    async def _tools_node(self, state: NewsletterState) -> dict:
+        """Observe: run requested tools with tenant state injected."""
+        return await self._tool_node.ainvoke(state)
+
+    async def _force_final_node(self, state: NewsletterState) -> dict:
+        return {"force_final": True}
+
+    async def _structured_fallback(self, state: NewsletterState) -> Dict[str, Any]:
+        brief = state.get("brief") or {}
+        if state.get("workflow") == "issue":
+            module = ((state.get("plan") or {}).get("modules") or [{}])[0]
+            schema = {
+                "subject": "string",
+                "preheader": "string",
+                "content_blocks": [{"type": "markdown", "title": "string", "text": "string", "citations": []}],
+                "visual_specs": [],
+            }
+            return await self.model_service.generate_structured_output(
+                [
+                    {"role": "system", "content": "Return only issue JSON."},
+                    {"role": "user", "content": json.dumps({"brief": brief, "module": module})},
+                ],
+                schema,
+                model=state.get("model"),
+                max_retries=1,
+                temperature=0.4,
+            )
+        return await self._generate_plan_json(
+            state,
+            brief,
+            json.dumps(brief),
+            self._plan_system_prompt(brief, state.get("memory_context") or []),
+        )
+
+    async def _finalize_node(self, state: NewsletterState) -> NewsletterState:
+        """Parse the last model JSON after the ReAct loop; apply retrieval guardrails."""
+        messages = list(state.get("messages") or [])
+        hits = collect_retrieval_hits(messages)
+        if hits:
+            state["retrieved_context"] = hits
+
+        last_text = ""
+        for message in reversed(messages):
+            if isinstance(message, AIMessage) and not getattr(message, "tool_calls", None):
+                last_text = message.content if isinstance(message.content, str) else str(message.content)
+                break
+
+        parsed = self._parse_json_object(last_text) if last_text else None
+        if parsed is None:
+            try:
+                parsed = await self._structured_fallback(state)
+            except Exception as exc:
+                state["status"] = "failed"
+                state["error"] = f"Could not parse agent output: {exc}"
+                return state
+
+        if state.get("workflow") == "plan":
+            plan = self._normalize_plan(parsed)
+            if self._is_placeholder_plan(plan, state.get("brief") or {}):
+                state["plan"] = {}
+                state["error"] = "Model returned a placeholder curriculum instead of distinct modules."
+                state["status"] = "planning_failed"
+            else:
+                state["plan"] = plan
+                state["status"] = "planning_complete"
+                state["error"] = None
+            return state
+
+        allowed = known_source_ids(state.get("retrieved_context") or [])
+        issue = filter_citations(parsed, allowed) if isinstance(parsed, dict) else {}
+        if is_stub_issue(issue):
+            state["issues"] = []
+            state["status"] = "failed"
+            state["error"] = "Agent did not produce a usable issue."
+            return state
+        issue["module_index"] = 0
+        issue["module_title"] = ((state.get("plan") or {}).get("modules") or [{}])[0].get("title", "")
+        state["issues"] = [issue]
+        state["status"] = "issues_generated"
         return state
 
     async def _plan_node(self, state: NewsletterState) -> NewsletterState:

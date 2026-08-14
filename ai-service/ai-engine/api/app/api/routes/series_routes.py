@@ -81,6 +81,8 @@ async def generate_plan_stream(series_id: str, request: PlanGenerateRequest):
                 "model": agent.model_service.resolve_model(request.model or request.brief.get("model")),
                 "workflow": "plan",
                 "needs_revision": False,
+                "tool_rounds": 0,
+                "force_final": False,
             }
 
             async for event in compiled.astream_events(
