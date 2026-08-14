@@ -23,6 +23,7 @@ warnings.filterwarnings(
 )
 
 from app.core.config import settings
+from app.services.graph_policy import is_stub_issue, pick_generated_issue
 from app.services.model_service import ModelService, openrouter_api_key
 from app.services.agent_graph import get_agent
 from app.services.checkpoint_backend import get_checkpoint_backend
@@ -171,7 +172,7 @@ class AIWorker:
                 brief=job_data.get("brief", {}),
                 workspace_id=job_data.get("workspace_id", ""),
                 series_id=job_data.get("series_id"),
-                thread_id=job_data.get("thread_id"),
+                thread_id=job_data.get("thread_id") or f"plan-{series_id}",
                 model=job_data.get("model"),
             )
 
@@ -234,7 +235,7 @@ class AIWorker:
                 workspace_id=job_data.get("workspace_id", ""),
                 issue_number=job_data.get("issue_number", 1),
                 plan_item=job_data.get("plan_item", {}),
-                thread_id=job_data.get("thread_id"),
+                thread_id=job_data.get("thread_id") or f"issue-{job_data.get('issue_id') or 'unknown'}",
                 model=job_data.get("model"),
             )
 
@@ -257,14 +258,14 @@ class AIWorker:
         issues = result.get("issues") or []
         error = result.get("error") or ""
         status = result.get("status") or ""
-        if status in {"failed"} or not issues:
+        content = pick_generated_issue(issues)
+        if status in {"failed"} or content is None or is_stub_issue(content):
             issue_status = "failed"
             if not error:
                 error = status or "issue generation failed"
             content = {}
         else:
             issue_status = "ready"
-            content = issues[0] if isinstance(issues[0], dict) else {"content": issues[0]}
 
         try:
             pool = await self._pg_pool()

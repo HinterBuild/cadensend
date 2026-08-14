@@ -197,6 +197,7 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 			"series_id":    series.ID,
 			"workspace_id": series.WorkspaceID,
 			"model":        model,
+			"thread_id":    "plan-" + series.ID,
 			"brief": map[string]interface{}{
 				"topic": series.Topic,
 				"goal":  series.Goal,
@@ -759,6 +760,7 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 			"objective": issue.Objective,
 			"model":     model,
 		},
+		"thread_id": "issue-" + issue.ID,
 		"plan_item": planItemForIssue(series, issue),
 	})
 	if err != nil {
@@ -1024,21 +1026,17 @@ func planItemForIssue(series *service.Series, issue *service.Issue) map[string]i
 	}
 	plan := parseJSONMap(series.PlanJSON)
 	modules, _ := plan["modules"].([]interface{})
-	idx := issue.SequenceNo - 1
-	if idx < 0 || idx >= len(modules) {
+	chosen := matchPlanModule(modules, issue)
+	if chosen == nil {
 		return item
 	}
-	mod, ok := modules[idx].(map[string]interface{})
-	if !ok {
-		return item
-	}
-	if title, _ := mod["title"].(string); strings.TrimSpace(title) != "" {
+	if title, _ := chosen["title"].(string); strings.TrimSpace(title) != "" {
 		item["title"] = title
 	}
-	if summary, _ := mod["summary"].(string); summary != "" {
+	if summary, _ := chosen["summary"].(string); summary != "" {
 		item["summary"] = summary
 	}
-	if objs, ok := mod["learning_objectives"].([]interface{}); ok {
+	if objs, ok := chosen["learning_objectives"].([]interface{}); ok {
 		goals := make([]string, 0, len(objs))
 		for _, obj := range objs {
 			if s, ok := obj.(string); ok && strings.TrimSpace(s) != "" {
@@ -1050,6 +1048,31 @@ func planItemForIssue(series *service.Series, issue *service.Issue) map[string]i
 		}
 	}
 	return item
+}
+
+func matchPlanModule(modules []interface{}, issue *service.Issue) map[string]interface{} {
+	objective := strings.TrimSpace(issue.Objective)
+	if objective != "" {
+		for _, raw := range modules {
+			mod, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			title, _ := mod["title"].(string)
+			if strings.EqualFold(strings.TrimSpace(title), objective) {
+				return mod
+			}
+		}
+	}
+	idx := issue.SequenceNo - 1
+	if idx < 0 || idx >= len(modules) {
+		return nil
+	}
+	mod, ok := modules[idx].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return mod
 }
 
 func parseJSONMap(raw *string) map[string]any {
