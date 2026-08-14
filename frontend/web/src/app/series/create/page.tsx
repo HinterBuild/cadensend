@@ -48,6 +48,15 @@ const cadenceOptions = [
   { value: 'monthly', label: 'Monthly' },
 ];
 
+function tomorrowISODate() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function CreateSeriesPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -62,13 +71,13 @@ export default function CreateSeriesPage() {
     goal: '',
     level: 'beginner',
     timezone: 'UTC',
-    startDate: '',
+    startDate: tomorrowISODate(),
     duration: '1 month',
-    cadence: 'weekly',
+    cadence: 'daily',
     sendDays: 'Monday, Wednesday, Friday',
-    sendTime: '09:00',
+    sendTime: '14:00',
     verifyRecipient: true,
-    manualApproval: true,
+    manualApproval: false,
     model: '',
   });
 
@@ -122,7 +131,7 @@ export default function CreateSeriesPage() {
         setError('Please select a start date');
         return false;
       }
-      if (!formData.sendDays.trim()) {
+      if (formData.cadence !== 'daily' && !formData.sendDays.trim()) {
         setError('Please specify the days you want to send');
         return false;
       }
@@ -145,7 +154,7 @@ export default function CreateSeriesPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await seriesApi.create({
+      const created = await seriesApi.create({
         topic: formData.topic,
         goal: formData.goal,
         level: formData.level,
@@ -159,7 +168,8 @@ export default function CreateSeriesPage() {
         manual_approval: formData.manualApproval,
         model: formData.model || undefined,
       });
-      router.push('/dashboard');
+      const seriesId = created.data?.id;
+      router.push(seriesId ? `/series/${seriesId}` : '/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to create series. Please try again.');
     } finally {
@@ -277,6 +287,11 @@ export default function CreateSeriesPage() {
 
   const renderStep2 = () => (
     <div className="space-y-6">
+      <p className="text-sm text-gray-600">
+        After you create this series, Cadensend generates a plan, creates one email per module,
+        and schedules those emails from your start date and send time. You can review everything
+        on the series page; you do not need to generate the plan by hand.
+      </p>
       <div>
         <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
           Start Date <span className="text-red-500" aria-hidden="true">*</span>
@@ -355,6 +370,7 @@ export default function CreateSeriesPage() {
         </fieldset>
       </div>
 
+      {formData.cadence !== 'daily' && (
       <div>
         <label htmlFor="sendDays" className="block text-sm font-medium text-gray-700 mb-2">
           Send Days <span className="text-red-500" aria-hidden="true">*</span>
@@ -368,6 +384,7 @@ export default function CreateSeriesPage() {
           placeholder="e.g. Monday, Wednesday, Friday"
         />
       </div>
+      )}
 
       <div>
         <label htmlFor="sendTime" className="block text-sm font-medium text-gray-700 mb-2">
@@ -447,7 +464,8 @@ export default function CreateSeriesPage() {
                 Manual approval before sending
               </label>
               <p className="text-sm text-gray-500 mt-1">
-                Review and approve each issue before it goes to subscribers.
+                Leave unchecked to send automatically at the scheduled time. Check this if you
+                want to approve each email first.
               </p>
             </div>
           </div>

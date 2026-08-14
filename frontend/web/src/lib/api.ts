@@ -73,7 +73,7 @@ export const authApi = {
 // API client for series management
 export const seriesApi = {
   create: (brief: Record<string, unknown>) =>
-    fetchApi('/series', {
+    fetchApi<{ data: Series; warning?: string }>('/series', {
       method: 'POST',
       body: JSON.stringify(brief),
     }),

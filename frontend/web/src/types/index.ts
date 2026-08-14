@@ -76,6 +76,11 @@ export interface Series {
   plan_status?: string;
   plan_json?: string | Record<string, unknown> | null;
   plan_error?: string;
+  cadence?: string;
+  start_date?: string;
+  send_time?: string;
+  send_days?: string;
+  manual_approval?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;

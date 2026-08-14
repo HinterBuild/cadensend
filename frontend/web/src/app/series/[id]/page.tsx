@@ -134,18 +134,24 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   };
 
   useEffect(() => {
-    if (!id || planStatus !== 'generating') {
+    const moduleCount = Array.isArray((plan as { modules?: unknown[] } | null)?.modules)
+      ? ((plan as { modules: unknown[] }).modules.length)
+      : 0;
+    const waitingForIssues = planStatus === 'ready' && issues.length === 0 && moduleCount > 0;
+    if (!id || (planStatus !== 'generating' && !waitingForIssues)) {
       return;
     }
     const timer = setInterval(async () => {
       try {
         await refreshPlan();
+        const issuesRes = await seriesApi.getIssues(id);
+        setIssues(issuesRes.data ?? []);
       } catch (err) {
         console.error('Failed to refresh plan status:', err);
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [id, planStatus]);
+  }, [id, planStatus, issues.length, plan]);
 
   const issuesBusy = issues.some((issue) => isIssueBusy(issue.status));
   const sourcesBusy = sources.some((source) => isSourceBusy(source.status));
@@ -687,7 +693,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               {planStatus !== 'generating' && !startingPlan && (
                 <>
                   {!plan && planStatus !== 'failed' && (
-                    <p className="text-gray-600 mb-4">No plan generated yet.</p>
+                    <p className="text-gray-600 mb-4">
+                      The plan is created automatically when you start a series. Use regenerate if you want a new syllabus.
+                    </p>
                   )}
                   <button
                     type="button"

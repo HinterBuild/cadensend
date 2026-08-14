@@ -50,11 +50,17 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var req struct {
-			Topic     string `json:"topic" binding:"required"`
-			Goal      string `json:"goal" binding:"required"`
-			Level     string `json:"level"`
-			Timezone  string `json:"timezone" binding:"required"`
-			BriefJSON string `json:"brief_json"`
+			Topic          string `json:"topic" binding:"required"`
+			Goal           string `json:"goal" binding:"required"`
+			Level          string `json:"level"`
+			Timezone       string `json:"timezone" binding:"required"`
+			Cadence        string `json:"cadence"`
+			StartDate      string `json:"start_date"`
+			SendTime       string `json:"send_time"`
+			SendDays       string `json:"send_days"`
+			ManualApproval *bool  `json:"manual_approval"`
+			Model          string `json:"model"`
+			BriefJSON      string `json:"brief_json"`
 		}
 
 		if err := json.Unmarshal(rawBody, &req); err != nil {
@@ -72,22 +78,55 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			briefJSON = string(rawBody)
 		}
 
+		cadence := strings.TrimSpace(req.Cadence)
+		if cadence == "" {
+			cadence = "weekly"
+		}
+		sendTime := strings.TrimSpace(req.SendTime)
+		if sendTime == "" {
+			sendTime = "09:00"
+		}
+		manualApproval := false
+		if req.ManualApproval != nil {
+			manualApproval = *req.ManualApproval
+		}
+
 		s := &service.Series{
-			ID:          uuid.NewString(),
-			WorkspaceID: c.GetString("workspace_id"),
-			Slug:        req.Topic + "-" + time.Now().Format("20060102-150405"),
-			Topic:       req.Topic,
-			Goal:        req.Goal,
-			Level:       req.Level,
-			Timezone:    req.Timezone,
-			Status:      SeriesStatusDraft,
-			CreatedBy:   c.GetString("user_id"),
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			ID:             uuid.NewString(),
+			WorkspaceID:    c.GetString("workspace_id"),
+			Slug:           req.Topic + "-" + time.Now().Format("20060102-150405"),
+			Topic:          req.Topic,
+			Goal:           req.Goal,
+			Level:          req.Level,
+			Timezone:       req.Timezone,
+			Status:         SeriesStatusActive,
+			PlanStatus:     "generating",
+			Cadence:        cadence,
+			StartDate:      strings.TrimSpace(req.StartDate),
+			SendTime:       sendTime,
+			SendDays:       strings.TrimSpace(req.SendDays),
+			ManualApproval: manualApproval,
+			CreatedBy:      c.GetString("user_id"),
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
 		}
 
 		if err := db.Create(s).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		model := req.Model
+		if err := queuePlanGeneration(s, model); err != nil {
+			_ = db.Model(s).Updates(map[string]interface{}{
+				"plan_status": "failed",
+				"plan_error":  err.Error(),
+				"updated_at":  time.Now(),
+			}).Error
+			c.JSON(http.StatusCreated, gin.H{
+				"data":    s,
+				"warning": "series created but plan generation did not start: " + err.Error(),
+			})
 			return
 		}
 
@@ -188,29 +227,7 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		model := req.Model
-		if model == "" {
-			model = cfg.DefaultModel
-		}
-
-		job, err := json.Marshal(map[string]interface{}{
-			"task":         "generate_plan",
-			"series_id":    series.ID,
-			"workspace_id": series.WorkspaceID,
-			"model":        model,
-			"thread_id":    "plan-" + series.ID,
-			"brief": map[string]interface{}{
-				"topic": series.Topic,
-				"goal":  series.Goal,
-				"level": series.Level,
-				"model": model,
-			},
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
-			return
-		}
-
-		if err := enqueueGenerationJob(job); err != nil {
+		if err := queuePlanGeneration(&series, model); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
 			return
 		}
@@ -227,10 +244,39 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":    "generating",
 			"series_id": id,
-			"model":     model,
+			"model":     seriesModel(&series, model),
 			"message":   "plan generation started",
 		})
 	}
+}
+
+func seriesModel(series *service.Series, requested string) string {
+	if strings.TrimSpace(requested) != "" {
+		return requested
+	}
+	return cfg.DefaultModel
+}
+
+func queuePlanGeneration(series *service.Series, model string) error {
+	model = seriesModel(series, model)
+	job, err := json.Marshal(map[string]interface{}{
+		"task":         "generate_plan",
+		"series_id":    series.ID,
+		"workspace_id": series.WorkspaceID,
+		"model":        model,
+		"thread_id":    "plan-" + series.ID,
+		"brief": map[string]interface{}{
+			"topic":   series.Topic,
+			"goal":    series.Goal,
+			"level":   series.Level,
+			"cadence": series.Cadence,
+			"model":   model,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return enqueueGenerationJob(job)
 }
 
 func getPlanHandler(db *gorm.DB) gin.HandlerFunc {

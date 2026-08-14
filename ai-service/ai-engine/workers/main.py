@@ -24,6 +24,7 @@ warnings.filterwarnings(
 
 from app.core.config import settings
 from app.services.graph_policy import is_stub_issue, pick_generated_issue
+from app.services.issue_schedule import issue_send_times
 from app.services.model_service import ModelService, openrouter_api_key
 from app.services.agent_graph import get_agent
 from app.services.checkpoint_backend import get_checkpoint_backend
@@ -179,6 +180,7 @@ class AIWorker:
             logger.info("Plan generated series=%s thread=%s status=%s",
                         series_id, result.get("thread_id"), result.get("status"))
             await self._persist_plan_result(series_id, result)
+            await self._materialize_issues_from_plan(series_id, result, job_data)
 
         except Exception as e:
             logger.exception("Plan generation job failed series=%s", series_id)
@@ -225,6 +227,142 @@ class AIWorker:
             logger.info("Persisted plan status=%s for series=%s", plan_status, series_id)
         except Exception as persist_error:
             logger.exception("Failed to persist plan result series=%s: %s", series_id, persist_error)
+
+    async def _materialize_issues_from_plan(self, series_id: str | None, result: dict, job_data: dict):
+        """Create one scheduled issue per plan module, then queue content generation."""
+        if not series_id:
+            return
+        status = result.get("status") or ""
+        plan = result.get("plan") or {}
+        if status in {"failed", "planning_failed", "validation_failed"}:
+            return
+        modules = [module for module in (plan.get("modules") or []) if isinstance(module, dict)]
+        if not modules:
+            logger.warning("Plan ready but no modules to materialize series=%s", series_id)
+            return
+
+        try:
+            pool = await self._pg_pool()
+            jobs: list[dict] = []
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    series = await conn.fetchrow(
+                        """
+                        SELECT workspace_id, topic, goal, level, timezone, cadence,
+                               start_date, send_time, manual_approval, created_by
+                        FROM series
+                        WHERE id = $1::uuid AND deleted_at IS NULL
+                        """,
+                        series_id,
+                    )
+                    if series is None:
+                        return
+                    existing = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM issues
+                        WHERE series_id = $1::uuid AND deleted_at IS NULL
+                        """,
+                        series_id,
+                    )
+                    if existing:
+                        logger.info(
+                            "Skip issue materialize series=%s existing=%s",
+                            series_id,
+                            existing,
+                        )
+                        return
+
+                    send_times = issue_send_times(
+                        series["start_date"] or "",
+                        series["send_time"] or "09:00",
+                        series["timezone"] or "UTC",
+                        series["cadence"] or "weekly",
+                        len(modules),
+                    )
+                    model = job_data.get("model") or ""
+                    auto_send = not bool(series["manual_approval"])
+                    created_by = str(series["created_by"])
+                    workspace_id = str(series["workspace_id"])
+
+                    for index, module in enumerate(modules):
+                        issue_id = str(uuid.uuid4())
+                        sequence_no = index + 1
+                        title = str(module.get("title") or f"Issue {sequence_no}").strip()
+                        send_at = send_times[index]
+                        await conn.execute(
+                            """
+                            INSERT INTO issues (
+                                id, series_id, sequence_no, objective, scheduled_at,
+                                status, locked, created_by, created_at, updated_at
+                            )
+                            VALUES (
+                                $1::uuid, $2::uuid, $3, $4, $5,
+                                'generating', FALSE, $6::uuid, NOW(), NOW()
+                            )
+                            """,
+                            issue_id,
+                            series_id,
+                            sequence_no,
+                            title,
+                            send_at,
+                            created_by,
+                        )
+                        if auto_send:
+                            await conn.execute(
+                                """
+                                INSERT INTO schedules (
+                                    id, issue_id, job_type, run_at, status,
+                                    attempts, max_attempts, created_by, created_at, updated_at
+                                )
+                                VALUES (
+                                    $1::uuid, $2::uuid, 'delivery', $3, 'pending',
+                                    0, 5, $4::uuid, NOW(), NOW()
+                                )
+                                """,
+                                str(uuid.uuid4()),
+                                issue_id,
+                                send_at,
+                                created_by,
+                            )
+                        jobs.append(
+                            {
+                                "task": "generate_issue",
+                                "issue_id": issue_id,
+                                "series_id": series_id,
+                                "workspace_id": workspace_id,
+                                "issue_number": sequence_no,
+                                "model": model,
+                                "brief": {
+                                    "topic": series["topic"],
+                                    "goal": series["goal"],
+                                    "level": series["level"],
+                                    "objective": title,
+                                    "model": model,
+                                },
+                                "thread_id": f"issue-{issue_id}",
+                                "plan_item": module,
+                            }
+                        )
+                    await conn.execute(
+                        """
+                        UPDATE series
+                        SET status = 'active', updated_at = NOW()
+                        WHERE id = $1::uuid
+                        """,
+                        series_id,
+                    )
+
+            redis = self._redis_client()
+            for job in jobs:
+                await redis.rpush("generation_queue", json.dumps(job))
+            logger.info(
+                "Materialized %s issues series=%s auto_send=%s",
+                len(jobs),
+                series_id,
+                not bool(series["manual_approval"]) if series else False,
+            )
+        except Exception:
+            logger.exception("Failed to materialize issues from plan series=%s", series_id)
 
     async def _handle_generate_issue(self, job_data: dict):
         """Handle a generate-issue job using the LangGraph agent."""
