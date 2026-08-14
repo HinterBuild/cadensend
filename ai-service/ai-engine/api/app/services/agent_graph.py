@@ -12,7 +12,6 @@ from typing import List, Dict, Any, Optional, Annotated, TypedDict, Sequence
 import logging
 import json
 import re
-import asyncio
 from datetime import datetime
 
 from langchain_core.messages import (
@@ -20,17 +19,22 @@ from langchain_core.messages import (
     HumanMessage,
     AIMessage,
     SystemMessage,
-    ToolMessage,
 )
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph import StateGraph, add_messages, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.checkpoint.base import BaseCheckpointSaver, Checkpoint, CheckpointMetadata
-from langgraph.store.base import BaseStore
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.services.agent_tools import NewsletterTools, get_toolbox
 from app.services.model_service import ModelService
 from app.services.memory_store import LongTermMemoryStore
+from app.services.graph_policy import (
+    filter_citations,
+    is_stub_issue,
+    known_source_ids,
+    quality_needs_revision,
+    route_after_memory,
+    route_after_plan,
+    should_revise,
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,7 @@ class NewsletterState(TypedDict):
     memory_context: List[Dict[str, Any]]
     model: Optional[str]
     workflow: str
+    needs_revision: bool
 
 
 class NewsletterAgent:
@@ -68,9 +73,8 @@ class NewsletterAgent:
         self.checkpoint_factory = checkpoint_factory
 
         self.tools_box: NewsletterTools = get_toolbox(self.model_service)
-        self.tools = self.tools_box.get_tools()
-
         self.graph = self._build_graph()
+        self._compiled = None
 
     def _chat_model(self, state: NewsletterState, temperature: float = 0.7, max_tokens: int = 4000):
         """OpenRouter chat model for this run (user choice or ENV default)."""
@@ -89,16 +93,22 @@ class NewsletterAgent:
         graph.add_node("validate_plan", self._validate_plan_node)
         graph.add_node("retrieve_context", self._retrieve_context_node)
         graph.add_node("generate_issue", self._generate_issue_node)
-        graph.add_node("analyze_coverage", self._analyze_coverage_node)
         graph.add_node("generate_visuals", self._generate_visuals_node)
         graph.add_node("assemble_issue", self._assemble_issue_node)
         graph.add_node("quality_check", self._quality_check_node)
         graph.add_node("revise_issue", self._revise_issue_node)
         graph.add_node("save_memory", self._save_memory_node)
-        graph.add_node("tools", ToolNode(self.tools))
 
         graph.add_edge(START, "load_memory")
-        graph.add_edge("load_memory", "plan")
+        graph.add_conditional_edges(
+            "load_memory",
+            self._after_memory,
+            {
+                "plan": "plan",
+                "retrieve": "retrieve_context",
+                "abort": "save_memory",
+            },
+        )
         graph.add_edge("plan", "validate_plan")
         graph.add_conditional_edges(
             "validate_plan",
@@ -109,8 +119,7 @@ class NewsletterAgent:
             },
         )
         graph.add_edge("retrieve_context", "generate_issue")
-        graph.add_edge("generate_issue", "analyze_coverage")
-        graph.add_edge("analyze_coverage", "generate_visuals")
+        graph.add_edge("generate_issue", "generate_visuals")
         graph.add_edge("generate_visuals", "assemble_issue")
         graph.add_edge("assemble_issue", "quality_check")
 
@@ -127,67 +136,24 @@ class NewsletterAgent:
 
         return graph
 
+    def _after_memory(self, state: NewsletterState) -> str:
+        return route_after_memory(state.get("workflow") or "plan", state.get("plan"))
+
     def _after_plan(self, state: NewsletterState) -> str:
-        """Plan jobs stop after validation; issue jobs continue into retrieval."""
-        if state.get("workflow") == "plan":
-            return "plan_done"
-        return "generate"
+        return route_after_plan(state.get("workflow") or "plan", state.get("status") or "")
 
-    def _build_default_system_prompt(self, brief: Dict[str, Any], memory_context: List[Dict]) -> str:
-        """Build the system prompt for the agent."""
-        memory_summary = ""
-        if memory_context:
-            memory_summary = "\n## Long-term Memory Context\n"
-            for mem in memory_context[:5]:
-                memory_summary += f"- {mem.get('content', '')}\n"
-            memory_summary += "\nUse this to maintain consistency with past decisions.\n"
+    async def compile_graph(self, thread_id: str = "") -> Any:
+        """Compile once per agent process; thread_id is passed at invoke time."""
+        if self._compiled is None:
+            from app.services.checkpoint_backend import PostgresCheckpointBackend
 
-        return f"""
-You are Cadensend's Newsletter Architect — an expert AI agent that creates grounded, educational email courses.
-
-Your job is to take a series brief and produce a complete curriculum plan with well-researched, cited content.
-
-Core Principles:
-1. **Grounded**: Every factual claim must be verifiable through retrieved context
-2. **Educational**: Content should teach, not just inform — use concrete examples
-3. **Concise**: Email issues are short-read format (5-10 minutes)
-4. **Citable**: Every claim maps to specific retrieved sources with citations
-5. **Revision-bounded**: Iterate at most {settings.MAX_REVISION_LOOPS} times
-
-Series Brief:
-- Topic: {brief.get('topic', '')}
-- Goal: {brief.get('goal', '')}
-- Level: {brief.get('level', '')}
-- Duration: {brief.get('duration', '')}
-- Cadence: {brief.get('cadence', '')}
-
-Tools available:
-- retrieve_context: Search ingested sources for relevant content
-- search_sources: Find source materials related to a query
-- generate_visual: Create Mermaid/D2 diagrams with alt text
-- get_series_context: Retrieve series metadata and plan
-- validate_plan: Check plan correctness and constraints
-- estimate_generation_cost: Calculate token and cost estimates
-- analyze_retrieval_coverage: Assess retrieval quality
-{memory_summary}
-
-You MUST use tools to retrieve context before generating any content. Never hallucinate facts.
-If retrieval returns no results, note this gap and proceed with a disclaimer.
-"""
-
-    async def compile_graph(self, thread_id: str) -> Any:
-        """Compile the graph with checkpoints and memory."""
-        from app.services.checkpoint_backend import PostgresCheckpointBackend
-
-        checkpointer = PostgresCheckpointBackend()
-        await checkpointer.setup()
-
-        compiled = self.graph.compile(
-            checkpointer=checkpointer,
-            store=self.memory_store,
-        )
-
-        return compiled
+            checkpointer = PostgresCheckpointBackend()
+            await checkpointer.setup()
+            self._compiled = self.graph.compile(
+                checkpointer=checkpointer,
+                store=self.memory_store,
+            )
+        return self._compiled
 
     async def run_plan_generation(
         self,
@@ -198,7 +164,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run the plan generation workflow."""
-        thread_id = thread_id or f"plan-{series_id or 'default'}-{datetime.now().isoformat()}"
+        thread_id = thread_id or f"plan-{series_id or 'default'}"
         memory_namespace = ("cadensend", "workspace", workspace_id, "series", series_id or "default")
         chosen_model = self.model_service.resolve_model(model or brief.get("model"))
 
@@ -218,6 +184,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "memory_context": [],
             "model": chosen_model,
             "workflow": "plan",
+            "needs_revision": False,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -257,7 +224,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Run the issue generation workflow."""
-        thread_id = thread_id or f"issue-{series_id}-{issue_number}-{datetime.now().isoformat()}"
+        thread_id = thread_id or f"issue-{series_id}-{issue_number}"
         chosen_model = self.model_service.resolve_model(model or brief.get("model"))
 
         issue_brief = {
@@ -289,6 +256,7 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             "memory_context": [],
             "model": chosen_model,
             "workflow": "issue",
+            "needs_revision": False,
         }
 
         compiled = await self.compile_graph(thread_id)
@@ -320,23 +288,24 @@ If retrieval returns no results, note this gap and proceed with a disclaimer.
             }
 
     async def _load_memory_node(self, state: NewsletterState) -> NewsletterState:
-        """Load relevant long-term memories for this workspace/series."""
+        """Load latest plan/conversation notes for this workspace/series."""
         namespace = ("cadensend", "workspace", state["workspace_id"], "series", state.get("series_id") or "default")
-
-        memories = await self.memory_store.asearch(
-            namespace,
-            query="series brief goals style preferences",
-            limit=5,
-        )
-
-        memory_context = [
-            {
-                "id": f"{'/'.join(m.namespace)}:{m.key}",
-                "content": json.dumps(m.value),
-            }
-            for m in memories
-        ]
+        memory_context = []
+        for key in ("latest_plan", "latest_conversation"):
+            try:
+                item = await self.memory_store.aget(namespace, key)
+            except Exception as exc:
+                logger.debug("Memory get skipped for %s: %s", key, exc)
+                item = None
+            if item is not None:
+                value = item.value if hasattr(item, "value") else item
+                memory_context.append({"id": key, "content": json.dumps(value)})
         state["memory_context"] = memory_context
+
+        if route_after_memory(state.get("workflow") or "plan", state.get("plan")) == "abort":
+            state["status"] = "failed"
+            state["error"] = state.get("error") or "Issue generation needs a plan module."
+            state["issues"] = []
         return state
 
     async def _plan_node(self, state: NewsletterState) -> NewsletterState:
@@ -542,16 +511,32 @@ JSON shape:
         series_id = state.get("series_id")
 
         plan = state.get("plan") or {}
-        objectives = []
+        queries = []
         for module in plan.get("modules", []):
+            title = str(module.get("title") or "").strip()
+            if title:
+                queries.append(title)
             for obj in module.get("learning_objectives", []):
-                objectives.append(obj)
+                if obj:
+                    queries.append(str(obj))
 
-        if not objectives:
-            objectives = [brief.get("topic", "")]
+        topic = str(brief.get("topic") or "").strip()
+        if topic:
+            queries.append(topic)
+        if not queries:
+            queries = [brief.get("objective") or ""]
+
+        seen = set()
+        unique_queries = []
+        for query in queries:
+            key = query.strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique_queries.append(query.strip())
 
         all_context = []
-        for obj in objectives[:5]:
+        for obj in unique_queries[:5]:
             context = self.tools_box.retrieve_context(
                 query=obj,
                 workspace_id=workspace_id,
@@ -573,7 +558,10 @@ JSON shape:
         context = state.get("retrieved_context", [])
 
         plan_items = plan.get("modules", [])
+        if state.get("workflow") == "issue":
+            plan_items = plan_items[:1]
         issues = []
+        allowed_ids = known_source_ids(context)
         issue_schema = {
             "subject": "string",
             "preheader": "string",
@@ -588,11 +576,12 @@ JSON shape:
             "visual_specs": [{"type": "mermaid", "content": "string", "alt_text": "string"}],
         }
 
+        source_list = ", ".join(sorted(allowed_ids)) or "(none)"
         for i, module in enumerate(plan_items):
             objectives = module.get("learning_objectives", [])
             module_context = [
                 c for c in context
-                if c.get("related_objective") in objectives
+                if c.get("related_objective") in objectives or c.get("related_objective") == module.get("title")
             ]
             if not module_context:
                 module_context = [c for c in context if isinstance(c, dict)]
@@ -600,17 +589,20 @@ JSON shape:
             system_prompt = (
                 "You write a single email lesson for a professional learning series. "
                 "Return only JSON. Ground claims in retrieved context. "
-                "Cite sources as {\"source_id\":\"...\",\"chunk_id\":\"...\",\"text\":\"...\"}."
+                "Cite only source_id values from the retrieved list. "
+                f"Allowed source_ids: {source_list}."
             )
             context_text = ""
             if module_context:
                 context_text = "\n\nRetrieved context:\n" + "\n".join(
-                    f"[{c.get('source_id', '')}] {c.get('content', '')[:400]}"
-                    for c in module_context[:6]
+                    f"[{c.get('source_id', '')} {c.get('chunk_id', '')}] {c.get('content', '')[:500]}"
+                    for c in module_context[:8]
                 )
+            else:
+                context_text = "\n\nNo retrieved sources. Write a cautious lesson and leave citations empty."
 
             user_prompt = (
-                f"Lesson {i + 1}: {json.dumps(module, indent=2)}\n"
+                f"Lesson: {json.dumps(module, indent=2)}\n"
                 f"Series topic: {brief.get('topic', '')}\n"
                 f"Audience level: {brief.get('level', '')}\n"
                 f"{context_text}"
@@ -629,7 +621,10 @@ JSON shape:
                     temperature=0.4,
                 )
                 if not isinstance(issue, dict) or "subject" not in issue:
-                    issue = self._default_issue(module)
+                    raise ValueError("Issue JSON missing subject")
+                issue = filter_citations(issue, allowed_ids)
+                if is_stub_issue(issue):
+                    raise ValueError("Model returned a stub issue")
 
                 issue["module_index"] = i
                 issue["module_title"] = module.get("title", "")
@@ -643,33 +638,21 @@ JSON shape:
                         model=state.get("model"),
                         temperature=0.4,
                     )
-                    parsed = self._parse_json_object(raw) or self._default_issue(module)
+                    parsed = self._parse_json_object(raw)
+                    if parsed and not is_stub_issue(parsed):
+                        parsed = filter_citations(parsed, allowed_ids)
+                        parsed["module_index"] = i
+                        parsed["module_title"] = module.get("title", "")
+                        issues.append(parsed)
+                    else:
+                        state["error"] = str(e)
                 except Exception:
-                    parsed = self._default_issue(module)
-                parsed["module_index"] = i
-                parsed["module_title"] = module.get("title", "")
-                issues.append(parsed)
+                    state["error"] = str(e)
 
         state["issues"] = issues
-        state["status"] = "issues_generated"
-        return state
-
-    async def _analyze_coverage_node(self, state: NewsletterState) -> NewsletterState:
-        """Analyze retrieval coverage for generated issues."""
-        brief = state["brief"]
-        workspace_id = state["workspace_id"]
-        series_id = state.get("series_id")
-
-        coverage = self.tools_box.analyze_retrieval_coverage(
-            query=brief.get("topic", ""),
-            workspace_id=workspace_id,
-            series_id=series_id,
-            top_k=20,
-        )
-
-        state["messages"] = state["messages"] + [
-            AIMessage(content=f"Retrieval coverage analysis: {json.dumps(coverage, indent=2)}")
-        ]
+        state["status"] = "issues_generated" if issues else "failed"
+        if not issues and not state.get("error"):
+            state["error"] = "Issue generation produced no usable content"
         return state
 
     async def _generate_visuals_node(self, state: NewsletterState) -> NewsletterState:
@@ -678,125 +661,131 @@ JSON shape:
         visuals = []
 
         for issue in issues:
-            for visual_spec in issue.get("visual_specs", []):
+            generated_for_issue = []
+            for visual_spec in issue.get("visual_specs") or []:
                 generated = self.tools_box.generate_visual(
-                    description=visual_spec.get("description", "Newsletter diagram"),
+                    description=visual_spec.get("description") or visual_spec.get("alt_text") or "Newsletter diagram",
                     diagram_type=visual_spec.get("type", "mermaid"),
                     content=visual_spec.get("content"),
                 )
+                generated_for_issue.append(generated)
                 visuals.append(generated)
+            if generated_for_issue:
+                issue["visual_specs"] = generated_for_issue
 
         state["visual_specs"] = visuals
+        state["issues"] = issues
         return state
 
     async def _assemble_issue_node(self, state: NewsletterState) -> NewsletterState:
         """Assemble the final issue structure with citations and visuals."""
         issues = state.get("issues", [])
-        visuals = state.get("visual_specs", [])
-
+        allowed = known_source_ids(state.get("retrieved_context") or [])
+        cleaned = []
         for issue in issues:
-            if "visual_specs" not in issue or not issue["visual_specs"]:
-                issue["visual_specs"] = []
-
-        state["issues"] = issues
-        state["status"] = "issue_assembled"
+            if not isinstance(issue, dict):
+                continue
+            issue = filter_citations(issue, allowed)
+            if not issue.get("visual_specs"):
+                issue["visual_specs"] = state.get("visual_specs") or []
+            cleaned.append(issue)
+        state["issues"] = cleaned
+        state["status"] = "issue_assembled" if cleaned else state.get("status") or "failed"
         return state
 
     async def _quality_check_node(self, state: NewsletterState) -> NewsletterState:
         """Perform a quality check on the generated issues."""
         issues = state.get("issues", [])
-
-        for issue in issues:
-            content_blocks = issue.get("content_blocks", [])
-            total_citations = sum(len(b.get("citations", [])) for b in content_blocks)
-
-            if total_citations == 0 and len(content_blocks) > 2:
-                state["messages"] = state["messages"] + [
-                    AIMessage(content="Warning: No citations found in content blocks")
-                ]
-
-        state["status"] = "quality_checked"
+        context = state.get("retrieved_context") or []
+        needs = quality_needs_revision(issues, context)
+        state["needs_revision"] = needs
+        if needs:
+            state["messages"] = list(state.get("messages") or []) + [
+                AIMessage(content="Quality: retrieved sources exist but the issue has no valid citations.")
+            ]
+        if not issues:
+            state["status"] = "failed"
+        else:
+            state["status"] = "quality_checked"
         return state
 
     def _should_revise(self, state: NewsletterState) -> str:
-        """Decide whether to revise or finish."""
-        if state.get("revision_count", 0) >= settings.MAX_REVISION_LOOPS:
-            return "done"
-
-        messages = state.get("messages", [])
-        recent = messages[-3:] if messages else []
-
-        needs_revision = False
-        for msg in recent:
-            if isinstance(msg, ToolMessage):
-                result = msg.content
-                if result and "error" in result.lower():
-                    needs_revision = True
-                    break
-
-        if state.get("error") and "validation" in state.get("error", "").lower():
-            needs_revision = True
-
-        if needs_revision:
-            return "revise"
-        return "done"
+        return should_revise(
+            state.get("revision_count") or 0,
+            settings.MAX_REVISION_LOOPS,
+            bool(state.get("needs_revision")),
+        )
 
     async def _revise_issue_node(self, state: NewsletterState) -> NewsletterState:
         """Revise the issue based on quality check feedback."""
         state["revision_count"] = state.get("revision_count", 0) + 1
-
         issues = state.get("issues", [])
-        brief = state["brief"]
         context = state.get("retrieved_context", [])
+        allowed = known_source_ids(context)
+        modules = (state.get("plan") or {}).get("modules") or []
+        issue_schema = {
+            "subject": "string",
+            "preheader": "string",
+            "content_blocks": [
+                {
+                    "type": "markdown",
+                    "title": "string",
+                    "text": "string",
+                    "citations": [{"source_id": "string", "chunk_id": "string", "text": "string"}],
+                }
+            ],
+            "visual_specs": [{"type": "mermaid", "content": "string", "alt_text": "string"}],
+        }
 
-        for issue in issues:
-            module_idx = issue.get("module_index", 0)
-            module_obj = (state.get("plan", {}).get("modules", [{}])[module_idx]
-                          if module_idx < len(state.get("plan", {}).get("modules", []))
-                          else {})
-
-            revision_prompt = f"""
-Revise this newsletter issue. The current version has quality issues.
-
-Original issue:
-{json.dumps(issue, indent=2)}
-
-Module context:
-{json.dumps(module_obj, indent=2)}
-
-Retrieved context:
-{json.dumps([{k: v for k, v in c.items() if k != 'related_objective'} for c in context[:5]], indent=2)}
-
-Improve:
-1. Add more citations where facts are stated
-2. Fix any factual inconsistencies
-3. Improve clarity and engagement
-4. Ensure all content is grounded in retrieved sources
-
-Output the revised issue as JSON.
-"""
-
+        revised_issues = []
+        for index, issue in enumerate(issues):
+            module_idx = issue.get("module_index", index)
+            module_obj = modules[module_idx] if isinstance(module_idx, int) and module_idx < len(modules) else {}
             messages = [
-                SystemMessage(content="You are an expert newsletter editor. Revise the given issue."),
-                HumanMessage(content=revision_prompt),
+                {
+                    "role": "system",
+                    "content": "You are an expert newsletter editor. Return only revised issue JSON. Cite only retrieved source_ids.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Revise this issue so claims are grounded and citations use retrieved sources.\n"
+                        f"Issue:\n{json.dumps(issue, indent=2)}\n"
+                        f"Module:\n{json.dumps(module_obj, indent=2)}\n"
+                        f"Context:\n{json.dumps([{k: v for k, v in c.items() if k != 'related_objective'} for c in context[:6]], indent=2)}"
+                    ),
+                },
             ]
-
             try:
-                response = await self._chat_model(state).ainvoke(messages)
-                revised = json.loads(response.content)
-                revised["module_index"] = issue.get("module_index", 0)
+                revised = await self.model_service.generate_structured_output(
+                    messages,
+                    issue_schema,
+                    model=state.get("model"),
+                    max_retries=1,
+                    temperature=0.3,
+                )
+                if not isinstance(revised, dict) or is_stub_issue(revised):
+                    revised_issues.append(issue)
+                    continue
+                revised = filter_citations(revised, allowed)
+                revised["module_index"] = issue.get("module_index", index)
                 revised["module_title"] = issue.get("module_title", "")
                 revised["revision_number"] = state["revision_count"]
-                issues[module_idx] = revised
+                revised_issues.append(revised)
             except Exception as e:
-                logger.error("Revision failed for module %d: %s", module_idx, e)
+                logger.error("Revision failed for module %s: %s", module_idx, e)
+                revised_issues.append(issue)
 
-        state["issues"] = issues
+        state["issues"] = revised_issues
+        state["needs_revision"] = False
         return state
 
     async def _save_memory_node(self, state: NewsletterState) -> NewsletterState:
         """Save key context to long-term memory."""
         namespace = ("cadensend", "workspace", state["workspace_id"], "series", state.get("series_id") or "default")
+
+        if state.get("status") in {"failed", "planning_failed", "validation_failed"}:
+            return state
 
         if state.get("workflow") != "plan":
             await self.memory_store.summarize_and_store(
@@ -806,7 +795,7 @@ Output the revised issue as JSON.
             )
 
         plan = state.get("plan", {})
-        if plan:
+        if plan and state.get("workflow") == "plan":
             await self.memory_store.aput(
                 namespace,
                 "latest_plan",
@@ -814,39 +803,6 @@ Output the revised issue as JSON.
             )
 
         return state
-
-    def _default_plan(self, brief: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate a default plan when AI fails."""
-        return {
-            "modules": [
-                {
-                    "title": f"Module {i + 1}",
-                    "learning_objectives": [brief.get("goal", "Learn key concepts")],
-                    "duration_weeks": 1,
-                }
-                for i in range(4)
-            ],
-            "prerequisites": [],
-            "total_weeks": 4,
-        }
-
-    def _default_issue(self, module: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate a default issue when AI fails."""
-        return {
-            "subject": f"Weekly Issue: {module.get('title', 'Learning Module')}",
-            "preheader": "Your latest learning content",
-            "content_blocks": [
-                {
-                    "type": "markdown",
-                    "title": "Welcome",
-                    "text": f"This is your issue for {module.get('title', 'the series')}.",
-                    "citations": [],
-                }
-            ],
-            "visual_specs": [
-                {"type": "mermaid", "content": "graph TD\n    A[Start] --> B[End]", "alt_text": "Simple flowchart"}
-            ],
-        }
 
 
 _agent: Optional[NewsletterAgent] = None
