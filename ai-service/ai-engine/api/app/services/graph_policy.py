@@ -6,6 +6,7 @@ Kept free of LangGraph/LLM imports so the pipeline decisions can be unit-tested.
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+import json
 
 PLAN_FAIL_STATUSES = {"planning_failed", "validation_failed", "failed"}
 STUB_PREHEADER = "Your latest learning content"
@@ -96,6 +97,40 @@ def quality_needs_revision(
     if not allowed:
         return False
     return any(citation_count(issue) == 0 for issue in issues)
+
+
+def route_after_agent(last_tool_calls: Any, tool_rounds: int, max_rounds: int) -> str:
+    """ReAct router: observe tool calls, cap rounds, then finalize."""
+    has_calls = bool(last_tool_calls)
+    if has_calls and tool_rounds < max_rounds:
+        return "tools"
+    if has_calls and tool_rounds >= max_rounds:
+        return "force_final"
+    return "finalize"
+
+
+def collect_retrieval_hits(messages: Sequence[Any]) -> List[Dict[str, Any]]:
+    """Pull RAG payloads out of tool observations."""
+    hits: List[Dict[str, Any]] = []
+    for message in messages:
+        name = getattr(message, "name", "") or ""
+        if name not in {"retrieve_context", "search_sources"}:
+            continue
+        content = getattr(message, "content", "") or ""
+        parsed = _parse_tool_json(content)
+        if isinstance(parsed, list):
+            hits.extend(item for item in parsed if isinstance(item, dict))
+        elif isinstance(parsed, dict) and parsed.get("source_id"):
+            hits.append(parsed)
+    return hits
+
+
+def _parse_tool_json(content: str) -> Any:
+    raw = (content or "").strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
 
 
 def pick_generated_issue(issues: List[Any]) -> Optional[Dict[str, Any]]:

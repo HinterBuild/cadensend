@@ -1,11 +1,15 @@
 """Tests for newsletter graph routing and quality policy."""
 
+import json
+
 from app.services.graph_policy import (
     citation_count,
+    collect_retrieval_hits,
     filter_citations,
     is_stub_issue,
     pick_generated_issue,
     quality_needs_revision,
+    route_after_agent,
     route_after_memory,
     route_after_plan,
     should_revise,
@@ -112,3 +116,28 @@ class TestStubAndCitations:
         }
         assert pick_generated_issue([stub, real]) == real
         assert pick_generated_issue([stub]) is None
+
+
+class TestReactRouter:
+    def test_tool_calls_continue_loop(self):
+        assert route_after_agent([{"name": "retrieve_context"}], 1, 10) == "tools"
+
+    def test_caps_tool_rounds(self):
+        assert route_after_agent([{"name": "retrieve_context"}], 10, 10) == "force_final"
+
+    def test_no_tool_calls_finalizes(self):
+        assert route_after_agent([], 2, 10) == "finalize"
+
+    def test_collects_retrieval_from_named_messages(self):
+        class Msg:
+            def __init__(self, name, content):
+                self.name = name
+                self.content = content
+
+        hits = collect_retrieval_hits(
+            [
+                Msg("retrieve_context", json.dumps([{"source_id": "s1", "content": "paged"}])),
+                Msg("validate_plan", json.dumps({"valid": True})),
+            ]
+        )
+        assert hits[0]["source_id"] == "s1"
