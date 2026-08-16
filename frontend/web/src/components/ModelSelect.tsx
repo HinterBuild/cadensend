@@ -27,6 +27,7 @@ export function ModelSelect({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [maxHeight, setMaxHeight] = useState(320);
+  const [openUp, setOpenUp] = useState(false);
 
   const options = useMemo(() => {
     const rest = models.filter((model) => model.id !== defaultModel);
@@ -60,8 +61,10 @@ export function ModelSelect({
       if (!rect) return;
       const spaceBelow = window.innerHeight - rect.bottom - 16;
       const spaceAbove = rect.top - 16;
-      const room = Math.max(spaceBelow, spaceAbove, 160);
-      setMaxHeight(Math.min(360, room));
+      const shouldOpenUp = spaceBelow < 220 && spaceAbove > spaceBelow;
+      setOpenUp(shouldOpenUp);
+      const room = shouldOpenUp ? spaceAbove : spaceBelow;
+      setMaxHeight(Math.min(360, Math.max(room, 160)));
     };
 
     place();
@@ -96,7 +99,9 @@ export function ModelSelect({
       </button>
       {open && (
         <div
-          className="absolute right-0 z-50 mt-1 flex w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+          className={`absolute right-0 z-50 flex w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg ${
+            openUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
           style={{ maxHeight }}
         >
           <div className="shrink-0 border-b border-gray-100 p-2">
