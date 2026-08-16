@@ -6,6 +6,7 @@ import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
 import { issueApi, seriesApi } from '@/lib/api';
 import { Issue, ContentBlock } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { LessonPreview } from '@/components/LessonPreview';
 
 function parseIssueContent(issue: Issue): {
   subject: string;
@@ -395,11 +396,17 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                         newBlocks[idx].text = e.target.value;
                         setContent({ ...content, blocks: newBlocks });
                       }}
-                      rows={5}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
+                      rows={8}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
                       placeholder="Block content..."
                       aria-label={`Block ${idx + 1} content`}
                     />
+                    {block.text.trim() && (
+                      <div className="mt-3 rounded-lg border border-stone-200 bg-[#fffaf3] p-4">
+                        <p className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">Email preview</p>
+                        <LessonPreview text={block.text} />
+                      </div>
+                    )}
                   </div>
                 ))
               )}

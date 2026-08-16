@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
 import { seriesApi, sourceApi, issueApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { Series, Issue, Source } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
+import { ModelSelect } from '@/components/ModelSelect';
 
 type SeriesDetail = Series & {
   issues?: Issue[];
@@ -467,21 +468,14 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                 <label htmlFor="issue-generation-model" className="text-sm text-gray-600">
                   Model
                 </label>
-                <select
+                <ModelSelect
                   id="issue-generation-model"
                   value={generationModel === defaultModel ? '' : generationModel}
-                  onChange={(e) => setGenerationModel(e.target.value)}
-                  className="max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
-                >
-                  <option value="">Default ({defaultModel})</option>
-                  {availableModels
-                    .filter((model) => model.id !== defaultModel)
-                    .map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setGenerationModel}
+                  models={availableModels}
+                  defaultModel={defaultModel}
+                  className="w-64 max-w-full"
+                />
                 {issues.some((issue) => issue.status === 'failed') && (
                   <button
                     type="button"
