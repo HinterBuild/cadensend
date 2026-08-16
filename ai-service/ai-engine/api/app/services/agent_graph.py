@@ -372,10 +372,11 @@ Guardrails:
 - Call list_series_sources. If none are ready, do not invent documentation; teach carefully and leave citations empty.
 - Call retrieve_context (optionally with source_id) before stating facts. Cite only source_id values returned by tools.
 - If analyze_retrieval_coverage returns grounded=false, do not fabricate citations.
-- Call generate_visual when a simple Mermaid flow would help.
-- At most a few tool calls, then finish.
+- Call generate_visual when a simple Mermaid flow would help, and put that diagram in visual_specs.
+- Put kubectl, YAML, JSON, and bash in fenced code blocks with a language tag (```yaml, ```bash).
+- Include at least one ```mermaid flowchart for controllers, pods, or rollout flow.
 When done, do not call tools. Return ONLY JSON:
-{{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[]}}
+{{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[{{"type":"mermaid","content":"flowchart TD; A-->B","alt_text":"..."}}]}}
 Series topic: {brief.get("topic","")} | level: {brief.get("level","")}
 """
             user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}"

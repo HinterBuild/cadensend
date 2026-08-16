@@ -104,7 +104,18 @@ func RenderIssueHTML(seriesTopic, seriesGoal string, content map[string]any, tes
 		if block.title != "" {
 			fmt.Fprintf(&body, `<h2 style="font-family:Georgia,serif;font-size:18px;color:#1c1917;margin:24px 0 8px;">%s</h2>`, esc(block.title))
 		}
-		fmt.Fprintf(&body, `<div style="color:#44403c;font-size:15px;line-height:1.6;">%s</div>`, nlToBr(esc(block.text)))
+		body.WriteString(formatLessonHTML(block.text))
+	}
+	inBody := false
+	for _, block := range blocks {
+		lower := strings.ToLower(block.text)
+		if strings.Contains(lower, "```mermaid") || strings.Contains(lower, "```d2") {
+			inBody = true
+			break
+		}
+	}
+	if !inBody {
+		writeVisuals(&body, extractVisuals(content))
 	}
 	writeLayoutEnd(&body)
 	return subject, body.String()
