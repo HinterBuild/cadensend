@@ -6,7 +6,7 @@ import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
 import { seriesApi, sourceApi, issueApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { Series, Issue, Source } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { ModelSelect } from '@/components/ModelSelect';
+import { ModelSelect } from '../../../components/ModelSelect';
 
 type SeriesDetail = Series & {
   issues?: Issue[];
