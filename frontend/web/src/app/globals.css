@@ -16,13 +16,8 @@
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --border: #374151;
-    --input: #4b5563;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
@@ -99,7 +94,7 @@ select {
   color: #171717 !important;
 }
 
-/* Dark mode overrides for inputs */
+/* Keep Cadensend forms light even when the OS is in dark mode */
 @media (prefers-color-scheme: dark) {
   input[type="text"],
   input[type="email"],
@@ -107,10 +102,16 @@ select {
   input[type="number"],
   input[type="date"],
   input[type="time"],
+  input[type="url"],
+  input[type="search"],
   textarea,
   select {
-    background-color: #1a1a1a !important;
-    color: #ededed !important;
+    background-color: #ffffff !important;
+    color: #171717 !important;
+  }
+
+  ::placeholder {
+    color: #9ca3af !important;
   }
 }
 

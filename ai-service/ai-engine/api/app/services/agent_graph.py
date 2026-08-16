@@ -379,7 +379,8 @@ Guardrails:
 Never describe runnable code only as prose.
 When done, do not call tools. Return ONLY JSON:
 {{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[{{"type":"mermaid","content":"flowchart TD; A-->B","alt_text":"..."}}]}}
-Series topic: {brief.get("topic","")} | level: {brief.get("level","")}
+Series topic: {brief.get("topic","")} | level: {brief.get("level","")} | tone: {brief.get("tone","instructor")} | length: {brief.get("length","10 min")}
+Include code samples and diagrams when the topic is technical.
 """
             user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}"
         else:
@@ -559,11 +560,15 @@ When done, do not call tools. Return ONLY the plan JSON.
         topic = brief.get("topic") or "this subject"
         goal = brief.get("goal") or "teach the topic thoroughly"
         level = brief.get("level") or "intermediate"
+        tone = brief.get("tone") or "instructor"
+        length = brief.get("length") or "10 min"
         return f"""You are a curriculum designer for a short email course.
 
 Series topic: {topic}
 Learner goal: {goal}
 Audience level: {level}
+Voice: {tone}
+Lesson length: {length}
 {memory_summary}
 
 Design 4-8 sequential lessons a busy professional can finish in one sitting each.

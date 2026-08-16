@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Calendar, Clock, Send, CheckCircle } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ArrowLeft, Save, Calendar, Clock, CheckCircle, Plus, X, Link2, Rss, FileUp } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { seriesApi, modelsApi, OpenRouterModel } from '@/lib/api';
+import { seriesApi, modelsApi, sourceApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 
@@ -12,22 +12,32 @@ type FormValues = {
   topic: string;
   goal: string;
   level: string;
+  tone: string;
+  length: string;
   timezone: string;
   startDate: string;
   duration: string;
   cadence: string;
-  sendDays: string;
+  sendDays: string[];
   sendTime: string;
   verifyRecipient: boolean;
   manualApproval: boolean;
   model: string;
 };
 
+type PendingSource =
+  | { kind: 'url'; value: string }
+  | { kind: 'rss'; value: string }
+  | { kind: 'file'; value: string; file: File };
+
 const steps = [
-  { id: 1, title: 'Topic & Goal', desc: 'What are you creating?' },
-  { id: 2, title: 'Timeline', desc: 'When and how often?' },
-  { id: 3, title: 'Preferences', desc: 'Fine-tune delivery' },
+  { id: 1, title: 'Topic', desc: 'What are you teaching?' },
+  { id: 2, title: 'Sources', desc: 'What should we learn from?' },
+  { id: 3, title: 'Schedule', desc: 'When should emails go out?' },
+  { id: 4, title: 'Review', desc: 'Confirm and create' },
 ];
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const levelOptions = [
   { value: 'beginner', label: 'Beginner' },
@@ -35,11 +45,23 @@ const levelOptions = [
   { value: 'advanced', label: 'Advanced' },
 ];
 
+const toneOptions = [
+  { value: 'instructor', label: 'Instructor' },
+  { value: 'newsletter', label: 'Newsletter' },
+  { value: 'briefing', label: 'Briefing' },
+];
+
+const lengthOptions = [
+  { value: '5 min', label: '5 min' },
+  { value: '10 min', label: '10 min' },
+  { value: '15 min', label: 'Deep dive' },
+];
+
 const durationOptions = [
-  { value: '1 week', label: '1 Week' },
-  { value: '1 month', label: '1 Month' },
-  { value: '3 months', label: '3 Months' },
-  { value: '6 months', label: '6 Months' },
+  { value: '1 week', label: '1 Week', weeks: 1 },
+  { value: '1 month', label: '1 Month', weeks: 4 },
+  { value: '3 months', label: '3 Months', weeks: 12 },
+  { value: '6 months', label: '6 Months', weeks: 24 },
 ];
 
 const cadenceOptions = [
@@ -48,6 +70,39 @@ const cadenceOptions = [
   { value: 'biweekly', label: 'Bi-weekly' },
   { value: 'monthly', label: 'Monthly' },
 ];
+
+const goalStarters = [
+  {
+    label: 'Hands-on labs',
+    text: 'By the end of this series, you should be able to complete practical labs and apply the concepts yourself.',
+  },
+  {
+    label: 'Interview prep',
+    text: 'By the end of this series, you should be able to explain the core ideas clearly and answer common interview questions.',
+  },
+  {
+    label: 'Weekly digest',
+    text: 'By the end of this series, you should be able to keep up with this topic through short, practical recaps.',
+  },
+];
+
+const TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Karachi',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+];
+
+const inputClass =
+  'w-full px-3 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-900 placeholder:text-stone-400 focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent';
 
 function tomorrowISODate() {
   const date = new Date();
@@ -58,40 +113,105 @@ function tomorrowISODate() {
   return `${year}-${month}-${day}`;
 }
 
+function emailsPerWeek(cadence: string, sendDays: string[]) {
+  switch (cadence) {
+    case 'daily':
+      return 7;
+    case 'weekly':
+      return Math.max(sendDays.length, 1);
+    case 'biweekly':
+      return 0.5;
+    case 'monthly':
+      return 0.25;
+    default:
+      return 1;
+  }
+}
+
+function estimateIssueCount(duration: string, cadence: string, sendDays: string[]) {
+  const weeks = durationOptions.find((item) => item.value === duration)?.weeks ?? 4;
+  return Math.max(1, Math.round(weeks * emailsPerWeek(cadence, sendDays)));
+}
+
+function previewSendDates(startDate: string, cadence: string, sendDays: string[], count: number) {
+  if (!startDate) return [];
+  const start = new Date(`${startDate}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return [];
+  const wanted = new Set(sendDays.map((day) => day.slice(0, 3).toLowerCase()));
+  const names = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const out: Date[] = [];
+  const cursor = new Date(start);
+  let guard = 0;
+  while (out.length < count && guard < 400) {
+    guard += 1;
+    const matchDay = cadence === 'daily' || wanted.has(names[cursor.getDay()]);
+    if (matchDay) {
+      if (cadence === 'biweekly' && out.length > 0) {
+        const last = out[out.length - 1];
+        const diff = (cursor.getTime() - last.getTime()) / 86400000;
+        if (diff < 13) {
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
+      }
+      if (cadence === 'monthly' && out.length > 0) {
+        const last = out[out.length - 1];
+        if (cursor.getMonth() === last.getMonth() && cursor.getFullYear() === last.getFullYear()) {
+          cursor.setDate(cursor.getDate() + 1);
+          continue;
+        }
+      }
+      out.push(new Date(cursor));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return out;
+}
+
 export default function CreateSeriesPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
+  const [urlDraft, setUrlDraft] = useState('');
+  const [rssDraft, setRssDraft] = useState('');
+  const [sources, setSources] = useState<PendingSource[]>([]);
 
   const [formData, setFormData] = useState<FormValues>({
     topic: '',
     goal: '',
     level: 'beginner',
+    tone: 'instructor',
+    length: '10 min',
     timezone: 'UTC',
     startDate: tomorrowISODate(),
     duration: '1 month',
-    cadence: 'daily',
-    sendDays: 'Monday, Wednesday, Friday',
+    cadence: 'weekly',
+    sendDays: ['Monday', 'Wednesday', 'Friday'],
     sendTime: '14:00',
     verifyRecipient: true,
     manualApproval: false,
     model: '',
   });
 
-  const updateField = (field: keyof FormValues, value: any) => {
+  const updateField = <K extends keyof FormValues>(field: K, value: FormValues[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setError(null);
+    setFieldError(null);
   };
 
   useEffect(() => {
     if (user?.preferred_model) {
       setFormData((prev) => ({ ...prev, model: user.preferred_model || '' }));
     }
-  }, [user?.preferred_model]);
+    if (user?.timezone) {
+      setFormData((prev) => ({ ...prev, timezone: user.timezone }));
+    }
+  }, [user?.preferred_model, user?.timezone]);
 
   useEffect(() => {
     modelsApi.list().then((res) => {
@@ -104,50 +224,74 @@ export default function CreateSeriesPage() {
     });
   }, []);
 
-  const handleNext = () => {
-    if (currentStep < steps.length) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
+  const issueCount = estimateIssueCount(formData.duration, formData.cadence, formData.sendDays);
+  const previewDates = useMemo(
+    () => previewSendDates(formData.startDate, formData.cadence, formData.sendDays, Math.min(6, issueCount)),
+    [formData.startDate, formData.cadence, formData.sendDays, issueCount]
+  );
 
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+  const summaryLine = formData.topic.trim()
+    ? `A ${formData.level} ${formData.tone} series on “${formData.topic}”, about ${issueCount} emails over ${formData.duration}, ${formData.length} each.`
+    : 'Fill in a topic to see a short summary of this series.';
+
+  const addUrlSource = (kind: 'url' | 'rss', draft: string, clear: (value: string) => void) => {
+    const value = draft.trim();
+    if (!value) {
+      setFieldError(`Enter a ${kind === 'rss' ? 'feed' : 'page'} URL`);
+      return;
     }
+    try {
+      const parsed = new URL(value);
+      if (!parsed.protocol.startsWith('http')) {
+        throw new Error('http');
+      }
+    } catch {
+      setFieldError('Enter a valid http(s) URL');
+      return;
+    }
+    setSources((prev) => [...prev, { kind, value }]);
+    clear('');
+    setFieldError(null);
   };
 
   const validateStep = (step: number): boolean => {
     if (step === 1) {
       if (!formData.topic.trim() || formData.topic.length < 3) {
-        setError('Please enter a topic (at least 3 characters)');
+        setFieldError('Enter a topic (at least 3 characters)');
         return false;
       }
       if (!formData.goal.trim() || formData.goal.length < 10) {
-        setError('Please enter a goal (at least 10 characters)');
+        setFieldError('Enter a goal (at least 10 characters), or pick a starter below');
         return false;
       }
     }
-    if (step === 2) {
+    if (step === 3) {
       if (!formData.startDate) {
-        setError('Please select a start date');
+        setFieldError('Select a start date');
         return false;
       }
-      if (formData.cadence !== 'daily' && !formData.sendDays.trim()) {
-        setError('Please specify the days you want to send');
+      if (formData.cadence !== 'daily' && formData.sendDays.length === 0) {
+        setFieldError('Pick at least one send day');
         return false;
       }
       if (!formData.sendTime) {
-        setError('Please specify the send time');
+        setFieldError('Pick a send time');
         return false;
       }
     }
     return true;
   };
 
-  const handleNextWithValidation = () => {
-    if (validateStep(currentStep)) {
-      handleNext();
+  const goToStep = (step: number) => {
+    if (step < currentStep) {
+      setCurrentStep(step);
+      setFieldError(null);
+      return;
     }
+    for (let i = currentStep; i < step; i += 1) {
+      if (!validateStep(i)) return;
+    }
+    setCurrentStep(step);
   };
 
   const handleSubmit = async () => {
@@ -159,384 +303,49 @@ export default function CreateSeriesPage() {
         topic: formData.topic,
         goal: formData.goal,
         level: formData.level,
+        tone: formData.tone,
+        length: formData.length,
         timezone: formData.timezone,
         start_date: formData.startDate,
         duration: formData.duration,
         cadence: formData.cadence,
-        send_days: formData.sendDays,
+        send_days: formData.cadence === 'daily' ? WEEKDAYS.join(', ') : formData.sendDays.join(', '),
         send_time: formData.sendTime,
         verify_recipient: formData.verifyRecipient,
         manual_approval: formData.manualApproval,
         model: formData.model || undefined,
       });
       const seriesId = created.data?.id;
-      router.push(seriesId ? `/series/${seriesId}` : '/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'Failed to create series. Please try again.');
+      if (seriesId) {
+        const attachErrors: string[] = [];
+        for (const source of sources) {
+          try {
+            if (source.kind === 'file') {
+              await sourceApi.upload(source.file, 'series', seriesId);
+            } else {
+              await sourceApi.submitUrl(source.value, source.kind, 'series', seriesId);
+            }
+          } catch (err: unknown) {
+            attachErrors.push(err instanceof Error ? err.message : 'source failed');
+          }
+        }
+        if (attachErrors.length) {
+          setError(`Series created, but some sources failed: ${attachErrors[0]}`);
+        }
+        router.push(`/series/${seriesId}`);
+        return;
+      }
+      router.push('/dashboard');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create series. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const renderStepIndicator = () => (
-    <div className="mb-8">
-      <nav aria-label="Progress">
-        <ol className="flex items-center justify-center space-x-4">
-          {steps.map((step, idx) => (
-            <li key={step.id} className="flex items-center">
-              {idx > 0 && (
-                <div className={`h-px w-12 ${
-                  currentStep > step.id ? 'bg-stone-900' : 'bg-gray-300'
-                }`} />
-              )}
-              <div className="flex items-center justify-center">
-                {currentStep > step.id ? (
-                  <CheckCircle className="h-6 w-6 text-stone-800" aria-hidden="true" />
-                ) : (
-                  <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-                    currentStep === step.id
-                      ? 'bg-stone-900 text-white'
-                      : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {step.id}
-                  </div>
-                )}
-                <div className="ml-3 text-center">
-                  <span className={`text-sm font-medium ${
-                    currentStep >= step.id ? 'text-gray-900' : 'text-gray-500'
-                  }`}>
-                    {step.title}
-                  </span>
-                  <p className="text-xs text-gray-500">{step.desc}</p>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </nav>
-    </div>
-  );
-
-  const renderStep1 = () => (
-    <div className="space-y-6">
-      <div>
-        <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">
-          Topic <span className="text-red-500" aria-hidden="true">*</span>
-        </label>
-        <input
-          id="topic"
-          type="text"
-          value={formData.topic}
-          onChange={(e) => updateField('topic', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-          placeholder="e.g. Introduction to Kubernetes"
-          maxLength={100}
-          aria-describedby="topic-count"
-        />
-        <p id="topic-count" className="mt-1 text-xs text-gray-500">{formData.topic.length}/100 characters</p>
-      </div>
-
-      <div>
-        <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
-          Goal <span className="text-red-500" aria-hidden="true">*</span>
-        </label>
-        <textarea
-          id="goal"
-          value={formData.goal}
-          onChange={(e) => updateField('goal', e.target.value)}
-          rows={4}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white resize-none"
-          placeholder="By the end of this series, you should be able to..."
-          maxLength={500}
-          aria-describedby="goal-count"
-        />
-        <p id="goal-count" className="mt-1 text-xs text-gray-500">{formData.goal.length}/500 characters</p>
-      </div>
-
-      <div>
-        <fieldset className="space-y-3">
-          <legend className="block text-sm font-medium text-gray-700 mb-2">
-            Audience Level
-          </legend>
-          <div className="grid grid-cols-3 gap-3">
-            {levelOptions.map((option) => (
-              <label
-                key={option.value}
-                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
-                  formData.level === option.value
-                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
-                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="level"
-                  value={option.value}
-                  checked={formData.level === option.value}
-                  onChange={(e) => updateField('level', e.target.value)}
-                  className="sr-only"
-                  aria-label={`Level: ${option.label}`}
-                />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      </div>
-    </div>
-  );
-
-  const renderStep2 = () => (
-    <div className="space-y-6">
-      <p className="text-sm text-gray-600">
-        After you create this series, Cadensend generates a plan, creates one email per module,
-        and schedules those emails from your start date and send time. You can review everything
-        on the series page; you do not need to generate the plan by hand.
-      </p>
-      <div>
-        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
-          Start Date <span className="text-red-500" aria-hidden="true">*</span>
-        </label>
-        <div className="relative">
-          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
-          <input
-            id="startDate"
-            type="date"
-            value={formData.startDate}
-            onChange={(e) => updateField('startDate', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-          />
-        </div>
-      </div>
-
-      <div>
-        <fieldset className="space-y-3">
-          <legend className="block text-sm font-medium text-gray-700 mb-2">
-            Duration <span className="text-red-500" aria-hidden="true">*</span>
-          </legend>
-          <div className="grid grid-cols-2 gap-3">
-            {durationOptions.map((option) => (
-              <label
-                key={option.value}
-                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
-                  formData.duration === option.value
-                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
-                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="duration"
-                  value={option.value}
-                  checked={formData.duration === option.value}
-                  onChange={(e) => updateField('duration', e.target.value)}
-                  className="sr-only"
-                  aria-label={`Duration: ${option.label}`}
-                />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      </div>
-
-      <div>
-        <fieldset className="space-y-3">
-          <legend className="block text-sm font-medium text-gray-700 mb-2">
-            Cadence <span className="text-red-500" aria-hidden="true">*</span>
-          </legend>
-          <div className="grid grid-cols-2 gap-3">
-            {cadenceOptions.map((option) => (
-              <label
-                key={option.value}
-                className={`p-3 border rounded-lg text-center transition-all cursor-pointer ${
-                  formData.cadence === option.value
-                    ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
-                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="cadence"
-                  value={option.value}
-                  checked={formData.cadence === option.value}
-                  onChange={(e) => updateField('cadence', e.target.value)}
-                  className="sr-only"
-                  aria-label={`Cadence: ${option.label}`}
-                />
-                {option.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      </div>
-
-      {formData.cadence !== 'daily' && (
-      <div>
-        <label htmlFor="sendDays" className="block text-sm font-medium text-gray-700 mb-2">
-          Send Days <span className="text-red-500" aria-hidden="true">*</span>
-        </label>
-        <input
-          id="sendDays"
-          type="text"
-          value={formData.sendDays}
-          onChange={(e) => updateField('sendDays', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-          placeholder="e.g. Monday, Wednesday, Friday"
-        />
-      </div>
-      )}
-
-      <div>
-        <label htmlFor="sendTime" className="block text-sm font-medium text-gray-700 mb-2">
-          Send Time <span className="text-red-500" aria-hidden="true">*</span>
-        </label>
-        <div className="relative">
-          <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
-          <input
-            id="sendTime"
-            type="time"
-            value={formData.sendTime}
-            onChange={(e) => updateField('sendTime', e.target.value)}
-            className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
-          Timezone
-        </label>
-        <select
-          id="timezone"
-          value={formData.timezone}
-          onChange={(e) => updateField('timezone', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-        >
-          <option value="UTC">UTC</option>
-          <option value="America/New_York">America/New_York</option>
-          <option value="America/Los_Angeles">America/Los_Angeles</option>
-          <option value="Europe/London">Europe/London</option>
-          <option value="Asia/Tokyo">Asia/Tokyo</option>
-        </select>
-      </div>
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div className="space-y-6">
-      <div>
-        <fieldset className="space-y-4">
-          <legend className="block text-sm font-medium text-gray-700 mb-4">
-            Delivery Preferences
-          </legend>
-          <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-            <div className="flex-shrink-0 mt-1">
-              <input
-                id="verifyRecipient"
-                type="checkbox"
-                checked={formData.verifyRecipient}
-                onChange={(e) => updateField('verifyRecipient', e.target.checked)}
-                className="h-4 w-4 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800 border-gray-300 rounded"
-              />
-            </div>
-            <div className="ml-3">
-              <label htmlFor="verifyRecipient" className="text-sm font-medium text-gray-700 cursor-pointer">
-                Require verified recipients
-              </label>
-              <p className="text-sm text-gray-500 mt-1">
-                Only send to subscribers who have confirmed their email address.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-            <div className="flex-shrink-0 mt-1">
-              <input
-                id="manualApproval"
-                type="checkbox"
-                checked={formData.manualApproval}
-                onChange={(e) => updateField('manualApproval', e.target.checked)}
-                className="h-4 w-4 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800 border-gray-300 rounded"
-              />
-            </div>
-            <div className="ml-3">
-              <label htmlFor="manualApproval" className="text-sm font-medium text-gray-700 cursor-pointer">
-                Manual approval before sending
-              </label>
-              <p className="text-sm text-gray-500 mt-1">
-                Leave unchecked to send automatically at the scheduled time. Check this if you
-                want to approve each email first.
-              </p>
-            </div>
-          </div>
-        </fieldset>
-      </div>
-
-      <div>
-        <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
-          AI model
-        </label>
-        <ModelSelect
-          id="model"
-          value={formData.model === defaultModel ? '' : formData.model}
-          onChange={(modelId) => updateField('model', modelId)}
-          models={availableModels}
-          defaultModel={defaultModel}
-          className="w-full"
-        />
-        <p className="mt-1 text-xs text-gray-500">
-          Optional. Pick a model if you want; otherwise the default free OpenRouter model is used.
-          Free models are limited to 20 requests per minute, so Cadensend generates one email at a
-          time and waits between them instead of failing with 429 errors.
-        </p>
-      </div>
-
-      <div className="bg-gray-50 rounded-lg p-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">Review your settings</h3>
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Topic:</span>
-            <span className="text-gray-900 font-medium">{formData.topic}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Level:</span>
-            <span className="text-gray-900 font-medium">
-              {levelOptions.find((o) => o.value === formData.level)?.label}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Duration:</span>
-            <span className="text-gray-900 font-medium">{formData.duration}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Cadence:</span>
-            <span className="text-gray-900 font-medium">{formData.cadence}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">AI model:</span>
-            <span className="text-gray-900 font-medium">{formData.model || `Default (${defaultModel})`}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCurrentStep = () => {
-    switch (currentStep) {
-      case 1:
-        return renderStep1();
-      case 2:
-        return renderStep2();
-      case 3:
-        return renderStep3();
-      default:
-        return renderStep1();
-    }
-  };
-
-  const isLastStep = currentStep === steps.length;
-  const isFirstStep = currentStep === 1;
+  const timezones = user?.timezone && !TIMEZONES.includes(user.timezone)
+    ? [user.timezone, ...TIMEZONES]
+    : TIMEZONES;
 
   return (
     <div className="min-h-full py-12">
@@ -554,50 +363,463 @@ export default function CreateSeriesPage() {
           </Link>
         </div>
 
-        {renderStepIndicator()}
+        <nav aria-label="Progress" className="mb-8">
+          <ol className="flex items-start justify-between gap-2">
+            {steps.map((step) => {
+              const active = currentStep === step.id;
+              const done = currentStep > step.id;
+              return (
+                <li key={step.id} className="flex-1">
+                  <button
+                    type="button"
+                    onClick={() => goToStep(step.id)}
+                    className="w-full text-left"
+                  >
+                    <div className={`mb-2 h-1 rounded-full ${done || active ? 'bg-stone-900' : 'bg-stone-200'}`} />
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                      done ? 'bg-stone-900 text-white' : active ? 'bg-stone-900 text-white' : 'bg-stone-200 text-stone-600'
+                    }`}>
+                      {done ? <CheckCircle className="h-4 w-4" aria-hidden="true" /> : step.id}
+                    </span>
+                    <span className={`mt-2 block text-sm font-medium ${active || done ? 'text-stone-900' : 'text-stone-500'}`}>
+                      {step.title}
+                    </span>
+                    <span className="block text-xs text-stone-500">{step.desc}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
 
-        {error && (
-          <div
-            role="alert"
-            aria-live="assertive"
-            className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm"
-          >
-            {error}
+        {(error || fieldError) && (
+          <div role="alert" className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            {fieldError || error}
           </div>
         )}
 
         <div className="bg-white rounded-xl shadow-lg p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">
-            Step {currentStep} of {steps.length}: {steps[currentStep - 1].title}
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            {steps[currentStep - 1].title}
           </h2>
-          {renderCurrentStep()}
+          <p className="mb-6 text-sm text-stone-500">{steps[currentStep - 1].desc}</p>
+
+          {currentStep === 1 && (
+            <div className="space-y-6">
+              <p className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">{summaryLine}</p>
+              <div>
+                <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">
+                  Topic <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="topic"
+                  type="text"
+                  value={formData.topic}
+                  onChange={(e) => updateField('topic', e.target.value)}
+                  className={inputClass}
+                  placeholder="e.g. Introduction to Kubernetes"
+                  maxLength={100}
+                />
+                <p className="mt-1 text-xs text-gray-500">{formData.topic.length}/100</p>
+              </div>
+              <div>
+                <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
+                  Goal <span className="text-red-500">*</span>
+                </label>
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {goalStarters.map((starter) => (
+                    <button
+                      key={starter.label}
+                      type="button"
+                      onClick={() => updateField('goal', starter.text)}
+                      className="rounded-full border border-stone-300 px-3 py-1 text-xs text-stone-700 hover:bg-stone-50"
+                    >
+                      {starter.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  id="goal"
+                  value={formData.goal}
+                  onChange={(e) => updateField('goal', e.target.value)}
+                  rows={4}
+                  className={`${inputClass} resize-none`}
+                  placeholder="By the end of this series, you should be able to..."
+                  maxLength={500}
+                />
+                <p className="mt-1 text-xs text-gray-500">{formData.goal.length}/500</p>
+              </div>
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-700 mb-2">Audience</legend>
+                <div className="grid grid-cols-3 gap-3">
+                  {levelOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => updateField('level', option.value)}
+                      className={`p-3 border rounded-lg text-center ${
+                        formData.level === option.value
+                          ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
+                          : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <fieldset>
+                  <legend className="block text-sm font-medium text-gray-700 mb-2">Voice</legend>
+                  <div className="grid grid-cols-1 gap-2">
+                    {toneOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => updateField('tone', option.value)}
+                        className={`p-2 border rounded-lg text-sm ${
+                          formData.tone === option.value
+                            ? 'border-stone-900 bg-stone-100 font-medium'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend className="block text-sm font-medium text-gray-700 mb-2">Lesson length</legend>
+                  <div className="grid grid-cols-1 gap-2">
+                    {lengthOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => updateField('length', option.value)}
+                        className={`p-2 border rounded-lg text-sm ${
+                          formData.length === option.value
+                            ? 'border-stone-900 bg-stone-100 font-medium'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+              </div>
+            </div>
+          )}
+
+          {currentStep === 2 && (
+            <div className="space-y-6">
+              <p className="text-sm text-stone-600">
+                Add docs, RSS feeds, or files now so the first emails can cite real material. You can skip and add sources later, but lessons will be thinner.
+              </p>
+              <div>
+                <label htmlFor="source-url" className="block text-sm font-medium text-gray-700 mb-2">
+                  Web page
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="source-url"
+                    type="url"
+                    value={urlDraft}
+                    onChange={(e) => setUrlDraft(e.target.value)}
+                    className={inputClass}
+                    placeholder="https://docs.example.com/..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addUrlSource('url', urlDraft, setUrlDraft)}
+                    className="shrink-0 rounded-lg bg-stone-900 px-3 text-white"
+                    aria-label="Add URL"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="source-rss" className="block text-sm font-medium text-gray-700 mb-2">
+                  RSS or Atom feed
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="source-rss"
+                    type="url"
+                    value={rssDraft}
+                    onChange={(e) => setRssDraft(e.target.value)}
+                    className={inputClass}
+                    placeholder="https://blog.example.com/feed.xml"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addUrlSource('rss', rssDraft, setRssDraft)}
+                    className="shrink-0 rounded-lg bg-stone-900 px-3 text-white"
+                    aria-label="Add RSS feed"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="source-file" className="block text-sm font-medium text-gray-700 mb-2">
+                  Upload files
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-stone-300 px-4 py-3 text-sm text-stone-600 hover:bg-stone-50">
+                  <FileUp className="h-4 w-4" />
+                  PDF, Markdown, or text
+                  <input
+                    id="source-file"
+                    type="file"
+                    className="sr-only"
+                    multiple
+                    accept=".pdf,.md,.txt,.markdown,.html"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      setSources((prev) => [
+                        ...prev,
+                        ...files.map((file) => ({ kind: 'file' as const, value: file.name, file })),
+                      ]);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+              {sources.length > 0 && (
+                <ul className="space-y-2">
+                  {sources.map((source, index) => (
+                    <li key={`${source.kind}-${source.value}-${index}`} className="flex items-center justify-between rounded-lg border border-stone-200 px-3 py-2 text-sm">
+                      <span className="flex items-center gap-2 truncate text-stone-800">
+                        {source.kind === 'rss' ? <Rss className="h-4 w-4 shrink-0" /> : source.kind === 'file' ? <FileUp className="h-4 w-4 shrink-0" /> : <Link2 className="h-4 w-4 shrink-0" />}
+                        <span className="truncate">{source.value}</span>
+                        <span className="uppercase text-[10px] tracking-wide text-stone-500">{source.kind}</span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove source"
+                        onClick={() => setSources((prev) => prev.filter((_, i) => i !== index))}
+                        className="text-stone-500 hover:text-stone-900"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {currentStep === 3 && (
+            <div className="space-y-6">
+              <p className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">
+                About {issueCount} emails from {formData.startDate} at {formData.sendTime} ({formData.timezone}).
+              </p>
+              <div>
+                <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
+                  Start date <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    id="startDate"
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => updateField('startDate', e.target.value)}
+                    className={`${inputClass} pl-10`}
+                  />
+                </div>
+              </div>
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-700 mb-2">Duration</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  {durationOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => updateField('duration', option.value)}
+                      className={`p-3 border rounded-lg ${
+                        formData.duration === option.value
+                          ? 'border-stone-900 bg-stone-100 font-medium'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-700 mb-2">How often</legend>
+                <div className="grid grid-cols-2 gap-3">
+                  {cadenceOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => updateField('cadence', option.value)}
+                      className={`p-3 border rounded-lg ${
+                        formData.cadence === option.value
+                          ? 'border-stone-900 bg-stone-100 font-medium'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              {formData.cadence !== 'daily' && (
+                <fieldset>
+                  <legend className="block text-sm font-medium text-gray-700 mb-2">Send days</legend>
+                  <div className="flex flex-wrap gap-2">
+                    {WEEKDAYS.map((day) => {
+                      const on = formData.sendDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() =>
+                            updateField(
+                              'sendDays',
+                              on ? formData.sendDays.filter((item) => item !== day) : [...formData.sendDays, day]
+                            )
+                          }
+                          className={`rounded-full px-3 py-1 text-sm ${
+                            on ? 'bg-stone-900 text-white' : 'border border-stone-300 text-stone-700'
+                          }`}
+                        >
+                          {day.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="sendTime" className="block text-sm font-medium text-gray-700 mb-2">
+                    Send time
+                  </label>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      id="sendTime"
+                      type="time"
+                      value={formData.sendTime}
+                      onChange={(e) => updateField('sendTime', e.target.value)}
+                      className={`${inputClass} pl-10`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="timezone" className="block text-sm font-medium text-gray-700 mb-2">
+                    Timezone
+                  </label>
+                  <select
+                    id="timezone"
+                    value={formData.timezone}
+                    onChange={(e) => updateField('timezone', e.target.value)}
+                    className={inputClass}
+                  >
+                    {timezones.map((zone) => (
+                      <option key={zone} value={zone}>{zone}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {previewDates.length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-medium text-gray-700">Next sends</p>
+                  <ul className="grid grid-cols-2 gap-2 text-sm text-stone-700">
+                    {previewDates.map((date) => (
+                      <li key={date.toISOString()} className="rounded-lg bg-stone-50 px-3 py-2">
+                        {date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {' '}
+                        {formData.sendTime}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {currentStep === 4 && (
+            <div className="space-y-6">
+              <div className="rounded-lg bg-stone-50 p-4 text-sm text-stone-800 space-y-2">
+                <p className="font-medium">{formData.topic}</p>
+                <p className="text-stone-600">{summaryLine}</p>
+                <p>Sources: {sources.length === 0 ? 'None yet (you can add them after create)' : `${sources.length} attached`}</p>
+                <p>Approval: {formData.manualApproval ? 'Review each email before send' : 'Send automatically at the scheduled time'}</p>
+              </div>
+              <div className="flex items-start p-4 border border-gray-200 rounded-lg">
+                <input
+                  id="verifyRecipient"
+                  type="checkbox"
+                  checked={formData.verifyRecipient}
+                  onChange={(e) => updateField('verifyRecipient', e.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <label htmlFor="verifyRecipient" className="ml-3 text-sm">
+                  <span className="font-medium text-gray-700">Require verified recipients</span>
+                  <span className="mt-1 block text-gray-500">Only send to subscribers who confirmed their email.</span>
+                </label>
+              </div>
+              <div className="flex items-start p-4 border border-gray-200 rounded-lg">
+                <input
+                  id="manualApproval"
+                  type="checkbox"
+                  checked={formData.manualApproval}
+                  onChange={(e) => updateField('manualApproval', e.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <label htmlFor="manualApproval" className="ml-3 text-sm">
+                  <span className="font-medium text-gray-700">Approve before sending</span>
+                  <span className="mt-1 block text-gray-500">Leave off to send on the schedule automatically.</span>
+                </label>
+              </div>
+              <div>
+                <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
+                  AI model
+                </label>
+                <ModelSelect
+                  id="model"
+                  value={formData.model === defaultModel ? '' : formData.model}
+                  onChange={(modelId) => updateField('model', modelId)}
+                  models={availableModels}
+                  defaultModel={defaultModel}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-between items-center mt-10 pt-6 border-t border-gray-200">
             <button
               type="button"
-              onClick={handleBack}
-              disabled={isFirstStep}
-              className="text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+              onClick={() => goToStep(Math.max(1, currentStep - 1))}
+              disabled={currentStep === 1}
+              className="text-gray-600 hover:text-gray-900 font-medium disabled:opacity-50"
             >
               Back
             </button>
-            {isLastStep ? (
+            {currentStep === 4 ? (
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
+                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 disabled:opacity-50 flex items-center gap-2 font-medium"
               >
-                {submitting ? 'Creating...' : 'Create Series'}
-                {!submitting && <Save className="h-4 w-4" aria-hidden="true" />}
+                {submitting ? 'Creating...' : 'Create series'}
+                {!submitting && <Save className="h-4 w-4" />}
               </button>
             ) : (
               <button
                 type="button"
-                onClick={handleNextWithValidation}
-                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 flex items-center gap-2 font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
+                onClick={() => goToStep(currentStep + 1)}
+                className="px-6 py-2.5 bg-stone-900 text-white rounded-lg hover:bg-stone-800 font-medium"
               >
-                Continue
+                {currentStep === 2 && sources.length === 0 ? 'Skip sources' : 'Continue'}
               </button>
             )}
           </div>

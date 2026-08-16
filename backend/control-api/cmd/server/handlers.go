@@ -1264,9 +1264,13 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		jobType := req.Type
+		if jobType == "rss" {
+			jobType = "url"
+		}
 		job, _ := json.Marshal(map[string]interface{}{
 			"task":         "ingest_source",
-			"source_type":  "url",
+			"source_type":  jobType,
 			"url":          src.URL,
 			"workspace_id": src.WorkspaceID,
 			"series_id":    src.SeriesID,
