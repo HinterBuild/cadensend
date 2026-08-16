@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { seriesApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { ModelSelect } from '@/components/ModelSelect';
 
 type FormValues = {
   topic: string;
@@ -476,21 +477,14 @@ export default function CreateSeriesPage() {
         <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
           AI model
         </label>
-        <select
+        <ModelSelect
           id="model"
           value={formData.model === defaultModel ? '' : formData.model}
-          onChange={(e) => updateField('model', e.target.value)}
-          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
-        >
-          <option value="">Default ({defaultModel})</option>
-          {availableModels
-            .filter((model) => model.id !== defaultModel)
-            .map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-        </select>
+          onChange={(modelId) => updateField('model', modelId)}
+          models={availableModels}
+          defaultModel={defaultModel}
+          className="w-full"
+        />
         <p className="mt-1 text-xs text-gray-500">
           Optional. Pick a model if you want; otherwise the default free OpenRouter model is used.
           Free models are limited to 20 requests per minute, so Cadensend generates one email at a
