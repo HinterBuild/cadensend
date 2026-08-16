@@ -492,7 +492,9 @@ export default function CreateSeriesPage() {
             ))}
         </select>
         <p className="mt-1 text-xs text-gray-500">
-          Optional. Leave as default to use the OpenRouter model from your environment and settings.
+          Optional. Pick a model if you want; otherwise the default free OpenRouter model is used.
+          Free models are limited to 20 requests per minute, so Cadensend generates one email at a
+          time and waits between them instead of failing with 429 errors.
         </p>
       </div>
 

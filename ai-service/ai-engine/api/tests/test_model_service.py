@@ -8,6 +8,11 @@ import pytest
 from app.services.model_service import ModelService
 
 
+@pytest.fixture(autouse=True)
+def _no_openrouter_pacing(monkeypatch):
+    monkeypatch.setattr("app.services.openrouter_limits.settings.OPENROUTER_MIN_INTERVAL_SECONDS", 0)
+
+
 class TestModelService:
     def test_init_does_not_require_openai_api_key(self, monkeypatch):
         """Worker startup must not depend on OPENAI_API_KEY."""

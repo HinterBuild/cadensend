@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
-import { seriesApi, sourceApi, issueApi } from '@/lib/api';
+import { seriesApi, sourceApi, issueApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { Series, Issue, Source } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -81,6 +81,10 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [deleting, setDeleting] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [testNotice, setTestNotice] = useState('');
+  const [generationModel, setGenerationModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
+  const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
+  const [retryingIssueId, setRetryingIssueId] = useState<string | null>(null);
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -89,6 +93,23 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       loadSeriesData();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (user?.preferred_model) {
+      setGenerationModel(user.preferred_model);
+    }
+  }, [user?.preferred_model]);
+
+  useEffect(() => {
+    modelsApi.list().then((res) => {
+      setAvailableModels(res.models || []);
+      if (res.default_model) {
+        setDefaultModel(res.default_model);
+      }
+    }).catch(() => {
+      setAvailableModels([]);
+    });
+  }, []);
 
   const loadSeriesData = async () => {
     setLoading(true);
@@ -181,7 +202,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     setStartingPlan(true);
     setPlanError('');
     try {
-      await seriesApi.generatePlan(id, user?.preferred_model);
+      await seriesApi.generatePlan(id, generationModel || user?.preferred_model);
       setPlanStatus('generating');
       setActiveTab('plan');
     } catch (err: any) {
@@ -241,7 +262,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       await seriesApi.createIssue(id, {
         objective,
         scheduled_at: issueScheduledAt || undefined,
-        model: user?.preferred_model,
+        model: generationModel || user?.preferred_model,
       });
       setShowIssueDialog(false);
       setIssueObjective('');
@@ -253,6 +274,30 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       setFormError(err.message || 'Failed to add issue');
     } finally {
       setSavingIssue(false);
+    }
+  };
+
+  const chosenIssueModel = generationModel || user?.preferred_model || '';
+  const usingFreeModel = (chosenIssueModel || defaultModel).toLowerCase().includes(':free');
+
+  const handleRetryIssue = async (issueId: string) => {
+    setRetryingIssueId(issueId);
+    setError(null);
+    try {
+      await issueApi.generate(issueId, chosenIssueModel ? { model: chosenIssueModel } : {});
+      const issuesRes = await seriesApi.getIssues(id);
+      setIssues(issuesRes.data ?? []);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate issue');
+    } finally {
+      setRetryingIssueId(null);
+    }
+  };
+
+  const handleRetryFailedIssues = async () => {
+    const failed = issues.filter((issue) => issue.status === 'failed');
+    for (const issue of failed) {
+      await handleRetryIssue(issue.id);
     }
   };
 
@@ -416,9 +461,38 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             aria-labelledby="tab-issues"
             tabIndex={0}
           >
-            <div className="flex justify-between items-center mb-4">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-xl font-semibold text-gray-900">Issues</h2>
-              <button
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="issue-generation-model" className="text-sm text-gray-600">
+                  Model
+                </label>
+                <select
+                  id="issue-generation-model"
+                  value={generationModel === defaultModel ? '' : generationModel}
+                  onChange={(e) => setGenerationModel(e.target.value)}
+                  className="max-w-xs rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
+                >
+                  <option value="">Default ({defaultModel})</option>
+                  {availableModels
+                    .filter((model) => model.id !== defaultModel)
+                    .map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                </select>
+                {issues.some((issue) => issue.status === 'failed') && (
+                  <button
+                    type="button"
+                    onClick={handleRetryFailedIssues}
+                    disabled={retryingIssueId !== null}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Retry failed
+                  </button>
+                )}
+                <button
                 type="button"
                 aria-label="Add Issue"
                 onClick={() => {
@@ -430,7 +504,13 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 Add Issue
               </button>
+              </div>
             </div>
+            <p className="mb-4 text-xs text-gray-500">
+              {usingFreeModel
+                ? 'Free/default models are limited to 20 OpenRouter requests per minute, so emails generate one at a time with a short wait.'
+                : 'This model is not on the free tier, so emails generate as quickly as possible.'}
+            </p>
 
             {issuesBusy && (
               <div className="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
@@ -467,6 +547,20 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                         )}
                       </button>
                       <div className="flex items-center gap-2">
+                        {issue.status === 'failed' && (
+                          <button
+                            type="button"
+                            disabled={retryingIssueId !== null}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleRetryIssue(issue.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            {retryingIssueId === issue.id ? 'Starting...' : 'Generate'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={sendingTest || issue.status === 'generating' || issue.status === 'failed'}
