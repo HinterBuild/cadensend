@@ -4,9 +4,9 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
 import { issueApi, seriesApi } from '@/lib/api';
-import { Issue, ContentBlock } from '@/types';
+import { Issue, ContentBlock, VisualSpec } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { LessonPreview } from '@/components/LessonPreview';
+import { EmailPreview } from '../../../components/LessonPreview';
 
 function parseIssueContent(issue: Issue): {
   subject: string;
