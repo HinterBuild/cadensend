@@ -10,7 +10,20 @@ import (
 	"strings"
 )
 
-var fencePattern = regexp.MustCompile("(?s)```([a-zA-Z0-9_-]*)\\s*\\n(.*?)```")
+var (
+	fencePattern = regexp.MustCompile("(?s)```([a-zA-Z0-9_-]*)[ \t]*\n(.*?)```")
+	headingLine  = regexp.MustCompile(`^(#{1,3})\s+(.+)$`)
+	boldHeading  = regexp.MustCompile(`^\*\*(.+)\*\*$`)
+	backtickRe   = regexp.MustCompile("`([^`]+)`")
+	boldRe       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	callRe       = regexp.MustCompile(`\b[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*\([^)]{0,120}\)`)
+	dottedRe     = regexp.MustCompile(`\b[A-Z][A-Za-z0-9]+(?:\.[A-Za-z_][\w]+)+`)
+	cmpRe        = regexp.MustCompile(`\b[A-Za-z_][\w]*\s*(?:==|!=|>=|<=)\s*[A-Za-z0-9_().*+\-/ ]{1,40}`)
+	camelRe      = regexp.MustCompile(`\b[a-z]+[A-Z][A-Za-z0-9]*\b`)
+	slashNameRe  = regexp.MustCompile(`\b[A-Za-z_][\w]*/[A-Za-z_][\w]*\b`)
+)
+
+const codeChip = `<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background-color:#1c1917;color:#fafaf9;border-radius:4px;padding:2px 6px;white-space:nowrap;">$1</code>`
 
 func formatLessonHTML(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -26,7 +39,7 @@ func formatLessonHTML(text string) string {
 			b.WriteString(diagramHTML(lang, code, lang+" diagram"))
 		} else {
 			if lang == "" {
-				lang = "code"
+				lang = guessLang(code)
 			}
 			b.WriteString(codeBlockHTML(lang, code))
 		}
@@ -43,33 +56,181 @@ func markdownToHTML(b *strings.Builder, raw string) {
 	if raw == "" {
 		return
 	}
-	paragraphs := strings.Split(raw, "\n\n")
-	for _, para := range paragraphs {
-		para = strings.TrimSpace(para)
-		if para == "" {
+	lines := strings.Split(raw, "\n")
+	i := 0
+	for i < len(lines) {
+		if strings.TrimSpace(lines[i]) == "" {
+			i++
 			continue
 		}
-		lines := strings.Split(para, "\n")
-		if isList(lines) {
-			writeList(b, lines)
+		if title, ok := headingText(lines[i]); ok {
+			fmt.Fprintf(b, `<h3 style="font-family:Georgia,serif;font-size:16px;color:#1c1917;margin:18px 0 8px;">%s</h3>`, inlineHTML(title))
+			i++
 			continue
 		}
-		joined := strings.Join(lines, " ")
+		if listItem(lines[i]) != "" {
+			start := i
+			for i < len(lines) && listItem(lines[i]) != "" {
+				i++
+			}
+			writeList(b, lines[start:i])
+			continue
+		}
+		if isIndented(lines[i]) || looksLikeCode(lines[i]) {
+			start := i
+			for i < len(lines) && (isIndented(lines[i]) || looksLikeCode(lines[i]) || keepCodeBlank(lines, i)) {
+				i++
+			}
+			code := strings.TrimRight(dedent(lines[start:i]), "\n")
+			if strings.TrimSpace(code) != "" {
+				b.WriteString(codeBlockHTML(guessLang(code), code))
+			}
+			continue
+		}
+		start := i
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "" && listItem(lines[i]) == "" && !looksLikeCode(lines[i]) && !isIndented(lines[i]) {
+			if _, ok := headingText(lines[i]); ok {
+				break
+			}
+			i++
+		}
+		joined := strings.Join(trimLines(lines[start:i]), " ")
 		fmt.Fprintf(b, `<p style="color:#44403c;font-size:15px;line-height:1.65;margin:0 0 14px;">%s</p>`, inlineHTML(joined))
 	}
 }
 
-func isList(lines []string) bool {
-	if len(lines) == 0 {
+func headingText(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if m := headingLine.FindStringSubmatch(trimmed); m != nil {
+		return m[2], true
+	}
+	if m := boldHeading.FindStringSubmatch(trimmed); m != nil && !strings.Contains(m[1], ".") {
+		return m[1], true
+	}
+	return "", false
+}
+
+func keepCodeBlank(lines []string, i int) bool {
+	if strings.TrimSpace(lines[i]) != "" {
 		return false
 	}
-	hits := 0
-	for _, line := range lines {
-		if listItem(line) != "" {
-			hits++
+	return i+1 < len(lines) && (looksLikeCode(lines[i+1]) || isIndented(lines[i+1]))
+}
+
+func isIndented(line string) bool {
+	if line == "" {
+		return false
+	}
+	return strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")
+}
+
+func looksLikeCode(line string) bool {
+	t := strings.TrimSpace(line)
+	if t == "" || listItem(line) != "" {
+		return false
+	}
+	if isIndented(line) {
+		return true
+	}
+	lower := strings.ToLower(t)
+	starters := []string{
+		"class ", "def ", "public ", "private ", "protected ", "static ",
+		"function ", "const ", "let ", "var ", "import ", "package ",
+		"return ", "kubectl ", "apiversion:", "kind:", "interface ",
+		"enum ", "struct ", "typedef ", "fn ", "pub ", "using ",
+	}
+	for _, s := range starters {
+		if strings.HasPrefix(lower, s) {
+			return true
 		}
 	}
-	return hits == len(lines)
+	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "}") || strings.HasPrefix(t, "@") {
+		return true
+	}
+	if strings.HasSuffix(t, "{") || strings.HasSuffix(t, "};") || strings.HasSuffix(t, ";") {
+		return strings.ContainsAny(t, "(){}=<>")
+	}
+	if strings.Count(t, "(") >= 1 && strings.Count(t, ")") >= 1 && (strings.Contains(t, "{") || strings.HasSuffix(t, ";") || strings.Contains(t, " = ")) {
+		return true
+	}
+	return false
+}
+
+func guessLang(code string) string {
+	lower := strings.ToLower(code)
+	switch {
+	case strings.Contains(lower, "kubectl ") || strings.Contains(lower, "#!/bin"):
+		return "bash"
+	case strings.Contains(lower, "apiversion:") || strings.Contains(lower, "kind:"):
+		return "yaml"
+	case strings.Contains(lower, "def ") || strings.Contains(lower, "self."):
+		return "python"
+	case strings.Contains(lower, "func ") || strings.Contains(lower, "package "):
+		return "go"
+	case strings.Contains(lower, "public ") || strings.Contains(lower, "class ") || strings.Contains(lower, "system.out"):
+		return "java"
+	case strings.Contains(lower, "const ") || strings.Contains(lower, "function ") || strings.Contains(lower, "=>"):
+		return "javascript"
+	default:
+		return "code"
+	}
+}
+
+func dedent(lines []string) string {
+	min := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		n := 0
+		for _, r := range line {
+			if r == ' ' {
+				n++
+			} else if r == '\t' {
+				n += 4
+			} else {
+				break
+			}
+		}
+		if min < 0 || n < min {
+			min = n
+		}
+	}
+	if min <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		cut := 0
+		seen := 0
+		for _, r := range line {
+			if seen >= min {
+				break
+			}
+			if r == ' ' {
+				seen++
+				cut++
+			} else if r == '\t' {
+				seen += 4
+				cut++
+			} else {
+				break
+			}
+		}
+		if cut > len(line) {
+			cut = len(line)
+		}
+		out[i] = line[cut:]
+	}
+	return strings.Join(out, "\n")
+}
+
+func trimLines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = strings.TrimSpace(line)
+	}
+	return out
 }
 
 func listItem(line string) string {
@@ -102,10 +263,43 @@ func writeList(b *strings.Builder, lines []string) {
 }
 
 func inlineHTML(s string) string {
+	s = backtickRe.ReplaceAllString(s, "\x00$1\x00")
 	escaped := html.EscapeString(s)
-	escaped = regexp.MustCompile("`([^`]+)`").ReplaceAllString(escaped, `<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:#f5f0e8;border:1px solid #e7e0d6;border-radius:4px;padding:1px 5px;color:#1c1917;">$1</code>`)
-	escaped = regexp.MustCompile(`\*\*([^*]+)\*\*`).ReplaceAllString(escaped, `<strong>$1</strong>`)
+	escaped = strings.ReplaceAll(escaped, "\x00", "`")
+	escaped = backtickRe.ReplaceAllString(escaped, strings.ReplaceAll(codeChip, "$1", "$1"))
+	escaped = wrapUncoded(escaped, callRe)
+	escaped = wrapUncoded(escaped, dottedRe)
+	escaped = wrapUncoded(escaped, cmpRe)
+	escaped = wrapUncoded(escaped, camelRe)
+	escaped = wrapUncoded(escaped, slashNameRe)
+	escaped = boldRe.ReplaceAllString(escaped, `<strong>$1</strong>`)
 	return escaped
+}
+
+func wrapUncoded(s string, re *regexp.Regexp) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range re.FindAllStringIndex(s, -1) {
+		if insideCode(s, loc[0]) {
+			continue
+		}
+		b.WriteString(s[last:loc[0]])
+		b.WriteString(`<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background-color:#1c1917;color:#fafaf9;border-radius:4px;padding:2px 6px;">`)
+		b.WriteString(s[loc[0]:loc[1]])
+		b.WriteString(`</code>`)
+		last = loc[1]
+	}
+	b.WriteString(s[last:])
+	return b.String()
+}
+
+func insideCode(s string, idx int) bool {
+	open := strings.LastIndex(s[:idx], "<code")
+	if open < 0 {
+		return false
+	}
+	close := strings.LastIndex(s[:idx], "</code>")
+	return close < open
 }
 
 func codeBlockHTML(lang, code string) string {
@@ -114,9 +308,9 @@ func codeBlockHTML(lang, code string) string {
 		label = "bash"
 	}
 	return fmt.Sprintf(
-		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid #292524;border-radius:8px;overflow:hidden;">`+
-			`<tr><td style="background:#292524;color:#a8a29e;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 12px;">%s</td></tr>`+
-			`<tr><td style="background:#1c1917;padding:12px 14px;"><pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#f5f5f4;white-space:pre-wrap;word-break:break-word;">%s</pre></td></tr>`+
+		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid #0c0a09;border-radius:8px;overflow:hidden;">`+
+			`<tr><td style="background:#0c0a09;color:#a8a29e;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px;">%s</td></tr>`+
+			`<tr><td style="background:#1c1917;padding:14px 16px;"><pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#fafaf9;white-space:pre-wrap;word-break:break-word;">%s</pre></td></tr>`+
 			`</table>`,
 		esc(label),
 		esc(code),

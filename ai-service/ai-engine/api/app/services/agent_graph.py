@@ -373,8 +373,10 @@ Guardrails:
 - Call retrieve_context (optionally with source_id) before stating facts. Cite only source_id values returned by tools.
 - If analyze_retrieval_coverage returns grounded=false, do not fabricate citations.
 - Call generate_visual when a simple Mermaid flow would help, and put that diagram in visual_specs.
-- Put kubectl, YAML, JSON, and bash in fenced code blocks with a language tag (```yaml, ```bash).
-- Include at least one ```mermaid flowchart for controllers, pods, or rollout flow.
+- Put every command, YAML, JSON, class, or snippet in a fenced block with a language tag (```java, ```python, ```yaml, ```bash).
+- Wrap method names and expressions in backticks, e.g. `getBalance()`, `balance >= 0`.
+- Include at least one ```mermaid diagram when teaching a relationship or flow.
+Never describe runnable code only as prose.
 When done, do not call tools. Return ONLY JSON:
 {{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[{{"type":"mermaid","content":"flowchart TD; A-->B","alt_text":"..."}}]}}
 Series topic: {brief.get("topic","")} | level: {brief.get("level","")}

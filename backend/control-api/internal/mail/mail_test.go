@@ -33,6 +33,19 @@ func TestFormatLessonHTMLInlineCodeAndList(t *testing.T) {
 	}
 }
 
+func TestFormatLessonHTMLUnfencedCodeAndCalls(t *testing.T) {
+	src := "Use setPosition(x, y) and keep balance >= 0.\n\nclass Money {\n  private int cents;\n}\n"
+	html := formatLessonHTML(src)
+	if !strings.Contains(html, "<code") {
+		t.Fatalf("expected inline code chips, got %s", html)
+	}
+	if !strings.Contains(html, "setPosition(x, y)") {
+		t.Fatalf("expected method call, got %s", html)
+	}
+	if !strings.Contains(html, "<pre") || !strings.Contains(html, "class Money") {
+		t.Fatalf("expected unfenced class as code block, got %s", html)
+	}
+}
 func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {
 	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
 		"subject":   "Deployments",

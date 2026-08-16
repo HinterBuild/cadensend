@@ -4,14 +4,32 @@ import { useEffect, useId, useState } from "react";
 
 const FENCE = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
 
+const CHIP = "rounded px-1.5 py-0.5 font-mono text-[13px] bg-stone-900 text-stone-50";
+
+function wrapPlain(text: string, re: RegExp) {
+  return text.replace(re, (match, offset: number, full: string) => {
+    const before = full.slice(0, offset);
+    if (before.lastIndexOf("<code") > before.lastIndexOf("</code>")) {
+      return match;
+    }
+    return `<code class="${CHIP}">${match}</code>`;
+  });
+}
+
 function inlineFormat(text: string) {
-  const escaped = text
+  const withTicks = text.replace(/`([^`]+)`/g, "\u0000$1\u0000");
+  const escaped = withTicks
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return escaped
-    .replace(/`([^`]+)`/g, '<code class="rounded bg-stone-100 px-1 py-0.5 font-mono text-[13px] text-stone-900">$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    .replace(/>/g, "&gt;")
+    .replace(/\u0000/g, "`");
+  let html = escaped.replace(/`([^`]+)`/g, `<code class="${CHIP}">$1</code>`);
+  html = wrapPlain(html, /\b[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*\([^)]{0,120}\)/g);
+  html = wrapPlain(html, /\b[A-Z][A-Za-z0-9]+(?:\.[A-Za-z_][\w]+)+/g);
+  html = wrapPlain(html, /\b[A-Za-z_][\w]*\s*(?:==|!=|>=|<=)\s*[A-Za-z0-9_().*+\-/ ]{1,40}/g);
+  html = wrapPlain(html, /\b[a-z]+[A-Z][A-Za-z0-9]*\b/g);
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  return html;
 }
 
 function MermaidBlock({ source }: { source: string }) {
