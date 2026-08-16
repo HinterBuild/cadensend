@@ -4,8 +4,8 @@ import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
 import { authApi, modelsApi, OpenRouterModel } from '@/lib/api';
-import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, Sparkles } from 'lucide-react';
-import { ModelSelect } from '@/components/ModelSelect';
+import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock } from 'lucide-react';
+import { ModelSelect } from '../../components/ModelSelect';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -217,9 +217,7 @@ export default function SettingsPage() {
                 <label htmlFor="ai-model" className="block text-sm font-medium text-gray-700 mb-2">
                   AI model
                 </label>
-                <div className="relative">
-                  <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" aria-hidden="true" />
-                  <ModelSelect
+                <ModelSelect
                     id="ai-model"
                     value={preferredModel === defaultModel ? '' : preferredModel}
                     onChange={setPreferredModel}
@@ -227,7 +225,6 @@ export default function SettingsPage() {
                     defaultModel={defaultModel}
                     className="w-full"
                   />
-                </div>
                 <p className="mt-1 text-xs text-gray-500">
                   Used for curriculum planning, series, issues, and visuals via OpenRouter. Leave as default to use {defaultModel}.
                 </p>

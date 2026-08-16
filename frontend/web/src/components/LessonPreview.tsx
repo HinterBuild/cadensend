@@ -1,14 +1,8 @@
 "use client";
 
-const FENCE = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
+import { useEffect, useId, useState } from "react";
 
-function mermaidInkUrl(source: string) {
-  const encoded = btoa(unescape(encodeURIComponent(source.trim())))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `https://mermaid.ink/svg/${encoded}`;
-}
+const FENCE = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
 
 function inlineFormat(text: string) {
   const escaped = text
@@ -18,6 +12,48 @@ function inlineFormat(text: string) {
   return escaped
     .replace(/`([^`]+)`/g, '<code class="rounded bg-stone-100 px-1 py-0.5 font-mono text-[13px] text-stone-900">$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+function MermaidBlock({ source }: { source: string }) {
+  const reactId = useId().replace(/:/g, "");
+  const [svg, setSvg] = useState("");
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "neutral",
+        });
+        const { svg: rendered } = await mermaid.render(`diagram-${reactId}`, source.trim());
+        if (!cancelled) {
+          setSvg(rendered);
+          setFailed(false);
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reactId, source]);
+
+  if (failed) {
+    return (
+      <pre className="overflow-x-auto bg-stone-900 px-3 py-3 font-mono text-[13px] text-stone-100 whitespace-pre-wrap">
+        {source}
+      </pre>
+    );
+  }
+  if (!svg) {
+    return <p className="text-sm text-stone-500">Rendering diagram…</p>;
+  }
+  return <div className="overflow-x-auto [&_svg]:h-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function LessonPreview({ text }: { text: string }) {
@@ -59,11 +95,10 @@ export function LessonPreview({ text }: { text: string }) {
           );
         }
         if (part.type === "diagram") {
-          const src = mermaidInkUrl(part.body);
           return (
             <figure key={i} className="rounded-xl border border-stone-200 bg-white p-3">
               <figcaption className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">Diagram</figcaption>
-              <img src={src} alt={`${part.lang} diagram`} className="h-auto w-full max-w-full" />
+              <MermaidBlock source={part.body} />
             </figure>
           );
         }
@@ -85,5 +120,45 @@ export function LessonPreview({ text }: { text: string }) {
         });
       })}
     </div>
+  );
+}
+
+export function EmailPreview({
+  subject,
+  preheader,
+  blocks,
+  visuals = [],
+}: {
+  subject: string;
+  preheader: string;
+  blocks: Array<{ title?: string; text: string }>;
+  visuals?: Array<{ type?: string; content?: string; alt_text?: string }>;
+}) {
+  const bodyHasDiagram = blocks.some((block) => /```(mermaid|d2)\b/i.test(block.text));
+  return (
+    <article className="rounded-xl border border-stone-200 bg-[#fffaf3] p-6">
+      <p className="text-[11px] uppercase tracking-wider text-stone-500">Email preview</p>
+      <h2 className="mt-1 font-serif text-2xl text-stone-900">{subject || "Untitled"}</h2>
+      {preheader ? <p className="mt-1 text-sm text-stone-500">{preheader}</p> : null}
+      <div className="mt-5 space-y-6">
+        {blocks.map((block, idx) => (
+          <section key={idx}>
+            {block.title ? <h3 className="mb-2 font-semibold text-stone-800">{block.title}</h3> : null}
+            <LessonPreview text={block.text} />
+          </section>
+        ))}
+        {!bodyHasDiagram &&
+          visuals
+            .filter((visual) => visual.content)
+            .map((visual, idx) => (
+              <figure key={`visual-${idx}`} className="rounded-xl border border-stone-200 bg-white p-3">
+                <figcaption className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">
+                  {visual.alt_text || "Diagram"}
+                </figcaption>
+                <MermaidBlock source={visual.content || ""} />
+              </figure>
+            ))}
+      </div>
+    </article>
   );
 }
