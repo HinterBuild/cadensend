@@ -9,10 +9,10 @@ import logging
 import re
 
 from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.services.model_service import ModelService
-from app.rag.retrieval.retrieval import retrieval_service
+from app.services.graph_policy import coverage_report
+from app.services.series_catalog import PostgresSeriesCatalog
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,25 @@ logger = logging.getLogger(__name__)
 class NewsletterTools:
     """Container for all agent tools with shared dependencies."""
 
-    def __init__(self, model_service: Optional[ModelService] = None):
+    def __init__(
+        self,
+        model_service: Optional[ModelService] = None,
+        catalog=None,
+        retrieval=None,
+    ):
         self.model_service = model_service or ModelService()
+        self.catalog = catalog or PostgresSeriesCatalog()
+        self._retrieval = retrieval
         self._tools: Dict[str, callable] = {}
         self._register_tools()
+
+    @property
+    def retrieval(self):
+        if self._retrieval is None:
+            from app.rag.retrieval.retrieval import retrieval_service
+
+            self._retrieval = retrieval_service
+        return self._retrieval
 
     def _register_tools(self):
         """Register all available tools."""
@@ -32,8 +47,9 @@ class NewsletterTools:
         self._tools["search_sources"] = tool(self.search_sources)
         self._tools["generate_visual"] = tool(self.generate_visual)
         self._tools["get_series_context"] = tool(self.get_series_context)
+        self._tools["list_series_sources"] = tool(self.list_series_sources)
+        self._tools["get_issue_history"] = tool(self.get_issue_history)
         self._tools["validate_plan"] = tool(self.validate_plan)
-        self._tools["estimate_generation_cost"] = tool(self.estimate_generation_cost)
         self._tools["analyze_retrieval_coverage"] = tool(self.analyze_retrieval_coverage)
 
     def get_tools(self) -> List:
@@ -62,7 +78,7 @@ class NewsletterTools:
 
         try:
             embeddings = self.model_service.get_embeddings([query])
-            results = retrieval_service.retrieve(
+            results = self.retrieval.retrieve(
                 embeddings[0],
                 workspace_id=workspace_id,
                 series_id=series_id,
@@ -104,7 +120,7 @@ class NewsletterTools:
         """
         try:
             embeddings = self.model_service.get_embeddings([query])
-            results = retrieval_service.retrieve(
+            results = self.retrieval.retrieve(
                 embeddings[0],
                 workspace_id=workspace_id,
                 series_id=series_id,
@@ -186,27 +202,63 @@ Output the refined {diagram_type} code only.
         series_id: str,
         workspace_id: str,
     ) -> Dict[str, Any]:
-        """
-        Retrieve series metadata, plan, and source information.
-
-        Args:
-            series_id: The series identifier
-            workspace_id: Tenant workspace identifier
-        """
-        snippets = self.retrieve_context(
-            query=f"series {series_id}",
-            workspace_id=workspace_id,
-            series_id=series_id,
-            top_k=8,
+        """Load series metadata and stored plan from Postgres."""
+        row = self.catalog.get_series(series_id, workspace_id)
+        if not row:
+            return {
+                "found": False,
+                "series_id": series_id,
+                "workspace_id": workspace_id,
+            }
+        sources = self.catalog.list_sources(
+            series_id, workspace_id, settings.AGENT_SOURCE_LIST_LIMIT
         )
-        source_ids = sorted({s.get("source_id") for s in snippets if s.get("source_id")})
+        return {
+            "found": True,
+            "series_id": row["id"],
+            "workspace_id": row["workspace_id"],
+            "topic": row.get("topic") or "",
+            "goal": row.get("goal") or "",
+            "level": row.get("level") or "",
+            "timezone": row.get("timezone") or "UTC",
+            "cadence": row.get("cadence") or "",
+            "start_date": row.get("start_date") or "",
+            "send_time": row.get("send_time") or "",
+            "send_days": row.get("send_days") or "",
+            "status": row.get("status") or "",
+            "plan_status": row.get("plan_status") or "",
+            "plan": row.get("plan_json") or {},
+            "source_count": len(sources),
+            "ready_source_count": sum(1 for src in sources if src.get("status") == "ready"),
+        }
+
+    def list_series_sources(
+        self,
+        series_id: str,
+        workspace_id: str,
+    ) -> Dict[str, Any]:
+        """List ingested sources for this series (status, type, title)."""
+        sources = self.catalog.list_sources(
+            series_id, workspace_id, settings.AGENT_SOURCE_LIST_LIMIT
+        )
+        return {
+            "series_id": series_id,
+            "sources": sources,
+            "count": len(sources),
+        }
+
+    def get_issue_history(
+        self,
+        series_id: str,
+        workspace_id: str,
+    ) -> Dict[str, Any]:
+        """Prior emails in this series so later lessons do not repeat earlier ones."""
+        issues = self.catalog.list_issues(series_id, settings.ISSUE_HISTORY_LIMIT)
         return {
             "series_id": series_id,
             "workspace_id": workspace_id,
-            "sources": source_ids,
-            "plan": {},
-            "retrieved_snippets": snippets[:5],
-            "recent_issues": [],
+            "issues": issues,
+            "count": len(issues),
         }
 
     def validate_plan(
@@ -309,23 +361,9 @@ Output the refined {diagram_type} code only.
             top_k: Number of results to analyze
         """
         results = self.retrieve_context(query, workspace_id, series_id, None, top_k)
-
-        if not results:
-            return {"coverage_score": 0.0, "total_results": 0, "sources_hit": []}
-
-        scores = [r["score"] for r in results]
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-
-        sources_hit = list(set(r["source_id"] for r in results if r.get("source_id")))
-
-        return {
-            "coverage_score": round(avg_score, 4),
-            "total_results": len(results),
-            "sources_hit": sources_hit,
-            "avg_score": round(avg_score, 4),
-            "max_score": round(max(scores), 4) if scores else 0.0,
-            "min_score": round(min(scores), 4) if scores else 0.0,
-        }
+        report = coverage_report(results, settings.COVERAGE_MIN_SCORE)
+        report["query"] = query
+        return report
 
     def _validate_diagram(self, diagram_code: str, diagram_type: str) -> str:
         """Validate diagram code for safety and correctness."""

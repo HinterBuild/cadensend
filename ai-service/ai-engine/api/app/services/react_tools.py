@@ -8,22 +8,24 @@ from typing import Annotated, Any, Dict, List, Optional
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
+from app.core.config import settings
 from app.services.agent_tools import NewsletterTools
-
-MAX_QUERY_CHARS = 500
-MAX_TOP_K = 8
-MAX_TOOL_RESULT_CHARS = 8000
 
 
 def _clip(payload: Any) -> str:
     text = payload if isinstance(payload, str) else json.dumps(payload)
-    if len(text) <= MAX_TOOL_RESULT_CHARS:
+    limit = settings.MAX_TOOL_RESULT_CHARS
+    if len(text) <= limit:
         return text
-    return text[: MAX_TOOL_RESULT_CHARS - 3] + "..."
+    return text[: limit - 3] + "..."
 
 
 def _workspace(state: Dict[str, Any]) -> tuple[str, Optional[str]]:
     return str(state.get("workspace_id") or ""), state.get("series_id")
+
+
+def _top_k(value: int | None) -> int:
+    return max(1, min(int(value or 5), settings.MAX_TOOL_TOP_K))
 
 
 def build_react_tools(toolbox: NewsletterTools) -> List:
@@ -34,14 +36,16 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         query: str,
         state: Annotated[dict, InjectedState],
         top_k: int = 5,
+        source_id: str = "",
     ) -> str:
-        """Search ingested sources for grounded snippets. Use before stating facts."""
+        """Search ingested sources for grounded snippets. Pass source_id to stay inside one document."""
         workspace_id, series_id = _workspace(state)
         hits = toolbox.retrieve_context(
-            query=(query or "")[:MAX_QUERY_CHARS],
+            query=(query or "")[: settings.MAX_QUERY_CHARS],
             workspace_id=workspace_id,
             series_id=series_id,
-            top_k=max(1, min(int(top_k or 5), MAX_TOP_K)),
+            source_id=(source_id or "").strip() or None,
+            top_k=_top_k(top_k),
         )
         return _clip(hits)
 
@@ -51,13 +55,13 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         state: Annotated[dict, InjectedState],
         top_k: int = 5,
     ) -> str:
-        """Find which sources match a query (ids, titles, short preview)."""
+        """Find which source chunks match a query (ids, titles, short preview)."""
         workspace_id, series_id = _workspace(state)
         hits = toolbox.search_sources(
-            query=(query or "")[:MAX_QUERY_CHARS],
+            query=(query or "")[: settings.MAX_QUERY_CHARS],
             workspace_id=workspace_id,
             series_id=series_id,
-            top_k=max(1, min(int(top_k or 5), MAX_TOP_K)),
+            top_k=_top_k(top_k),
         )
         return _clip(hits)
 
@@ -77,9 +81,23 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
 
     @tool
     def get_series_context(state: Annotated[dict, InjectedState]) -> str:
-        """Load series-scoped retrieval snippets already tied to this series."""
+        """Load this series topic, cadence, send time, and stored plan from the database."""
         workspace_id, series_id = _workspace(state)
         result = toolbox.get_series_context(str(series_id or ""), workspace_id)
+        return _clip(result)
+
+    @tool
+    def list_series_sources(state: Annotated[dict, InjectedState]) -> str:
+        """List sources attached to this series and whether ingest is ready or failed."""
+        workspace_id, series_id = _workspace(state)
+        result = toolbox.list_series_sources(str(series_id or ""), workspace_id)
+        return _clip(result)
+
+    @tool
+    def get_issue_history(state: Annotated[dict, InjectedState]) -> str:
+        """List earlier emails in this series so the next lesson does not repeat them."""
+        workspace_id, series_id = _workspace(state)
+        result = toolbox.get_issue_history(str(series_id or ""), workspace_id)
         return _clip(result)
 
     @tool
@@ -90,26 +108,17 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         return _clip(result)
 
     @tool
-    def estimate_generation_cost(
-        plan: Dict[str, Any],
-        source_count: int = 1,
-    ) -> str:
-        """Rough token/cost estimate for generating the plan's issues."""
-        result = toolbox.estimate_generation_cost(plan or {}, max(0, int(source_count)))
-        return _clip(result)
-
-    @tool
     def analyze_retrieval_coverage(
         query: str,
         state: Annotated[dict, InjectedState],
     ) -> str:
-        """Score how well retrieval covers a query for this series."""
+        """Score whether ingested sources cover a query. grounded=false means do not invent facts."""
         workspace_id, series_id = _workspace(state)
         result = toolbox.analyze_retrieval_coverage(
-            query=(query or "")[:MAX_QUERY_CHARS],
+            query=(query or "")[: settings.MAX_QUERY_CHARS],
             workspace_id=workspace_id,
             series_id=series_id,
-            top_k=MAX_TOP_K,
+            top_k=settings.MAX_TOOL_TOP_K,
         )
         return _clip(result)
 
@@ -118,7 +127,8 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         search_sources,
         generate_visual,
         get_series_context,
+        list_series_sources,
+        get_issue_history,
         validate_plan,
-        estimate_generation_cost,
         analyze_retrieval_coverage,
     ]

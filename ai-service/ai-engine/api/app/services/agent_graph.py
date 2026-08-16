@@ -368,8 +368,11 @@ class NewsletterAgent:
 Think about what you still need, Act by calling tools, Observe the tool JSON, then continue.
 Guardrails:
 - Never invent workspace or series ids; tools already scope retrieval.
-- Call retrieve_context (and search_sources if needed) before stating facts.
-- Cite only source_id values returned by tools.
+- Call get_series_context and get_issue_history first so this email fits the series and does not repeat prior lessons.
+- Call list_series_sources. If none are ready, do not invent documentation; teach carefully and leave citations empty.
+- Call retrieve_context (optionally with source_id) before stating facts. Cite only source_id values returned by tools.
+- If analyze_retrieval_coverage returns grounded=false, do not fabricate citations.
+- Call generate_visual when a simple Mermaid flow would help.
 - At most a few tool calls, then finish.
 When done, do not call tools. Return ONLY JSON:
 {{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[]}}
@@ -379,8 +382,9 @@ Series topic: {brief.get("topic","")} | level: {brief.get("level","")}
         else:
             system = self._plan_system_prompt(brief, memory) + """
 
-You may use tools (retrieve_context, search_sources, validate_plan, estimate_generation_cost, get_series_context).
-Think about gaps, call tools, observe results, then produce the curriculum.
+You may use tools (get_series_context, list_series_sources, retrieve_context, search_sources, validate_plan, analyze_retrieval_coverage).
+Call get_series_context so cadence and audience match the series.
+If sources are ready, retrieve before locking the outline. If coverage is ungrounded, plan from the brief without fake citations.
 When the outline is ready, call validate_plan. If it is invalid, fix it.
 When done, do not call tools. Return ONLY the plan JSON.
 """

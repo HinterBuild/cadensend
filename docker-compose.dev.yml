@@ -119,6 +119,11 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
       - PYTHONPATH=/app/ai-engine/api
+      - MAX_TOOL_CALLS=${MAX_TOOL_CALLS:-10}
+      - MAX_REVISION_LOOPS=${MAX_REVISION_LOOPS:-2}
+      - MAX_TOOL_TOP_K=${MAX_TOOL_TOP_K:-8}
+      - COVERAGE_MIN_SCORE=${COVERAGE_MIN_SCORE:-0.25}
+      - GENERATION_TIMEOUT_SECONDS=${GENERATION_TIMEOUT_SECONDS:-300}
     working_dir: /app/ai-engine/api
     volumes:
       - ./ai-service/ai-engine:/app/ai-engine

@@ -48,7 +48,13 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 80
     TOP_K_RETRIEVAL: int = 20
-    
+    MAX_TOOL_TOP_K: int = 8
+    MAX_QUERY_CHARS: int = 500
+    MAX_TOOL_RESULT_CHARS: int = 8000
+    COVERAGE_MIN_SCORE: float = 0.25
+    ISSUE_HISTORY_LIMIT: int = 8
+    AGENT_SOURCE_LIST_LIMIT: int = 20
+
     # Generation settings
     MAX_REVISION_LOOPS: int = 2
     MAX_TOOL_CALLS: int = 10

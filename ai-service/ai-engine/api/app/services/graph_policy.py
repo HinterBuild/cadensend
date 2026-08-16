@@ -109,6 +109,35 @@ def route_after_agent(last_tool_calls: Any, tool_rounds: int, max_rounds: int) -
     return "finalize"
 
 
+def coverage_report(
+    results: Sequence[Dict[str, Any]],
+    min_score: float,
+) -> Dict[str, Any]:
+    """Say whether retrieval is strong enough to ground claims."""
+    if not results:
+        return {
+            "coverage_score": 0.0,
+            "grounded": False,
+            "reason": "no_matches",
+            "total_results": 0,
+            "sources_hit": [],
+        }
+    scores = [float(item.get("score") or 0) for item in results]
+    avg = sum(scores) / len(scores)
+    sources = sorted({str(item.get("source_id")) for item in results if item.get("source_id")})
+    grounded = avg >= min_score and bool(sources)
+    return {
+        "coverage_score": round(avg, 4),
+        "grounded": grounded,
+        "reason": "ok" if grounded else "below_min_score",
+        "total_results": len(results),
+        "sources_hit": sources,
+        "avg_score": round(avg, 4),
+        "max_score": round(max(scores), 4),
+        "min_score": round(min(scores), 4),
+    }
+
+
 def collect_retrieval_hits(messages: Sequence[Any]) -> List[Dict[str, Any]]:
     """Pull RAG payloads out of tool observations."""
     hits: List[Dict[str, Any]] = []

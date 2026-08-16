@@ -202,17 +202,20 @@ flowchart LR
 
 ### Tools
 
-The agent has 7 tools, all registered in `NewsletterTools` (`agent_tools.py`):
+The agent binds these tools in `react_tools.py` (implementations in `NewsletterTools` / `PostgresSeriesCatalog`). Tenant ids are injected from graph state.
 
 | Tool | Description | Integration |
 |------|-------------|-------------|
-| `retrieve_context` | Semantic search over ingested source chunks | Qdrant vector search with embedding model |
-| `search_sources` | Find source materials related to a query | Qdrant vector search |
-| `generate_visual` | Create Mermaid/D2 diagrams | OpenRouter LLM |
-| `get_series_context` | Retrieve series metadata, plan, and sources | PostgreSQL queries |
-| `validate_plan` | Check plan correctness and constraints | Local validation logic |
-| `estimate_generation_cost` | Calculate token and cost estimates | Local computation |
-| `analyze_retrieval_coverage` | Assess retrieval quality and source coverage | Qdrant vector search |
+| `retrieve_context` | Semantic search over ingested chunks; optional `source_id` | Qdrant with workspace/series filters |
+| `search_sources` | Find matching source chunks (id, title, preview) | Qdrant vector search |
+| `generate_visual` | Mermaid/D2 diagram spec | OpenRouter LLM |
+| `get_series_context` | Series topic, cadence, send time, stored plan | PostgreSQL `series` |
+| `list_series_sources` | Attached sources and ingest status | PostgreSQL `sources` |
+| `get_issue_history` | Prior emails so later lessons do not repeat | PostgreSQL `issues` |
+| `validate_plan` | Placeholder titles and missing objectives | Local validation |
+| `analyze_retrieval_coverage` | `grounded` flag vs `COVERAGE_MIN_SCORE` | Qdrant + local scoring |
+
+The writer has no send, ingest, web-search, or code-execution tools.
 
 ## RAG Pipeline
 
@@ -265,7 +268,16 @@ flowchart LR
 |---------|-------|-------------|
 | `CHUNK_SIZE` | 500 | Characters per text chunk |
 | `CHUNK_OVERLAP` | 80 | Overlap between adjacent chunks |
-| `TOP_K_RETRIEVAL` | 20 | Default retrieval results count |
+| `TOP_K_RETRIEVAL` | 20 | Internal retrieval default |
+| `MAX_TOOL_TOP_K` | 8 | Cap on LLM-requested `top_k` |
+| `MAX_QUERY_CHARS` | 500 | Cap on tool query length |
+| `MAX_TOOL_RESULT_CHARS` | 8000 | Clip tool JSON returned to the model |
+| `COVERAGE_MIN_SCORE` | 0.25 | Minimum avg score to mark retrieval `grounded` |
+| `ISSUE_HISTORY_LIMIT` | 8 | Prior issues returned to the agent |
+| `AGENT_SOURCE_LIST_LIMIT` | 20 | Sources listed per series |
+| `MAX_TOOL_CALLS` | 10 | ReAct rounds before force-final |
+| `MAX_REVISION_LOOPS` | 2 | Quality-gate revisions |
+| `GENERATION_TIMEOUT_SECONDS` | 300 | Job deadline |
 | `EMBEDDING_DIMENSION` | 2048 | Vector embedding dimensions |
 | `EMBEDDING_BATCH_SIZE` | 20 | Batch size for embedding processing |
 
