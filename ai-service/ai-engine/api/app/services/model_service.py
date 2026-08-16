@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -13,10 +14,49 @@ from langchain_openai import ChatOpenAI
 from openai import OpenAI
 
 from app.core.config import settings
+from app.services.openrouter_limits import (
+    call_with_429_retry,
+    is_rate_limit_error,
+    is_transient_openrouter_error,
+    retry_after_seconds,
+    wait_for_openrouter_slot,
+)
 
 logger = logging.getLogger(__name__)
 _EMBED_CACHE: OrderedDict[str, List[float]] = OrderedDict()
 _EMBED_CACHE_MAX = 512
+
+
+class GatedChatOpenAI(ChatOpenAI):
+    """ChatOpenAI that shares the process-wide OpenRouter free-tier gate."""
+
+    def _chat_model_id(self) -> str:
+        return str(getattr(self, "model", None) or getattr(self, "model_name", "") or "")
+
+    def _generate(self, *args, **kwargs):
+        model_id = self._chat_model_id()
+        return call_with_429_retry(
+            lambda: super(GatedChatOpenAI, self)._generate(*args, **kwargs),
+            model=model_id,
+        )
+
+    async def _agenerate(self, *args, **kwargs):
+        model_id = self._chat_model_id()
+        attempts = max(0, int(settings.OPENROUTER_429_MAX_RETRIES)) + 1
+        last: Exception | None = None
+        for attempt in range(attempts):
+            await asyncio.to_thread(wait_for_openrouter_slot, model_id)
+            try:
+                return await super()._agenerate(*args, **kwargs)
+            except Exception as exc:
+                last = exc
+                if not is_transient_openrouter_error(exc) or attempt == attempts - 1:
+                    raise
+                if is_rate_limit_error(exc):
+                    await asyncio.sleep(retry_after_seconds(exc))
+                else:
+                    await asyncio.sleep(min(8.0, 2.0 * (attempt + 1)))
+        raise last  # pragma: no cover
 
 
 def openrouter_api_key() -> str:
@@ -39,6 +79,8 @@ class ModelService:
         self.client = OpenAI(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=openrouter_api_key(),
+            timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
+            max_retries=2,
             default_headers={
                 "HTTP-Referer": "https://cadensend.app",
                 "X-Title": "Cadensend",
@@ -57,12 +99,14 @@ class ModelService:
         max_tokens: int = 4000,
     ) -> ChatOpenAI:
         """LangChain chat model pointed at OpenRouter."""
-        return ChatOpenAI(
+        return GatedChatOpenAI(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=openrouter_api_key(),
             model=self.resolve_model(model),
             temperature=temperature,
             max_tokens=max_tokens,
+            timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
+            max_retries=2,
         )
 
     def generate_text(
@@ -75,11 +119,14 @@ class ModelService:
         """Synchronous chat completion via OpenRouter."""
         model_id = self.resolve_model(model)
         start_time = time.time()
-        response = self.client.chat.completions.create(
+        response = call_with_429_retry(
+            lambda: self.client.chat.completions.create(
+                model=model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ),
             model=model_id,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
         )
         result = response.choices[0].message.content or ""
         logger.info("Generated response in %.2fs using %s", time.time() - start_time, model_id)
@@ -94,7 +141,13 @@ class ModelService:
     ) -> str:
         """Generate a chat completion from the configured OpenRouter model."""
         try:
-            return self.generate_text(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+            return await asyncio.to_thread(
+                self.generate_text,
+                messages,
+                model,
+                temperature,
+                max_tokens,
+            )
         except Exception as e:
             logger.error("Failed to generate response: %s", e)
             raise
@@ -114,17 +167,21 @@ class ModelService:
 
         for attempt in range(max_retries + 1):
             try:
-                response = self.client.chat.completions.create(
-                    model=model_id,
-                    messages=messages + [
-                        {
-                            "role": "user",
-                            "content": f"Output valid JSON matching this schema: {json.dumps(schema)}",
-                        }
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"},
+                response = await asyncio.to_thread(
+                    call_with_429_retry,
+                    lambda: self.client.chat.completions.create(
+                        model=model_id,
+                        messages=messages + [
+                            {
+                                "role": "user",
+                                "content": f"Output valid JSON matching this schema: {json.dumps(schema)}",
+                            }
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        response_format={"type": "json_object"},
+                    ),
+                    model_id,
                 )
                 result = response.choices[0].message.content
                 parsed = json.loads(result)
@@ -157,10 +214,12 @@ class ModelService:
         if missing_indexes:
             to_embed = [texts[i] for i in missing_indexes]
             try:
-                response = self.client.embeddings.create(
-                    model=self.embedding_model_name,
-                    input=to_embed,
-                    encoding_format="float",
+                response = call_with_429_retry(
+                    lambda: self.client.embeddings.create(
+                        model=self.embedding_model_name,
+                        input=to_embed,
+                        encoding_format="float",
+                    )
                 )
                 ordered = sorted(response.data, key=lambda item: item.index)
                 for local_i, item in enumerate(ordered):

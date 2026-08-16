@@ -10,6 +10,7 @@ with full short-term and long-term memory support.
 import asyncio
 import logging
 import json
+import time
 import uuid
 import warnings
 import base64
@@ -26,6 +27,11 @@ from app.core.config import settings
 from app.services.graph_policy import is_stub_issue, pick_generated_issue
 from app.services.issue_schedule import issue_send_times
 from app.services.model_service import ModelService, openrouter_api_key
+from app.services.openrouter_limits import (
+    reset_generation_model,
+    set_generation_model,
+    uses_free_tier_pacing,
+)
 from app.services.agent_graph import get_agent
 from app.services.checkpoint_backend import get_checkpoint_backend
 from app.workers.ingestion_worker import IngestionWorker
@@ -53,6 +59,8 @@ class AIWorker:
         self.tasks: dict[str, asyncio.Task] = {}
         self._redis: redis_async.Redis | None = None
         self._pg: asyncpg.Pool | None = None
+        self._llm_task: asyncio.Task | None = None
+        self._last_llm_finished: float = 0.0
 
     async def start(self):
         """Start the AI worker - ingests new sources and processes generation jobs."""
@@ -89,6 +97,11 @@ class AIWorker:
             self._redis = redis_async.from_url(
                 settings.REDIS_URL,
                 decode_responses=True,
+                socket_timeout=None,
+                socket_connect_timeout=10,
+                retry_on_timeout=True,
+                health_check_interval=30,
+                max_connections=20,
             )
         return self._redis
 
@@ -103,22 +116,71 @@ class AIWorker:
         for task_id in finished:
             del self.tasks[task_id]
 
+    def _llm_busy(self) -> bool:
+        return self._llm_task is not None and not self._llm_task.done()
+
+    def _mark_llm_finished(self, _task: asyncio.Task) -> None:
+        self._last_llm_finished = time.monotonic()
+
     async def _process_pending_jobs(self):
-        """Block on the queue, then drain a small burst of ready jobs."""
+        """Take one LLM job at a time so free-tier OpenRouter is not burst."""
         try:
             redis = self._redis_client()
             popped = await redis.brpop("generation_queue", timeout=5)
             if not popped:
                 return
-            messages = [popped[1]]
+            msg = popped[1]
+            job_data = json.loads(msg)
+            task_name = job_data.get("task", "")
+            if task_name in {"generate_plan", "generate_issue"}:
+                free = uses_free_tier_pacing(job_data.get("model"))
+                if free and self._llm_busy():
+                    await redis.lpush("generation_queue", msg)
+                    await asyncio.sleep(1)
+                    return
+                if free and task_name == "generate_issue" and self._last_llm_finished:
+                    gap = float(settings.ISSUE_JOB_GAP_SECONDS)
+                    wait = gap - (time.monotonic() - self._last_llm_finished)
+                    if wait > 0:
+                        logger.info(
+                            "Waiting %.0fs before next issue (OpenRouter free-tier pacing)",
+                            wait,
+                        )
+                        await asyncio.sleep(wait)
+                self._dispatch_job(msg)
+                if not free and task_name == "generate_issue":
+                    for _ in range(4):
+                        extra = await redis.lpop("generation_queue")
+                        if not extra:
+                            break
+                        extra_data = json.loads(extra)
+                        extra_task = extra_data.get("task", "")
+                        extra_free = uses_free_tier_pacing(extra_data.get("model"))
+                        if extra_task == "generate_issue" and not extra_free:
+                            self._dispatch_job(extra)
+                        else:
+                            await redis.lpush("generation_queue", extra)
+                            break
+                return
+
+            self._dispatch_job(msg)
             for _ in range(4):
                 extra = await redis.lpop("generation_queue")
                 if not extra:
                     break
-                messages.append(extra)
-            for msg in messages:
-                self._dispatch_job(msg)
+                extra_task = json.loads(extra).get("task", "")
+                if extra_task == "ingest_source":
+                    self._dispatch_job(extra)
+                else:
+                    await redis.lpush("generation_queue", extra)
+                    break
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            if _is_idle_redis_timeout(exc):
+                return
+            logger.warning("Job poll failed: %s", exc)
         except Exception as e:
+            if _is_idle_redis_timeout(e):
+                return
             logger.warning("Job poll failed: %s", e)
 
     def _dispatch_job(self, msg: str):
@@ -130,9 +192,15 @@ class AIWorker:
         source_id = job_data.get("source_id")
 
         if task_name == "generate_plan":
-            self.tasks[task_id] = asyncio.create_task(self._handle_generate_plan(job_data))
+            task = asyncio.create_task(self._handle_generate_plan(job_data))
+            self._llm_task = task
+            task.add_done_callback(self._mark_llm_finished)
+            self.tasks[task_id] = task
         elif task_name == "generate_issue":
-            self.tasks[task_id] = asyncio.create_task(self._handle_generate_issue(job_data))
+            task = asyncio.create_task(self._handle_generate_issue(job_data))
+            self._llm_task = task
+            task.add_done_callback(self._mark_llm_finished)
+            self.tasks[task_id] = task
         elif task_name == "ingest_source":
             self.tasks[task_id] = asyncio.create_task(self._handle_ingest_source(job_data))
         else:
@@ -157,6 +225,7 @@ class AIWorker:
     async def _handle_generate_plan(self, job_data: dict):
         """Handle a generate-plan job using the LangGraph agent."""
         series_id = job_data.get("series_id")
+        token = set_generation_model(job_data.get("model"))
         try:
             if openrouter_api_key() == "not-configured":
                 await self._persist_plan_result(
@@ -188,6 +257,8 @@ class AIWorker:
                 series_id,
                 {"status": "failed", "plan": {}, "error": str(e)},
             )
+        finally:
+            reset_generation_model(token)
 
     async def _persist_plan_result(self, series_id: str | None, result: dict):
         """Write plan generation status back so the UI can poll it."""
@@ -366,6 +437,7 @@ class AIWorker:
 
     async def _handle_generate_issue(self, job_data: dict):
         """Handle a generate-issue job using the LangGraph agent."""
+        token = set_generation_model(job_data.get("model"))
         try:
             result = await self.agent.run_issue_generation(
                 series_id=job_data.get("series_id", ""),
@@ -387,6 +459,8 @@ class AIWorker:
                 job_data.get("issue_id"),
                 {"status": "failed", "issues": [], "error": str(e)},
             )
+        finally:
+            reset_generation_model(token)
 
     async def _persist_issue_result(self, issue_id: str | None, result: dict):
         """Write issue generation status back so the UI can poll it."""
@@ -460,6 +534,11 @@ class AIWorker:
             traceback.print_exc()
             if source_id:
                 await self.ingestion_worker._update_source_status(source_id, "failed", str(e))
+
+
+def _is_idle_redis_timeout(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "timeout" in text
 
 
 if __name__ == "__main__":

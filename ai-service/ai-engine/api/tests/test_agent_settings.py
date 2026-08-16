@@ -14,4 +14,8 @@ def test_agent_settings_have_safe_defaults():
     assert cfg.AGENT_SOURCE_LIST_LIMIT == 20
     assert cfg.COVERAGE_MIN_SCORE == 0.25
     assert cfg.GENERATION_TIMEOUT_SECONDS == 300
+    assert cfg.OPENROUTER_MIN_INTERVAL_SECONDS == 3.5
+    assert cfg.OPENROUTER_429_MAX_RETRIES == 8
+    assert cfg.ISSUE_JOB_GAP_SECONDS == 20.0
+    assert cfg.OPENROUTER_TIMEOUT_SECONDS == 120.0
     assert cfg.TOP_K_RETRIEVAL >= cfg.MAX_TOOL_TOP_K

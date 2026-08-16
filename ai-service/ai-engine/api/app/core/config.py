@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     MAX_REVISION_LOOPS: int = 2
     MAX_TOOL_CALLS: int = 10
     GENERATION_TIMEOUT_SECONDS: int = 300
+    OPENROUTER_MIN_INTERVAL_SECONDS: float = 3.5
+    OPENROUTER_429_MAX_RETRIES: int = 8
+    OPENROUTER_429_MAX_WAIT_SECONDS: int = 90
+    OPENROUTER_TIMEOUT_SECONDS: float = 120.0
+    ISSUE_JOB_GAP_SECONDS: float = 20.0
     
     # Email settings
     EMAIL_PROVIDER: str = ""
