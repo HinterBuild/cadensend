@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { seriesApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { ModelSelect } from '../../components/ModelSelect';
+import { ModelSelect } from '@/components/ModelSelect';
 
 type FormValues = {
   topic: string;

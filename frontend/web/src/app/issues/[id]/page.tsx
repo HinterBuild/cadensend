@@ -6,12 +6,13 @@ import { ArrowLeft, Save, Send, RefreshCw } from 'lucide-react';
 import { issueApi, seriesApi } from '@/lib/api';
 import { Issue, ContentBlock, VisualSpec } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { EmailPreview } from '../../../components/LessonPreview';
+import { EmailPreview } from '@/components/LessonPreview';
 
 function parseIssueContent(issue: Issue): {
   subject: string;
   preheader: string;
   blocks: Array<{ id: string; type: string; title?: string; text: string }>;
+  visuals: Array<{ type?: string; content?: string; alt_text?: string }>;
 } {
   const raw = issue.content_json;
   let parsed: Record<string, any> | null = null;
@@ -34,10 +35,19 @@ function parseIssueContent(issue: Issue): {
       }))
     : [];
 
+  const visuals = Array.isArray(parsed?.visual_specs)
+    ? parsed.visual_specs.map((spec: VisualSpec & { content?: string; alt_text?: string }) => ({
+        type: spec.type,
+        content: spec.content,
+        alt_text: spec.alt_text,
+      }))
+    : [];
+
   return {
     subject: parsed?.subject || issue.objective || '',
     preheader: parsed?.preheader || '',
     blocks,
+    visuals,
   };
 }
 
@@ -65,7 +75,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const [content, setContent] = useState({
     subject: '',
     preheader: '',
-    blocks: [] as Array<{ id: string; type: string; title?: string; text: string }>
+    blocks: [] as Array<{ id: string; type: string; title?: string; text: string }>,
+    visuals: [] as Array<{ type?: string; content?: string; alt_text?: string }>,
   });
 
   useEffect(() => {
@@ -313,104 +324,108 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-6">
-          <div>
-            <label htmlFor="send-at" className="block text-sm font-medium text-gray-700 mb-2">
-              Send at
-            </label>
-            <input
-              id="send-at"
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              Approve schedules a real send at this time. Send test email only previews content.
-            </p>
-          </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="bg-white rounded-lg shadow p-6 space-y-6">
+            <div>
+              <label htmlFor="send-at" className="block text-sm font-medium text-gray-700 mb-2">
+                Send at
+              </label>
+              <input
+                id="send-at"
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Approve schedules a real send at this time. Send test email only previews content.
+              </p>
+            </div>
 
-          <div>
-            <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
-            <input
-              id="subject"
-              type="text"
-              value={content.subject}
-              onChange={(e) => setContent({ ...content, subject: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-              placeholder="Enter issue subject"
-              aria-label="Subject"
-            />
-          </div>
+            <div>
+              <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
+                Subject
+              </label>
+              <input
+                id="subject"
+                type="text"
+                value={content.subject}
+                onChange={(e) => setContent({ ...content, subject: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                placeholder="Enter issue subject"
+                aria-label="Subject"
+              />
+            </div>
 
-          <div>
-            <label htmlFor="preheader" className="block text-sm font-medium text-gray-700 mb-2">
-              Preheader
-            </label>
-            <textarea
-              id="preheader"
-              value={content.preheader}
-              onChange={(e) => setContent({ ...content, preheader: e.target.value })}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-              placeholder="Brief summary shown in email previews"
-              aria-label="Preheader text"
-            />
-          </div>
+            <div>
+              <label htmlFor="preheader" className="block text-sm font-medium text-gray-700 mb-2">
+                Preheader
+              </label>
+              <textarea
+                id="preheader"
+                value={content.preheader}
+                onChange={(e) => setContent({ ...content, preheader: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                placeholder="Brief summary shown in email previews"
+                aria-label="Preheader text"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-4">
-              Content Blocks
-            </label>
-            <div className="space-y-4">
-              {content.blocks.length === 0 ? (
-                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                  <p className="text-gray-500">No content blocks yet. Generate content with AI.</p>
-                </div>
-              ) : (
-                content.blocks.map((block, idx) => (
-                  <div key={block.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-700">{block.type}</span>
-                    </div>
-                    {block.title && (
-                      <input
-                        type="text"
-                        value={block.title}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-4">
+                Content Blocks
+              </label>
+              <div className="space-y-4">
+                {content.blocks.length === 0 ? (
+                  <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                    <p className="text-gray-500">No content blocks yet. Generate content with AI.</p>
+                  </div>
+                ) : (
+                  content.blocks.map((block, idx) => (
+                    <div key={block.id} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">{block.type}</span>
+                      </div>
+                      {block.title && (
+                        <input
+                          type="text"
+                          value={block.title}
+                          onChange={(e) => {
+                            const newBlocks = [...content.blocks];
+                            newBlocks[idx].title = e.target.value;
+                            setContent({ ...content, blocks: newBlocks });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
+                          placeholder="Block title"
+                          aria-label={`Block ${idx + 1} title`}
+                        />
+                      )}
+                      <textarea
+                        value={block.text}
                         onChange={(e) => {
                           const newBlocks = [...content.blocks];
-                          newBlocks[idx].title = e.target.value;
+                          newBlocks[idx].text = e.target.value;
                           setContent({ ...content, blocks: newBlocks });
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2 text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
-                        placeholder="Block title"
-                        aria-label={`Block ${idx + 1} title`}
+                        rows={8}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
+                        placeholder="Block content..."
+                        aria-label={`Block ${idx + 1} content`}
                       />
-                    )}
-                    <textarea
-                      value={block.text}
-                      onChange={(e) => {
-                        const newBlocks = [...content.blocks];
-                        newBlocks[idx].text = e.target.value;
-                        setContent({ ...content, blocks: newBlocks });
-                      }}
-                      rows={8}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
-                      placeholder="Block content..."
-                      aria-label={`Block ${idx + 1} content`}
-                    />
-                    {block.text.trim() && (
-                      <div className="mt-3 rounded-lg border border-stone-200 bg-[#fffaf3] p-4">
-                        <p className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">Email preview</p>
-                        <LessonPreview text={block.text} />
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
+          </div>
+          <div className="lg:sticky lg:top-6 lg:self-start">
+            <EmailPreview
+              subject={content.subject}
+              preheader={content.preheader}
+              blocks={content.blocks}
+              visuals={content.visuals}
+            />
           </div>
         </div>
       </div>

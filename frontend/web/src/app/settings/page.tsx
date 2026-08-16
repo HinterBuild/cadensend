@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
 import { authApi, modelsApi, OpenRouterModel } from '@/lib/api';
 import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock } from 'lucide-react';
-import { ModelSelect } from '../../components/ModelSelect';
+import { ModelSelect } from '@/components/ModelSelect';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
