@@ -148,16 +148,19 @@ services:
   frontend:
     build:
       context: ./frontend/web
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ""
-        NEXT_PUBLIC_AI_API_URL: ""
+      dockerfile: Dockerfile.dev
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       BACKEND_API_URL: http://backend-api:8080
       AI_API_URL: http://ai-engine-api:8000
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./frontend/web:/app
+      - frontend_nm_tw4:/app/node_modules
+    working_dir: /app
+    command: ["npm", "run", "dev"]
     depends_on:
       backend-api:
         condition: service_started
@@ -168,3 +171,4 @@ volumes:
   postgres_data:
   qdrant_data:
   minio_data:
+  frontend_nm_tw4:
