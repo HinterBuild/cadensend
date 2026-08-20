@@ -112,13 +112,19 @@ func main() {
 			users.POST("/login", loginHandler(db, userService))
 			users.POST("/magic-link", magicLinkHandler(db, userService))
 			users.POST("/magic-link/verify", verifyMagicLinkHandler(db, userService))
-			users.GET("/:id", getUserHandler(db, userService))
 		}
 
 		// Protected routes
 		api := v1.Group("")
 		api.Use(authMW)
 		{
+			protectedUsers := api.Group("/users")
+			{
+				protectedUsers.GET("/:id", getUserHandler(db, userService))
+				protectedUsers.PATCH("/:id", updateUserHandler(db, userService))
+				protectedUsers.PATCH("/:id/password", changePasswordHandler(db, userService))
+			}
+
 			series := api.Group("/series")
 			{
 				series.GET("", listSeriesHandler(db))
@@ -135,13 +141,6 @@ func main() {
 				series.POST("/:id/resume", resumeSeriesHandler(db))
 				series.POST("/:id/test-send", testSendSeriesHandler(db))
 				series.DELETE("/:id", deleteSeriesHandler(db))
-			}
-
-			// User management endpoints
-			protectedUsers := api.Group("/users")
-			{
-				protectedUsers.PATCH("/:id", updateUserHandler(db, userService))
-				protectedUsers.PATCH("/:id/password", changePasswordHandler(db, userService))
 			}
 
 			// Issue endpoints
@@ -179,6 +178,8 @@ func main() {
 			}
 
 			api.GET("/models", listModelsHandler())
+			api.GET("/analytics/overview", analyticsOverviewHandler(db))
+			api.GET("/runs", listRunsHandler(db))
 		}
 
 		// Webhook endpoints (no auth)
@@ -224,11 +225,19 @@ func main() {
 
 // corsMiddleware provides basic CORS support without an external dependency
 func corsMiddleware() gin.HandlerFunc {
+	allowed := strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
+	if allowed == "" {
+		allowed = "http://localhost:3000"
+	}
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin == allowed || strings.HasPrefix(origin, "http://localhost:") {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
 		c.Header("Access-Control-Expose-Headers", "Content-Length")
+		c.Header("Vary", "Origin")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
