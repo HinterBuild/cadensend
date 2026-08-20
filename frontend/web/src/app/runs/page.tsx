@@ -1,159 +1,233 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Search, FileText } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { RefreshCw, Search } from 'lucide-react';
 import { useRequireAuth } from '@/contexts/AuthContext';
+import { issueApi, runsApi, seriesApi, sourceApi, type RunItem, type RunSummary } from '@/lib/api';
 
-type Run = {
-  id: string;
-  operation: string;
-  status: string;
-  model: string;
-  tokens_in: number;
-  tokens_out: number;
-  cost: number;
-  created_at: string;
-  completed_at?: string;
-  error_code?: string;
+const KIND_LABEL: Record<string, string> = {
+  issue: 'Issue',
+  ingest: 'Ingest',
+  plan: 'Plan',
 };
+
+function statusClass(status: string) {
+  if (status === 'failed') return 'bg-red-50 text-red-800';
+  if (status === 'generating' || status === 'ingesting' || status === 'running') {
+    return 'bg-amber-50 text-amber-800';
+  }
+  if (status === 'ready' || status === 'sent' || status === 'completed' || status === 'approved') {
+    return 'bg-emerald-50 text-emerald-800';
+  }
+  return 'bg-stone-100 text-stone-700';
+}
 
 export default function RunCenterPage() {
   const { loading: authLoading } = useRequireAuth();
-  const router = useRouter();
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<RunItem[]>([]);
+  const [summary, setSummary] = useState<RunSummary>({ queued: 0, running: 0, failed: 0, completed: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [kind, setKind] = useState('');
+  const [status, setStatus] = useState('');
+  const [query, setQuery] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [retrying, setRetrying] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!authLoading) {
-      loadRuns();
-    }
-  }, [authLoading]);
-
-  const loadRuns = async () => {
-    setLoading(true);
+  const loadRuns = useCallback(async () => {
     try {
-      setRuns([
-        {
-          id: 'run-1',
-          operation: 'issue:generate',
-          status: 'completed',
-          model: 'poolside/laguna-s-2.1:free',
-          tokens_in: 1250,
-          tokens_out: 850,
-          cost: 0.0012,
-          created_at: '2024-01-20T10:00:00Z',
-          completed_at: '2024-01-20T10:00:30Z',
-        },
-        {
-          id: 'run-2',
-          operation: 'source:ingest',
-          status: 'failed',
-          model: 'N/A',
-          tokens_in: 0,
-          tokens_out: 0,
-          cost: 0,
-          created_at: '2024-01-19T15:00:00Z',
-          completed_at: '2024-01-19T15:00:10Z',
-          error_code: 'FETCH_TIMEOUT',
-        },
-      ]);
+      const response = await runsApi.list({
+        kind: kind || undefined,
+        status: status || undefined,
+      });
+      setRuns(response.data ?? []);
+      setSummary(response.summary ?? { queued: 0, running: 0, failed: 0, completed: 0 });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load runs');
     } finally {
       setLoading(false);
     }
+  }, [kind, status]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    setLoading(true);
+    loadRuns();
+  }, [authLoading, loadRuns]);
+
+  useEffect(() => {
+    if (authLoading || !autoRefresh) return;
+    const timer = window.setInterval(loadRuns, 8000);
+    return () => window.clearInterval(timer);
+  }, [authLoading, autoRefresh, loadRuns]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return runs;
+    return runs.filter((run) =>
+      `${run.title} ${run.detail} ${run.status} ${run.kind} ${run.error || ''}`.toLowerCase().includes(q)
+    );
+  }, [runs, query]);
+
+  const retry = async (run: RunItem) => {
+    setRetrying(run.id);
+    try {
+      if (run.kind === 'issue' && run.issue_id) {
+        await issueApi.generate(run.issue_id);
+      } else if (run.kind === 'ingest' && run.source_id) {
+        await sourceApi.reindex(run.source_id);
+      } else if (run.kind === 'plan' && run.series_id) {
+        await seriesApi.generatePlan(run.series_id);
+      }
+      await loadRuns();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Retry failed');
+    } finally {
+      setRetrying(null);
+    }
   };
 
-  if (authLoading || loading) {
+  if (authLoading || (loading && runs.length === 0)) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="text-center">
-          <div
-            className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
-            role="status"
-            aria-label="Loading"
-          ></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
+      <div className="mx-auto max-w-6xl px-6 py-16 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800" role="status" aria-label="Loading runs" />
+        <p className="mt-4 text-stone-500">Loading runs...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-full">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <button
-                type="button"
-                aria-label="Go back"
-                onClick={() => router.back()}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <h1 className="text-2xl font-bold text-gray-900">Run Center</h1>
-            </div>
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <Search className="h-4 w-4" aria-hidden="true" />
-              <span>Last updated: {new Date().toLocaleTimeString()}</span>
-            </div>
-          </div>
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Operations</p>
+          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Run Center</h1>
+          <p className="mt-2 max-w-2xl text-sm text-stone-500">
+            Live plans, ingest jobs, and issue generations for this workspace.
+          </p>
         </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {runs.length === 0 ? (
-          <div className="text-center py-12">
-            <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden="true" />
-            <p className="text-gray-600">No runs yet.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {runs.map((run) => (
-              <div key={run.id} className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h2 className="font-medium text-gray-900">{run.operation}</h2>
-                    <p className="text-sm text-gray-600">
-                      {run.tokens_in.toLocaleString()} tokens in · {run.tokens_out.toLocaleString()} tokens out
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2 py-1 text-xs rounded-full ${
-                      run.status === 'completed'
-                        ? 'bg-green-100 text-green-800'
-                        : run.status === 'failed'
-                        ? 'bg-red-100 text-red-800'
-                        : run.status === 'running'
-                        ? 'bg-stone-200 text-stone-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                    aria-label={`Run status: ${run.status}`}
-                  >
-                    {run.status}
-                  </span>
-                </div>
-
-                {run.error_code && (
-                  <div className="flex items-center gap-2 text-sm text-red-600 mb-2">
-                    <span className="font-medium">Error:</span>
-                    <span>{run.error_code}</span>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-sm text-gray-600">
-                  <span>Cost: ${run.cost.toFixed(4)}</span>
-                  <span>Started: {new Date(run.created_at).toLocaleString()}</span>
-                  {run.completed_at && (
-                    <span>Completed: {new Date(run.completed_at).toLocaleString()}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-stone-600">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            Auto-refresh
+          </label>
+          <button
+            type="button"
+            onClick={loadRuns}
+            className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-sm font-medium text-white"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      <div className="mb-6 grid gap-3 sm:grid-cols-4">
+        {[
+          ['Queued', summary.queued],
+          ['Running', summary.running],
+          ['Failed', summary.failed],
+          ['Completed', summary.completed],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</p>
+            <p className="font-display mt-1 text-3xl text-stone-900">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <label className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-stone-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search title, status, or error"
+            className="w-full rounded-full border border-[#e7e0d6] bg-white py-2 pl-9 pr-4 text-sm"
+          />
+        </label>
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className="rounded-full border border-[#e7e0d6] bg-white px-3 py-2 text-sm"
+        >
+          <option value="">All types</option>
+          <option value="issue">Issues</option>
+          <option value="ingest">Ingest</option>
+          <option value="plan">Plans</option>
+        </select>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="rounded-full border border-[#e7e0d6] bg-white px-3 py-2 text-sm"
+        >
+          <option value="">All statuses</option>
+          <option value="generating">Generating</option>
+          <option value="ingesting">Ingesting</option>
+          <option value="failed">Failed</option>
+          <option value="ready">Ready</option>
+          <option value="pending">Pending</option>
+          <option value="sent">Sent</option>
+        </select>
+      </div>
+
+      {error ? (
+        <div role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {visible.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-[#d6cdc0] bg-white/70 px-6 py-16 text-center text-stone-500">
+          No runs match these filters.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {visible.map((run) => (
+            <li key={run.id} className="rounded-2xl border border-[#e7e0d6] bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                    {KIND_LABEL[run.kind] || run.kind}
+                  </p>
+                  <h2 className="mt-1 font-medium text-stone-900">{run.title}</h2>
+                  <p className="mt-1 text-sm text-stone-500">{run.detail}</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-xs capitalize ${statusClass(run.status)}`}>
+                  {run.status}
+                </span>
+              </div>
+              {run.error ? (
+                <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-800">{run.error}</p>
+              ) : null}
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-stone-500">
+                <span>Updated {new Date(run.updated_at).toLocaleString()}</span>
+                {run.href ? (
+                  <Link href={run.href} className="font-medium text-stone-800 underline">
+                    Open
+                  </Link>
+                ) : null}
+                {run.can_retry ? (
+                  <button
+                    type="button"
+                    disabled={retrying === run.id}
+                    onClick={() => retry(run)}
+                    className="rounded-full bg-stone-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    {retrying === run.id ? 'Retrying…' : 'Retry'}
+                  </button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

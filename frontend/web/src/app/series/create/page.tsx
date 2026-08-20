@@ -205,6 +205,22 @@ export default function CreateSeriesPage() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const topic = params.get('topic');
+    const goal = params.get('goal');
+    const level = params.get('level');
+    if (!topic && !goal && !level) {
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      topic: topic || prev.topic,
+      goal: goal || prev.goal,
+      level: level || prev.level,
+    }));
+  }, []);
+
+  useEffect(() => {
     if (user?.preferred_model) {
       setFormData((prev) => ({ ...prev, model: user.preferred_model || '' }));
     }
