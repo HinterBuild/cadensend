@@ -1,7 +1,7 @@
 """Tests for retrieval service."""
 
 from unittest.mock import Mock, patch
-from app.rag.retrieval.retrieval import RetrievalService, RetrievalResult
+from app.rag.retrieval.retrieval import RetrievalService
 
 
 def test_retrieve_returns_results():

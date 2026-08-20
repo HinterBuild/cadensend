@@ -9,12 +9,11 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
-from app.core.config import settings
+from app.core.database import asyncpg_dsn
 
 
 def postgres_dsn(url: str | None = None) -> str:
-    raw = url or settings.DATABASE_URL
-    return raw.replace("postgresql+asyncpg://", "postgresql://").replace("postgres://", "postgresql://")
+    return asyncpg_dsn(url)
 
 
 def _run(coro):

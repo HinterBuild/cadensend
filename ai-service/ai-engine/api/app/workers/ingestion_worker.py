@@ -16,6 +16,7 @@ except ImportError:
 	MarkItDown = None
 
 from app.core.config import settings
+from app.core.database import asyncpg_dsn
 from app.services.model_service import ModelService
 from app.rag.chunking.text_splitter import chunking_service
 from app.rag.embeddings.qdrant import qdrant_service
@@ -237,7 +238,7 @@ class IngestionWorker:
 		logger.info("Source %s status: %s", source_id, status)
 		if not source_id:
 			return
-		dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+		dsn = asyncpg_dsn()
 		try:
 			import asyncpg
 
