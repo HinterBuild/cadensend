@@ -24,6 +24,7 @@ warnings.filterwarnings(
 )
 
 from app.core.config import settings
+from app.core.database import asyncpg_dsn
 from app.services.graph_policy import is_stub_issue, pick_generated_issue
 from app.services.issue_schedule import issue_send_times
 from app.services.model_service import ModelService, openrouter_api_key
@@ -107,7 +108,7 @@ class AIWorker:
 
     async def _pg_pool(self) -> asyncpg.Pool:
         if self._pg is None:
-            dsn = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+            dsn = asyncpg_dsn()
             self._pg = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         return self._pg
 
