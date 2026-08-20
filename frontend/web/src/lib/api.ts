@@ -1,6 +1,6 @@
 // Next.js API client for Cadensend frontend
 // Uses Next.js API routes as a proxy to avoid CORS issues
-import type { Issue, Series, Source, User } from '@/types';
+import type { Issue, Series, Source, User, AnalyticsOverview } from '@/types';
 
 async function fetchApi<T>(
   endpoint: string,
@@ -240,4 +240,41 @@ export type OpenRouterModel = {
 export const modelsApi = {
   list: () =>
     fetchApi<{ default_model: string; models: OpenRouterModel[] }>('/models'),
+};
+
+export const analyticsApi = {
+  overview: () => fetchApi<{ data: AnalyticsOverview }>('/analytics/overview'),
+};
+
+export type RunItem = {
+  id: string;
+  kind: string;
+  status: string;
+  title: string;
+  detail: string;
+  error?: string;
+  series_id?: string;
+  issue_id?: string;
+  source_id?: string;
+  href?: string;
+  can_retry: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RunSummary = {
+  queued: number;
+  running: number;
+  failed: number;
+  completed: number;
+};
+
+export const runsApi = {
+  list: (filters?: { kind?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.kind) params.set('kind', filters.kind);
+    if (filters?.status) params.set('status', filters.status);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchApi<{ data: RunItem[]; summary: RunSummary }>(`/runs${suffix}`);
+  },
 };

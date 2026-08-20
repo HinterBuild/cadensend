@@ -259,3 +259,88 @@ export interface PaginatedResponse<T> {
   page: number;
   per_page: number;
 }
+
+export interface NamedCount {
+  name: string;
+  count: number;
+}
+
+export interface AnalyticsHeadline {
+  series_total: number;
+  series_active: number;
+  issues_sent: number;
+  unique_topics: number;
+  diagrams: number;
+  code_blocks: number;
+  citations: number;
+}
+
+export interface AnalyticsPipeline {
+  planned_modules: number;
+  issues_total: number;
+  generated: number;
+  sent: number;
+  failed: number;
+}
+
+export interface AnalyticsCadence {
+  due_next_7_days: number;
+  overdue_pending: number;
+  stale_active_series: number;
+}
+
+export interface AnalyticsPlan {
+  ready: number;
+  generating: number;
+  failed: number;
+  empty: number;
+  placeholder_titles: number;
+}
+
+export interface AnalyticsCoverage {
+  series_id: string;
+  topic: string;
+  planned: number;
+  issued: number;
+  percent: number;
+}
+
+export interface AnalyticsImprovement {
+  kind: string;
+  title: string;
+  detail: string;
+  series_id?: string;
+}
+
+export interface AnalyticsSuggestion {
+  topic: string;
+  goal: string;
+  level: string;
+  genre: string;
+  reason: string;
+}
+
+export interface AnalyticsWeek {
+  week_start: string;
+  series_created: number;
+  issues_created: number;
+  issues_sent: number;
+}
+
+export interface AnalyticsOverview {
+  headline: AnalyticsHeadline;
+  series_by_status: NamedCount[];
+  issues_by_status: NamedCount[];
+  levels: NamedCount[];
+  genres: NamedCount[];
+  topics: NamedCount[];
+  diagrams_by_type: NamedCount[];
+  sources_by_status: NamedCount[];
+  pipeline: AnalyticsPipeline;
+  cadence: AnalyticsCadence;
+  plan: AnalyticsPlan;
+  activity: AnalyticsWeek[];
+  coverage: AnalyticsCoverage[];
+  improvements: AnalyticsImprovement[];
+  suggestions: AnalyticsSuggestion[];
+}
