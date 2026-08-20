@@ -3,8 +3,9 @@
 ## Build & Run Commands
 
 ```bash
-# Start all services
-docker-compose up -d
+docker compose up -d
+
+docker compose -f docker-compose.yml -f docker-compose.frontend-dev.yml up
 
 # Start individual services
 cd backend/control-api && go run ./cmd/server
