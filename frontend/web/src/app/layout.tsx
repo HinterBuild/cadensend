@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geist.variable} ${newsreader.variable}`}>
+    <html lang="en" className={`${geist.variable} ${newsreader.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased">
         <AuthProvider>
           <a href="#main-content" className="skip-link">
