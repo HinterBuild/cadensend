@@ -7,6 +7,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 import logging
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "newsletter_chunks_dense_v1"
@@ -15,9 +17,12 @@ COLLECTION_NAME = "newsletter_chunks_dense_v1"
 class RetrievalService:
     """Service for retrieval with mandatory tenant isolation."""
 
-    def __init__(self, qdrant_url: str = "http://localhost:6333", api_key: Optional[str] = None):
-        self.client = QdrantClient(url=qdrant_url, api_key=api_key)
-        self.collection_name = COLLECTION_NAME
+    def __init__(self, qdrant_url: Optional[str] = None, api_key: Optional[str] = None):
+        self.client = QdrantClient(
+            url=qdrant_url or settings.QDRANT_URL,
+            api_key=api_key if api_key is not None else settings.QDRANT_API_KEY,
+        )
+        self.collection_name = settings.QDRANT_COLLECTION_NAME or COLLECTION_NAME
 
     def retrieve(
         self,
@@ -38,11 +43,11 @@ class RetrievalService:
         must_conditions = [
             rest.FieldCondition(
                 key="workspace_id",
-                match=rest.MatchValue(workspace_id),
+                match=rest.MatchValue(value=workspace_id),
             ),
             rest.FieldCondition(
                 key="active",
-                match=rest.MatchValue(True),
+                match=rest.MatchValue(value=True),
             ),
         ]
 
@@ -51,7 +56,7 @@ class RetrievalService:
             must_conditions.append(
                 rest.FieldCondition(
                     key="series_id",
-                    match=rest.MatchValue(series_id),
+                    match=rest.MatchValue(value=series_id),
                 )
             )
 
@@ -59,7 +64,7 @@ class RetrievalService:
             must_conditions.append(
                 rest.FieldCondition(
                     key="source_id",
-                    match=rest.MatchValue(source_id),
+                    match=rest.MatchValue(value=source_id),
                 )
             )
 

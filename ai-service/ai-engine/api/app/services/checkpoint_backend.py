@@ -34,9 +34,15 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
     """
 
     def __init__(self, db_url: Optional[str] = None, /, **kwargs: Any):
-        from app.core.config import settings
-        self.db_url = db_url or settings.DATABASE_URL
         super().__init__()
+        from app.core.config import settings
+        from app.core.database import asyncpg_dsn
+        self.db_url = asyncpg_dsn(db_url or settings.DATABASE_URL)
+
+    async def _connect(self):
+        import asyncpg
+        from app.core.database import asyncpg_dsn
+        return await asyncpg.connect(asyncpg_dsn(self.db_url))
 
     @staticmethod
     def _get_configurable(config: Optional[RunnableConfig]) -> Dict[str, Any]:
@@ -55,9 +61,7 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
 
     async def setup(self):
         """Ensure checkpoint tables exist."""
-        import asyncpg
-
-        conn = await asyncpg.connect(self.db_url)
+        conn = await self._connect()
         try:
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS langgraph_checkpoints (
@@ -123,11 +127,9 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
         **kwargs,
     ) -> RunnableConfig:
         """Store a checkpoint and return the config."""
-        import asyncpg
-
         thread_id, thread_ts, parent_ts = self._get_thread_info(config, checkpoint, metadata)
 
-        conn = await asyncpg.connect(self.db_url)
+        conn = await self._connect()
         try:
             await conn.execute(
                 """
@@ -162,13 +164,11 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
 
     async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         """Retrieve a checkpoint tuple by config."""
-        import asyncpg
-
         configurable = self._get_configurable(config)
         thread_id = str(configurable.get("thread_id", "default"))
         thread_ts = configurable.get("thread_ts")
 
-        conn = await asyncpg.connect(self.db_url)
+        conn = await self._connect()
         try:
             if thread_ts:
                 row = await conn.fetchrow(
@@ -204,13 +204,11 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
         **kwargs,
     ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints for a thread."""
-        import asyncpg
-
         configurable = self._get_configurable(config)
         thread_id = str(configurable.get("thread_id")) if configurable.get("thread_id") else None
         limit_val = limit or 100
 
-        conn = await asyncpg.connect(self.db_url)
+        conn = await self._connect()
         try:
             if thread_id:
                 rows = await conn.fetch(
@@ -263,9 +261,7 @@ class PostgresCheckpointBackend(BaseCheckpointSaver):
 
     async def adelete_thread(self, thread_id: str) -> None:
         """Delete all checkpoints for a thread."""
-        import asyncpg
-
-        conn = await asyncpg.connect(self.db_url)
+        conn = await self._connect()
         try:
             await conn.execute(
                 "DELETE FROM langgraph_checkpoints WHERE thread_id = $1",
