@@ -92,6 +92,12 @@ export default function DashboardPage() {
             </h1>
           </div>
           <div className="flex items-center gap-5">
+            <Link
+              href="/insights"
+              className="hidden text-sm font-medium text-stone-700 no-underline hover:text-stone-900 hover:underline sm:inline"
+            >
+              Insights
+            </Link>
             <span className="hidden text-sm text-stone-500 sm:inline">{user?.email}</span>
             <button
               type="button"
