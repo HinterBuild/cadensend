@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+// Server-side only. In Docker this must be the compose service name, not localhost.
+const BACKEND_URL =
+  process.env.BACKEND_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://localhost:8080'
 
 export async function GET(request: NextRequest) {
   return proxyRequest(request)
