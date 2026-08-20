@@ -28,6 +28,7 @@ from langgraph.store.base import (
 )
 
 from app.core.config import settings
+from app.core.database import asyncpg_dsn
 from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class LongTermMemoryStore(BaseStore):
     """PostgreSQL-backed long-term memory store."""
 
     def __init__(self, db_url: Optional[str] = None, model_service: Optional[ModelService] = None):
-        self.db_url = db_url or settings.DATABASE_URL
+        self.db_url = asyncpg_dsn(db_url or settings.DATABASE_URL)
         self.model_service = model_service or ModelService()
         self.llm = self.model_service.get_chat_model(temperature=0.3, max_tokens=2000)
 
@@ -51,7 +52,7 @@ class LongTermMemoryStore(BaseStore):
         if not operations:
             return []
 
-        conn = await asyncpg.connect(self.db_url)
+        conn = await asyncpg.connect(asyncpg_dsn(self.db_url))
         try:
             results: list[Result] = []
             for op in operations:

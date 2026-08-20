@@ -136,11 +136,11 @@ class QdrantService:
         must_conditions = [
             rest.FieldCondition(
                 key="workspace_id",
-                match=rest.MatchValue(workspace_id),
+                match=rest.MatchValue(value=workspace_id),
             ),
             rest.FieldCondition(
                 key="active",
-                match=rest.MatchValue(True),
+                match=rest.MatchValue(value=True),
             ),
         ]
 
@@ -148,7 +148,7 @@ class QdrantService:
             must_conditions.append(
                 rest.FieldCondition(
                     key="series_id",
-                    match=rest.MatchValue(series_id),
+                    match=rest.MatchValue(value=series_id),
                 )
             )
 
@@ -156,7 +156,7 @@ class QdrantService:
             must_conditions.append(
                 rest.FieldCondition(
                     key="source_id",
-                    match=rest.MatchValue(source_id),
+                    match=rest.MatchValue(value=source_id),
                 )
             )
 
@@ -200,11 +200,11 @@ class QdrantService:
                     must=[
                         rest.FieldCondition(
                             key="workspace_id",
-                            match=rest.MatchValue(workspace_id),
+                            match=rest.MatchValue(value=workspace_id),
                         ),
                         rest.FieldCondition(
                             key="source_version_id",
-                            match=rest.MatchValue(source_version_id),
+                            match=rest.MatchValue(value=source_version_id),
                         ),
                     ]
                 )
@@ -233,7 +233,7 @@ class QdrantService:
                 must=[
                     rest.FieldCondition(
                         key="source_version_id",
-                        match=rest.MatchValue(source_version_id),
+                        match=rest.MatchValue(value=source_version_id),
                     ),
                 ]
             ),

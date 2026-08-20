@@ -20,6 +20,7 @@ import (
 
 	"backend/control-api/internal/mail"
 	"backend/control-api/internal/service"
+	"backend/control-api/internal/urlcheck"
 )
 
 // Status constants for domain entities.
@@ -139,7 +140,7 @@ func getSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		id := c.Param("id")
 		var s service.Series
 
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&s).Error; err != nil {
+		if err := db.Where("id = ? AND workspace_id = ? AND deleted_at IS NULL", id, c.GetString("workspace_id")).First(&s).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
 			return
 		}
@@ -180,7 +181,7 @@ func updateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		updates := buildSeriesUpdates(req)
 		updates["updated_at"] = time.Now()
 
-		if err := db.Model(&service.Series{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		if err := db.Model(&service.Series{}).Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -220,19 +221,18 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 
-		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+		series, ok := loadWorkspaceSeries(db, c, id)
+		if !ok {
 			return
 		}
 
 		model := req.Model
-		if err := queuePlanGeneration(&series, model); err != nil {
+		if err := queuePlanGeneration(series, model); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
 			return
 		}
 
-		if err := db.Model(&series).Updates(map[string]interface{}{
+		if err := db.Model(series).Updates(map[string]interface{}{
 			"plan_status": "generating",
 			"plan_error":  "",
 			"updated_at":  time.Now(),
@@ -244,7 +244,7 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":    "generating",
 			"series_id": id,
-			"model":     seriesModel(&series, model),
+			"model":     seriesModel(series, model),
 			"message":   "plan generation started",
 		})
 	}
@@ -282,9 +282,8 @@ func queuePlanGeneration(series *service.Series, model string) error {
 func getPlanHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+		series, ok := loadWorkspaceSeries(db, c, id)
+		if !ok {
 			return
 		}
 
@@ -305,6 +304,9 @@ func getPlanHandler(db *gorm.DB) gin.HandlerFunc {
 func listIssuesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		if _, ok := loadWorkspaceSeries(db, c, id); !ok {
+			return
+		}
 		var issues []service.Issue
 
 		if err := db.Where("series_id = ? AND deleted_at IS NULL", id).
@@ -331,9 +333,10 @@ func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", seriesID).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+		if loaded, ok := loadWorkspaceSeries(db, c, seriesID); !ok {
 			return
+		} else {
+			series = *loaded
 		}
 
 		var maxSeq int
@@ -388,6 +391,9 @@ func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
 func listSeriesSourcesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		seriesID := c.Param("id")
+		if _, ok := loadWorkspaceSeries(db, c, seriesID); !ok {
+			return
+		}
 		var srcs []service.Source
 		if err := db.Where("series_id = ? AND deleted_at IS NULL", seriesID).
 			Order("created_at DESC").Find(&srcs).Error; err != nil {
@@ -402,7 +408,7 @@ func activateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		result := db.Model(&service.Series{}).
-			Where("id = ?", id).
+			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 			Updates(map[string]interface{}{
 				"status":     SeriesStatusActive,
 				"updated_at": time.Now(),
@@ -425,7 +431,7 @@ func pauseSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		result := db.Model(&service.Series{}).
-			Where("id = ?", id).
+			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 			Updates(map[string]interface{}{
 				"status":     SeriesStatusPaused,
 				"updated_at": time.Now(),
@@ -448,7 +454,7 @@ func resumeSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		result := db.Model(&service.Series{}).
-			Where("id = ?", id).
+			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 			Updates(map[string]interface{}{
 				"status":     SeriesStatusActive,
 				"updated_at": time.Now(),
@@ -472,7 +478,7 @@ func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		id := c.Param("id")
 		now := time.Now()
 		result := db.Model(&service.Series{}).
-			Where("id = ? AND deleted_at IS NULL", id).
+			Where("id = ? AND workspace_id = ? AND deleted_at IS NULL", id, c.GetString("workspace_id")).
 			Updates(map[string]interface{}{
 				"deleted_at": now,
 				"updated_at": now,
@@ -493,7 +499,7 @@ func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 func updateSeriesStatus(db *gorm.DB, c *gin.Context, status, message string) {
 	id := c.Param("id")
 	result := db.Model(&service.Series{}).
-		Where("id = ?", id).
+		Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 		Updates(map[string]interface{}{
 			"status":     status,
 			"updated_at": time.Now(),
@@ -604,6 +610,9 @@ func verifyMagicLinkHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFu
 func getUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
+		if !requireOwnUser(c, userID) {
+			return
+		}
 		user, err := svc.GetUser(userID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -616,6 +625,9 @@ func getUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 func updateUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
+		if !requireOwnUser(c, userID) {
+			return
+		}
 		var req struct {
 			Name           string  `json:"name"`
 			Timezone       string  `json:"timezone"`
@@ -641,6 +653,9 @@ func updateUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 func changePasswordHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
+		if !requireOwnUser(c, userID) {
+			return
+		}
 		var req struct {
 			CurrentPassword string `json:"current_password" binding:"required"`
 			NewPassword     string `json:"new_password" binding:"required,min=8"`
@@ -662,10 +677,8 @@ func changePasswordHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFun
 func getIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		var issue service.Issue
-
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+		issue, _, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
 
@@ -687,11 +700,11 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var issue service.Issue
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+		loaded, _, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
+		issue := *loaded
 		if issue.Locked {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "issue is locked"})
 			return
@@ -744,9 +757,8 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 
-		var issue service.Issue
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+		issue, series, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
 		if issue.Status == IssueStatusGenerating {
@@ -758,20 +770,14 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", issue.SeriesID).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
-			return
-		}
-
-		db.Model(&issue).Updates(map[string]interface{}{
+		db.Model(issue).Updates(map[string]interface{}{
 			"status":         IssueStatusGenerating,
 			"generate_error": "",
 			"updated_at":     time.Now(),
 		})
 
-		if err := queueIssueGeneration(&series, &issue, req.Model); err != nil {
-			db.Model(&issue).Updates(map[string]interface{}{
+		if err := queueIssueGeneration(series, issue, req.Model); err != nil {
+			db.Model(issue).Updates(map[string]interface{}{
 				"status":         IssueStatusFailed,
 				"generate_error": err.Error(),
 				"updated_at":     time.Now(),
@@ -823,9 +829,8 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 
-		var issue service.Issue
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
+		issue, _, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
 		if issue.Locked {
@@ -852,12 +857,12 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			"scheduled_at": *issue.ScheduledAt,
 			"updated_at":   now,
 		}
-		if err := db.Model(&issue).Updates(updates).Error; err != nil {
+		if err := db.Model(issue).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		if err := upsertDeliverySchedule(db, &issue, c.GetString("user_id")); err != nil {
+		if err := upsertDeliverySchedule(db, issue, c.GetString("user_id")); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -925,14 +930,8 @@ func testSendIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 
-		var issue service.Issue
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&issue).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "issue not found"})
-			return
-		}
-		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", issue.SeriesID).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+		issue, series, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
 
@@ -971,9 +970,8 @@ func testSendSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 
-		var series service.Series
-		if err := db.Where("id = ? AND deleted_at IS NULL", id).First(&series).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+		series, ok := loadWorkspaceSeries(db, c, id)
+		if !ok {
 			return
 		}
 
@@ -1145,12 +1143,9 @@ func uploadSourceHandler(db *gorm.DB) gin.HandlerFunc {
 		seriesID := c.PostForm("series_id")
 		scope := c.PostForm("scope")
 		if seriesID != "" {
-			var series service.Series
-			if err := db.Where("id = ? AND deleted_at IS NULL", seriesID).First(&series).Error; err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			if _, ok := loadWorkspaceSeries(db, c, seriesID); !ok {
 				return
 			}
-			workspaceID = series.WorkspaceID
 			if scope == "" {
 				scope = "series"
 			}
@@ -1225,6 +1220,10 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if err := urlcheck.ValidatePublicHTTPURL(req.URL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if req.Type == "" {
 			req.Type = "url"
 		}
@@ -1238,9 +1237,8 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 
 		workspaceID := c.GetString("workspace_id")
 		if req.SeriesID != "" {
-			var series service.Series
-			if err := db.Where("id = ? AND deleted_at IS NULL", req.SeriesID).First(&series).Error; err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
+			series, ok := loadWorkspaceSeries(db, c, req.SeriesID)
+			if !ok {
 				return
 			}
 			workspaceID = series.WorkspaceID
@@ -1350,7 +1348,7 @@ func reindexSourceHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		result := db.Model(&service.Source{}).
-			Where("id = ?", id).
+			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 			Update("status", SourceStatusPending)
 
 		if result.Error != nil {
