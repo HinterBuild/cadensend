@@ -4,10 +4,13 @@ Cadensend AI Engine API - FastAPI application.
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+import os
 import warnings
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 warnings.filterwarnings(
     "ignore",
@@ -47,11 +50,28 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class InternalTokenMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        token = (settings.INTERNAL_API_TOKEN or "").strip()
+        if not token:
+            return await call_next(request)
+        path = request.url.path
+        if path in {"/healthz", "/", "/docs", "/openapi.json"}:
+            return await call_next(request)
+        provided = request.headers.get("x-internal-token") or ""
+        if provided != token:
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+
+app.add_middleware(InternalTokenMiddleware)
 
 try:
     model_service = ModelService()
