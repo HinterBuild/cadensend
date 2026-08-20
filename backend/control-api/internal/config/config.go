@@ -93,6 +93,12 @@ func LoadConfig() *Config {
 	}
 
 	log.Printf("Config loaded: env=%s, port=%s", cfg.Env, cfg.Port)
+	if cfg.Env == "production" {
+		switch cfg.JWTSecret {
+		case "", "change-this-in-production", "dev-secret-change-in-production", "secret-key":
+			log.Fatal("JWT_SECRET must be set to a strong value in production")
+		}
+	}
 	return cfg
 }
 
