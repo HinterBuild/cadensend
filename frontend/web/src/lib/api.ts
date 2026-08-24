@@ -1,43 +1,51 @@
-// Next.js API client for Cadensend frontend
-// Uses Next.js API routes as a proxy to avoid CORS issues
-import type { Issue, Series, Source, User, AnalyticsOverview } from '@/types';
+// Next.js API client for Cadensend frontend.
+//
+// Authentication is cookie-based: the browser sends no credentials itself;
+// the Next.js proxy attaches the JWT from an httpOnly cookie and transparently
+// refreshes sliding sessions. 401 responses mean "session expired".
+import type { Issue, Series, Source, User, AnalyticsOverview, Recipient, IssueVersion, RetrievedChunk } from '@/types';
 
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `/api/v1${endpoint}`;
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-
-  const defaultHeaders: HeadersInit = isFormData
-    ? {}
-    : { 'Content-Type': 'application/json' };
-
-  if (token) {
-    defaultHeaders['Authorization'] = `Bearer ${token}`;
-  }
 
   const response = await fetch(url, {
     ...options,
     headers: {
-      ...defaultHeaders,
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...options.headers,
     },
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || response.statusText);
+    let message = response.statusText;
+    if (response.status === 401) {
+      message = 'Your session has expired. Please sign in again.';
+    } else {
+      const errorData = await response.json().catch(() => ({}));
+      if (errorData?.error) message = errorData.error;
+    }
+    const err = new Error(message) as Error & { status?: number };
+    err.status = response.status;
+    throw err;
   }
 
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return response.text() as unknown as T;
+  }
   return response.json();
 }
 
 // API client for authentication
 export const authApi = {
+  me: () =>
+    fetchApi<{ data: User }>('/users/me'),
+
   login: (email: string, password: string) =>
-    fetchApi<{ token: string; user: User }>('/users/login', {
+    fetchApi<{ user: User }>('/users/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
@@ -49,24 +57,46 @@ export const authApi = {
     }),
 
   verifyMagicLink: (token: string) =>
-    fetchApi<{ token: string; user: User }>('/users/magic-link/verify', {
+    fetchApi<{ user: User }>('/users/magic-link/verify', {
       method: 'POST',
       body: JSON.stringify({ token }),
     }),
 
-   getUser: (userId: string) =>
+  forgotPassword: (email: string) =>
+    fetchApi<{ message: string }>('/users/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    fetchApi<{ message: string }>('/users/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
+
+  getUser: (userId: string) =>
     fetchApi<{ data: User }>(`/users/${userId}`),
 
-   updateUser: (userId: string, updates: { name?: string; timezone?: string; preferred_model?: string }) =>
+  updateUser: (userId: string, updates: { name?: string; timezone?: string; preferred_model?: string }) =>
     fetchApi<{ data: User }>(`/users/${userId}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
     }),
 
-   changePassword: (userId: string, currentPassword: string, newPassword: string) =>
+  changePassword: (userId: string, currentPassword: string, newPassword: string) =>
     fetchApi<{ message: string }>(`/users/${userId}/password`, {
       method: 'PATCH',
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+
+  deleteAccount: (userId: string) =>
+    fetchApi<{ message: string }>(`/users/${userId}`, {
+      method: 'DELETE',
+    }),
+
+  revokeSessions: () =>
+    fetchApi<{ message: string }>('/users/me/sessions/revoke', {
+      method: 'POST',
     }),
 };
 
@@ -82,7 +112,7 @@ export const seriesApi = {
     fetchApi<{ data: Series }>(`/series/${id}`),
 
   update: (id: string, updates: Record<string, unknown>) =>
-    fetchApi(`/series/${id}`, {
+    fetchApi<{ data: Series }>(`/series/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
     }),
@@ -134,9 +164,15 @@ export const seriesApi = {
     }),
 
   testSend: (id: string, payload?: { email?: string; module_index?: number }) =>
-    fetchApi(`/series/${id}/test-send`, {
+    fetchApi<{ email?: string }>(`/series/${id}/test-send`, {
       method: 'POST',
       body: JSON.stringify(payload || {}),
+    }),
+
+  retrievalPreview: (id: string, query: string, topK?: number) =>
+    fetchApi<{ results: RetrievedChunk[] }>(`/series/${id}/retrieval-preview`, {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
     }),
 
   list: () =>
@@ -149,7 +185,7 @@ export const issueApi = {
     fetchApi<{ data: Issue }>(`/issues/${id}`),
 
   update: (id: string, updates: Record<string, unknown>) =>
-    fetchApi(`/issues/${id}`, {
+    fetchApi<{ data: Issue }>(`/issues/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
     }),
@@ -161,13 +197,34 @@ export const issueApi = {
     }),
 
   approve: (id: string, payload?: { scheduled_at?: string }) =>
-    fetchApi(`/issues/${id}/approve`, {
+    fetchApi<{ message: string; scheduled_at?: string }>(`/issues/${id}/approve`, {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
 
+  reschedule: (id: string, scheduledAt: string) =>
+    fetchApi<{ message: string }>(`/issues/${id}/schedule`, {
+      method: 'POST',
+      body: JSON.stringify({ scheduled_at: scheduledAt }),
+    }),
+
+  cancelSend: (id: string) =>
+    fetchApi<{ message: string }>(`/issues/${id}/cancel-send`, {
+      method: 'POST',
+    }),
+
+  versions: (id: string) =>
+    fetchApi<{ data: IssueVersion[] }>(`/issues/${id}/versions`),
+
+  restoreVersion: (id: string, version: number) =>
+    fetchApi<{ data: Issue }>(`/issues/${id}/versions/${version}/restore`, {
+      method: 'POST',
+    }),
+
+  previewHtmlUrl: (id: string) => `/api/v1/issues/${id}/preview-html`,
+
   testSend: (id: string, email?: string) =>
-    fetchApi(`/issues/${id}/test-send`, {
+    fetchApi<{ email?: string }>(`/issues/${id}/test-send`, {
       method: 'POST',
       body: JSON.stringify(email ? { email } : {}),
     }),
@@ -206,7 +263,14 @@ export const sourceApi = {
     fetchApi<{ data: Source }>(`/sources/${id}`),
 
   preview: (id: string) =>
-    fetchApi(`/sources/${id}/preview`),
+    fetchApi<{ data: { source_id: string; total: number; chunks: Array<{ chunk_index: number; title?: string; heading_path: string[]; preview: string }> } }>(`/sources/${id}/preview`, {
+      method: 'POST',
+    }),
+
+  chunks: (id: string) =>
+    fetchApi<{ data: { source_id: string; total: number; chunks: Array<{ chunk_index: number; heading_path: string[]; preview: string }> } }>(`/sources/${id}/chunks`, {
+      method: 'POST',
+    }),
 
   reindex: (id: string) =>
     fetchApi(`/sources/${id}/reindex`, {
@@ -217,18 +281,34 @@ export const sourceApi = {
     fetchApi(`/sources/${id}`, {
       method: 'DELETE',
     }),
-
-  retrievalPreview: (seriesId: string, query: string) =>
-    fetchApi(`/retrieval/preview/${seriesId}`, {
-      method: 'POST',
-      body: JSON.stringify({ query }),
-    }),
 };
 
-// API client for operations
-export const operationsApi = {
-  get: (id: string) =>
-    fetchApi(`/operations/${id}`),
+// API client for recipient (audience) management
+export const recipientApi = {
+  list: () =>
+    fetchApi<{ data: Recipient[] }>('/recipients'),
+
+  create: (email: string) =>
+    fetchApi<{ data: Recipient; warning?: string }>('/recipients', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  remove: (id: string) =>
+    fetchApi<{ message: string }>(`/recipients/${id}`, {
+      method: 'DELETE',
+    }),
+
+  resendVerification: (id: string) =>
+    fetchApi<{ message: string }>(`/recipients/${id}/resend-verification`, {
+      method: 'POST',
+    }),
+
+  setSuppressed: (id: string, suppressed: boolean) =>
+    fetchApi<{ message: string }>(`/recipients/${id}/suppression`, {
+      method: 'PATCH',
+      body: JSON.stringify({ suppressed }),
+    }),
 };
 
 export type OpenRouterModel = {
@@ -258,6 +338,9 @@ export type RunItem = {
   source_id?: string;
   href?: string;
   can_retry: boolean;
+  tokens_in?: number;
+  tokens_out?: number;
+  model?: string;
   created_at: string;
   updated_at: string;
 };

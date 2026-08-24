@@ -176,8 +176,8 @@ export default function DashboardPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-display text-xl leading-snug text-stone-900">{s.topic}</h3>
-                      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-stone-500">{s.goal}</p>
+                      <h3 className="font-display text-xl leading-snug text-stone-900 text-wrap:balance">{s.topic}</h3>
+                      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-stone-500 text-wrap:pretty">{s.goal}</p>
                     </div>
                     <ArrowUpRight className="h-4 w-4 shrink-0 text-stone-300 transition-colors group-hover:text-stone-700" aria-hidden="true" />
                   </div>
