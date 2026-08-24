@@ -148,6 +148,9 @@ export interface Source {
   status: string;
   ingest_error?: string;
   current_version_id: string;
+  content_hash?: string;
+  duplicate_of?: string;
+  chunk_count?: number;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -177,6 +180,38 @@ export interface SourceChunk {
   checksum: string;
   created_by: string;
   created_at: string;
+}
+
+// Recipient (audience) types
+export interface Recipient {
+  id: string;
+  workspace_id: string;
+  email: string;
+  verified: boolean;
+  suppressed: boolean;
+  suppression_reason?: string;
+  verified_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IssueVersionSummary {
+  version: number;
+  subject: string;
+  preheader: string;
+  checksum?: string;
+  created_by: string;
+  created_at: string;
+}
+
+export type IssueVersion = IssueVersionSummary;
+
+export interface RetrievedChunk {
+  score: number;
+  source_id: string;
+  chunk_id?: string;
+  heading_path?: string[];
+  preview: string;
 }
 
 // Delivery types

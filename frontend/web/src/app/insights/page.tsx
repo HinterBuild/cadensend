@@ -39,7 +39,7 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
       <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</p>
-      <p className="font-display mt-1 text-3xl text-stone-900">{value}</p>
+      <p className="font-display mt-1 text-3xl text-stone-900 tabular-nums">{value}</p>
     </div>
   );
 }
@@ -142,7 +142,7 @@ export default function InsightsPage() {
 
       <div className="mb-8 grid gap-5 lg:grid-cols-2">
         <section className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
-          <h2 className="font-display text-xl text-stone-900">Pipeline</h2>
+          <h2 className="font-display text-xl text-stone-900 text-wrap:balance">Pipeline</h2>
           <p className="mt-1 text-sm text-stone-500">Plan modules through generated and sent issues.</p>
           <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
             <div>
