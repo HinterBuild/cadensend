@@ -3,13 +3,17 @@
 AI Engine Worker - Background processing service.
 
 Handles source ingestion and issue generation tasks using the LangGraph agent.
-The worker listens for Redis pub/sub messages and processes generation jobs
-with full short-term and long-term memory support.
+The worker consumes a reliable Redis list queue: jobs move to a processing
+list on pop and are acknowledged on completion, so a crash mid-job never
+loses work. Terminal failures land in a dead-letter list and are persisted
+to generation_runs for visibility in the Run Center.
 """
 
 import asyncio
+import contextlib
 import logging
 import json
+import signal
 import time
 import uuid
 import warnings
@@ -27,7 +31,7 @@ from app.core.config import settings
 from app.core.database import asyncpg_dsn
 from app.services.graph_policy import is_stub_issue, pick_generated_issue
 from app.services.issue_schedule import issue_send_times
-from app.services.model_service import ModelService, openrouter_api_key
+from app.services.model_service import ModelService, openrouter_api_key, resolve_default_model
 from app.services.openrouter_limits import (
     reset_generation_model,
     set_generation_model,
@@ -41,6 +45,11 @@ from app.rag.embeddings.qdrant import qdrant_service
 
 logging.basicConfig(level=settings.LOG_LEVEL.upper())
 logger = logging.getLogger(__name__)
+
+QUEUE_KEY = "generation_queue"
+PROCESSING_KEY = "generation_queue:processing"
+DEAD_LETTER_KEY = "generation_queue:dead"
+MAX_JOB_ATTEMPTS = 3
 
 
 class AIWorker:
@@ -74,6 +83,7 @@ class AIWorker:
         logger.info("Connecting to Qdrant at %s", settings.QDRANT_URL)
         qdrant_service.ensure_collection()
 
+        await self._recover_processing_queue()
         logger.info("AI Worker initialized with LangGraph agent")
 
         while self.running:
@@ -112,6 +122,18 @@ class AIWorker:
             self._pg = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         return self._pg
 
+    async def _recover_processing_queue(self):
+        """Re-queue jobs stranded in the processing list by an earlier crash."""
+        redis = self._redis_client()
+        recovered = 0
+        while True:
+            raw = await redis.rpoplpush(PROCESSING_KEY, QUEUE_KEY)
+            if raw is None:
+                break
+            recovered += 1
+        if recovered:
+            logger.warning("Recovered %d interrupted job(s) back onto the queue", recovered)
+
     def _reap_tasks(self):
         finished = [task_id for task_id, task in self.tasks.items() if task.done()]
         for task_id in finished:
@@ -124,19 +146,26 @@ class AIWorker:
         self._last_llm_finished = time.monotonic()
 
     async def _process_pending_jobs(self):
-        """Take one LLM job at a time so free-tier OpenRouter is not burst."""
+        """Pop one job at a time with reliable-queue semantics.
+
+        BRPOPLPUSH moves the job onto the processing list immediately; the
+        ack happens after the handler finishes. Multiple workers can run
+        concurrently without double-processing because each pop is atomic.
+        """
         try:
             redis = self._redis_client()
-            popped = await redis.brpop("generation_queue", timeout=5)
+            popped = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
             if not popped:
                 return
-            msg = popped[1]
+            msg = popped
             job_data = json.loads(msg)
             task_name = job_data.get("task", "")
             if task_name in {"generate_plan", "generate_issue"}:
                 free = uses_free_tier_pacing(job_data.get("model"))
                 if free and self._llm_busy():
-                    await redis.lpush("generation_queue", msg)
+                    # Put it back at the head and retry shortly.
+                    await redis.lrem(PROCESSING_KEY, 1, msg)
+                    await redis.lpush(QUEUE_KEY, msg)
                     await asyncio.sleep(1)
                     return
                 if free and task_name == "generate_issue" and self._last_llm_finished:
@@ -148,80 +177,129 @@ class AIWorker:
                             wait,
                         )
                         await asyncio.sleep(wait)
-                self._dispatch_job(msg)
+                self._dispatch_job(msg, ack=redis)
                 if not free and task_name == "generate_issue":
                     for _ in range(4):
-                        extra = await redis.lpop("generation_queue")
+                        extra = await redis.lpop(QUEUE_KEY)
                         if not extra:
                             break
                         extra_data = json.loads(extra)
                         extra_task = extra_data.get("task", "")
                         extra_free = uses_free_tier_pacing(extra_data.get("model"))
                         if extra_task == "generate_issue" and not extra_free:
-                            self._dispatch_job(extra)
+                            self._dispatch_job(extra, ack=redis)
                         else:
-                            await redis.lpush("generation_queue", extra)
+                            await redis.lpush(QUEUE_KEY, extra)
                             break
                 return
 
-            self._dispatch_job(msg)
+            self._dispatch_job(msg, ack=redis)
             for _ in range(4):
-                extra = await redis.lpop("generation_queue")
+                extra = await redis.lpop(QUEUE_KEY)
                 if not extra:
                     break
                 extra_task = json.loads(extra).get("task", "")
                 if extra_task == "ingest_source":
-                    self._dispatch_job(extra)
+                    self._dispatch_job(extra, ack=redis)
                 else:
-                    await redis.lpush("generation_queue", extra)
+                    await redis.lpush(QUEUE_KEY, extra)
                     break
-        except (TimeoutError, asyncio.TimeoutError) as exc:
-            if _is_idle_redis_timeout(exc):
-                return
-            logger.warning("Job poll failed: %s", exc)
         except Exception as e:
             if _is_idle_redis_timeout(e):
                 return
             logger.warning("Job poll failed: %s", e)
 
-    def _dispatch_job(self, msg: str):
+    def _dispatch_job(self, msg: str, ack=None):
         job_data = json.loads(msg)
         task_name = job_data.get("task", "")
         task_id = str(uuid.uuid4())
         series_id = job_data.get("series_id")
         issue_id = job_data.get("issue_id")
         source_id = job_data.get("source_id")
+        attempts = int(job_data.get("_attempts") or 0)
 
+        async def _finalize(done_task: asyncio.Task):
+            """Ack (or requeue / dead-letter) once the handler settles."""
+            try:
+                exc = done_task.exception()
+            except asyncio.CancelledError:
+                return
+            redis = self._redis_client()
+            await redis.lrem(PROCESSING_KEY, 1, msg)
+            if exc is None:
+                return
+            if attempts + 1 >= MAX_JOB_ATTEMPTS:
+                await redis.lpush(DEAD_LETTER_KEY, json.dumps({
+                    "job": job_data,
+                    "error": str(exc),
+                    "failed_at": time.time(),
+                    "attempts": attempts + 1,
+                }))
+                await self._record_dead_letter(job_data, attempts + 1, str(exc))
+                logger.error(
+                    "Job %s dead-lettered after %d attempts series=%s issue=%s source=%s: %s",
+                    task_name, attempts + 1, series_id, issue_id, source_id, exc,
+                )
+                return
+            retry = dict(job_data)
+            retry["_attempts"] = attempts + 1
+            await redis.lpush(QUEUE_KEY, json.dumps(retry))
+            logger.warning(
+                "Job %s failed (attempt %d/%d); requeued series=%s issue=%s: %s",
+                task_name, attempts + 1, MAX_JOB_ATTEMPTS, series_id, issue_id, exc,
+            )
+
+        handler = None
         if task_name == "generate_plan":
-            task = asyncio.create_task(self._handle_generate_plan(job_data))
-            self._llm_task = task
-            task.add_done_callback(self._mark_llm_finished)
-            self.tasks[task_id] = task
+            handler = self._handle_generate_plan(job_data)
         elif task_name == "generate_issue":
-            task = asyncio.create_task(self._handle_generate_issue(job_data))
-            self._llm_task = task
-            task.add_done_callback(self._mark_llm_finished)
-            self.tasks[task_id] = task
+            handler = self._handle_generate_issue(job_data)
         elif task_name == "ingest_source":
-            self.tasks[task_id] = asyncio.create_task(self._handle_ingest_source(job_data))
+            handler = self._handle_ingest_source(job_data)
         else:
             logger.warning("Unknown generation task: %s", task_name)
             return
 
-        self.tasks[task_id].add_done_callback(
-            lambda t, name=task_name, sid=series_id, iid=issue_id, src=source_id: None
-            if t.cancelled()
-            else logger.error(
-                "Job %s crashed series=%s issue=%s source=%s: %s",
-                name, sid, iid, src, t.exception(),
-            )
-            if t.exception()
-            else None
-        )
+        task = asyncio.create_task(handler)
+        if task_name in {"generate_plan", "generate_issue"}:
+            self._llm_task = task
+            task.add_done_callback(self._mark_llm_finished)
+        self.tasks[task_id] = task
+        task.add_done_callback(lambda t: asyncio.ensure_future(_finalize(t)))
         logger.info(
-            "Queued job=%s id=%s series=%s issue=%s source=%s",
-            task_name, task_id, series_id, issue_id, source_id,
+            "Queued job=%s id=%s attempts=%d series=%s issue=%s source=%s",
+            task_name, task_id, attempts, series_id, issue_id, source_id,
         )
+
+    async def _record_dead_letter(self, job_data: dict, attempts: int, error: str):
+        """Persist terminal failures so the Run Center can show them."""
+        task_name = job_data.get("task", "")
+        target_type = {"generate_plan": "series", "generate_issue": "issue"}.get(task_name, "unknown")
+        target_id = job_data.get("issue_id") or job_data.get("series_id") or ""
+        if not target_id:
+            return
+        try:
+            pool = await self._pg_pool()
+            created_by = job_data.get("created_by") or await _lookup_created_by(pool, target_type, target_id)
+            if not created_by:
+                return
+            await pool.execute(
+                """
+                INSERT INTO generation_runs (
+                    id, target_id, target_type, status, model,
+                    error_code, error_msg, created_by, created_at, updated_at, completed_at
+                )
+                VALUES ($1::uuid, $2::uuid, $3, 'failed', $4, 'job_failed', $5, $6::uuid, NOW(), NOW(), NOW())
+                """,
+                str(uuid.uuid4()),
+                target_id,
+                target_type,
+                job_data.get("model") or "",
+                f"gave up after {attempts} attempts: {error}"[:500],
+                created_by,
+            )
+        except Exception:
+            logger.exception("Failed to record dead-letter run for %s %s", target_type, target_id)
 
     async def _handle_generate_plan(self, job_data: dict):
         """Handle a generate-plan job using the LangGraph agent."""
@@ -239,16 +317,28 @@ class AIWorker:
                 )
                 return
 
-            result = await self.agent.run_plan_generation(
-                brief=job_data.get("brief", {}),
-                workspace_id=job_data.get("workspace_id", ""),
-                series_id=job_data.get("series_id"),
-                thread_id=job_data.get("thread_id") or f"plan-{series_id}",
-                model=job_data.get("model"),
+            result = await self._run_with_fallback(
+                lambda model: self.agent.run_plan_generation(
+                    brief={**job_data.get("brief", {}), "model": model},
+                    workspace_id=job_data.get("workspace_id", ""),
+                    series_id=series_id,
+                    thread_id=job_data.get("thread_id") or f"plan-{series_id}",
+                    model=model,
+                ),
+                requested_model=job_data.get("model"),
             )
 
             logger.info("Plan generated series=%s thread=%s status=%s",
                         series_id, result.get("thread_id"), result.get("status"))
+            await self._record_generation_usage(
+                target_id=series_id,
+                target_type="series",
+                result=result,
+                requested_model=job_data.get("model"),
+                created_by=job_data.get("created_by"),
+                status=str(result.get("status") or ""),
+                error=result.get("error") or "",
+            )
             await self._persist_plan_result(series_id, result)
             await self._materialize_issues_from_plan(series_id, result, job_data)
 
@@ -260,6 +350,61 @@ class AIWorker:
             )
         finally:
             reset_generation_model(token)
+
+    async def _handle_generate_issue(self, job_data: dict):
+        """Handle a generate-issue job using the LangGraph agent."""
+        token = set_generation_model(job_data.get("model"))
+        try:
+            result = await self._run_with_fallback(
+                lambda model: self.agent.run_issue_generation(
+                    series_id=job_data.get("series_id", ""),
+                    brief={**job_data.get("brief", {}), "model": model},
+                    workspace_id=job_data.get("workspace_id", ""),
+                    issue_number=job_data.get("issue_number", 1),
+                    plan_item=job_data.get("plan_item", {}),
+                    thread_id=job_data.get("thread_id") or f"issue-{job_data.get('issue_id') or 'unknown'}",
+                    model=model,
+                ),
+                requested_model=job_data.get("model"),
+            )
+
+            logger.info("Issue generated: thread=%s, status=%s",
+                        result.get("thread_id"), result.get("status"))
+            await self._record_generation_usage(
+                target_id=job_data.get("issue_id"),
+                target_type="issue",
+                result=result,
+                requested_model=job_data.get("model"),
+                created_by=job_data.get("created_by"),
+                status=str(result.get("status") or ""),
+                error=result.get("error") or "",
+            )
+            await self._persist_issue_result(job_data.get("issue_id"), result)
+
+        except Exception as e:
+            logger.exception("Issue generation job failed issue=%s", job_data.get("issue_id"))
+            await self._persist_issue_result(
+                job_data.get("issue_id"),
+                {"status": "failed", "issues": [], "error": str(e)},
+            )
+        finally:
+            reset_generation_model(token)
+
+    async def _run_with_fallback(self, runner, requested_model: str | None):
+        """Run an LLM workflow; on failure with a non-default model, retry once
+        with the platform default before giving up."""
+        try:
+            return await runner(resolve_default_model(requested_model))
+        except Exception as primary_error:
+            chosen = resolve_default_model(requested_model)
+            fallback = resolve_default_model(None)
+            if chosen == fallback:
+                raise
+            logger.warning(
+                "Model %s failed (%s); retrying once with default %s",
+                chosen, primary_error, fallback,
+            )
+            return await runner(fallback)
 
     async def _persist_plan_result(self, series_id: str | None, result: dict):
         """Write plan generation status back so the UI can poll it."""
@@ -301,7 +446,14 @@ class AIWorker:
             logger.exception("Failed to persist plan result series=%s: %s", series_id, persist_error)
 
     async def _materialize_issues_from_plan(self, series_id: str | None, result: dict, job_data: dict):
-        """Create one scheduled issue per plan module, then queue content generation."""
+        """Reconcile the series' issues with a (re)generated plan.
+
+        First materialization creates one scheduled issue per module. On plan
+        regeneration the existing outline is reconciled instead of skipped:
+        - issues that have not been sent/approved adopt the new module titles
+        - missing sequence numbers are created and queued for generation
+        - already sent/approved/in-flight issues are left untouched
+        """
         if not series_id:
             return
         status = result.get("status") or ""
@@ -329,38 +481,72 @@ class AIWorker:
                     )
                     if series is None:
                         return
-                    existing = await conn.fetchval(
+                    existing_rows = await conn.fetch(
                         """
-                        SELECT COUNT(*) FROM issues
+                        SELECT id, sequence_no, status FROM issues
                         WHERE series_id = $1::uuid AND deleted_at IS NULL
+                        ORDER BY sequence_no ASC
                         """,
                         series_id,
                     )
-                    if existing:
-                        logger.info(
-                            "Skip issue materialize series=%s existing=%s",
-                            series_id,
-                            existing,
-                        )
-                        return
+                    by_sequence = {int(row["sequence_no"]): row for row in existing_rows}
 
                     send_times = issue_send_times(
                         series["start_date"] or "",
                         series["send_time"] or "09:00",
                         series["timezone"] or "UTC",
                         series["cadence"] or "weekly",
-                        len(modules),
+                        max(len(modules), len(by_sequence)),
                     )
                     model = job_data.get("model") or ""
                     auto_send = not bool(series["manual_approval"])
                     created_by = str(series["created_by"])
                     workspace_id = str(series["workspace_id"])
+                    immutable_statuses = {"sent", "approved", "generating"}
 
                     for index, module in enumerate(modules):
-                        issue_id = str(uuid.uuid4())
                         sequence_no = index + 1
                         title = str(module.get("title") or f"Issue {sequence_no}").strip()
-                        send_at = send_times[index]
+                        send_at = send_times[min(index, len(send_times) - 1)]
+                        row = by_sequence.get(sequence_no)
+
+                        if row is not None:
+                            # Reconcile: refresh objective on untouched issues only.
+                            issue_id = str(row["id"])
+                            if str(row["status"]) not in immutable_statuses:
+                                await conn.execute(
+                                    """
+                                    UPDATE issues
+                                    SET objective = $2, updated_at = NOW()
+                                    WHERE id = $1::uuid
+                                    """,
+                                    issue_id,
+                                    title,
+                                )
+                                jobs.append(
+                                    {
+                                        "task": "generate_issue",
+                                        "issue_id": issue_id,
+                                        "series_id": series_id,
+                                        "workspace_id": workspace_id,
+                                        "created_by": created_by,
+                                        "issue_number": sequence_no,
+                                        "model": model,
+                                        "brief": {
+                                            "topic": series["topic"],
+                                            "goal": series["goal"],
+                                            "level": series["level"],
+                                            "objective": title,
+                                            "model": model,
+                                        },
+                                        "thread_id": f"issue-{issue_id}",
+                                        "plan_item": module,
+                                        "_reconciled": True,
+                                    }
+                                )
+                            continue
+
+                        issue_id = str(uuid.uuid4())
                         await conn.execute(
                             """
                             INSERT INTO issues (
@@ -402,6 +588,7 @@ class AIWorker:
                                 "issue_id": issue_id,
                                 "series_id": series_id,
                                 "workspace_id": workspace_id,
+                                "created_by": created_by,
                                 "issue_number": sequence_no,
                                 "model": model,
                                 "brief": {
@@ -415,26 +602,19 @@ class AIWorker:
                                 "plan_item": module,
                             }
                         )
-                    await conn.execute(
-                        """
-                        UPDATE series
-                        SET status = 'active', updated_at = NOW()
-                        WHERE id = $1::uuid
-                        """,
-                        series_id,
-                    )
 
             redis = self._redis_client()
             for job in jobs:
-                await redis.rpush("generation_queue", json.dumps(job))
+                await redis.rpush(QUEUE_KEY, json.dumps(job))
             logger.info(
-                "Materialized %s issues series=%s auto_send=%s",
+                "Reconciled %s issue(s) from plan series=%s modules=%s auto_send=%s",
                 len(jobs),
                 series_id,
+                len(modules),
                 not bool(series["manual_approval"]) if series else False,
             )
         except Exception:
-            logger.exception("Failed to materialize issues from plan series=%s", series_id)
+            logger.exception("Failed to reconcile issues from plan series=%s", series_id)
 
     async def _handle_generate_issue(self, job_data: dict):
         """Handle a generate-issue job using the LangGraph agent."""
@@ -500,12 +680,75 @@ class AIWorker:
         except Exception as persist_error:
             logger.exception("Failed to persist issue result issue=%s: %s", issue_id, persist_error)
 
+    async def _record_generation_usage(
+        self,
+        target_id: str | None,
+        target_type: str,
+        result: dict,
+        requested_model: str | None,
+        created_by: str | None,
+        status: str,
+        error: str,
+    ):
+        """Persist one generation_runs row with aggregated token usage.
+
+        LangChain AIMessages carry usage_metadata when the provider reports it;
+        totals are summed across every model turn of the workflow.
+        """
+        if not target_id:
+            return
+        usage = result.get("usage") or {}
+        tokens_in = int(usage.get("input_tokens") or 0)
+        tokens_out = int(usage.get("output_tokens") or 0)
+
+        model_used = resolve_default_model(requested_model)
+        failed = status in {"failed", "planning_failed", "validation_failed"}
+
+        try:
+            pool = await self._pg_pool()
+            created_by = created_by or await _lookup_created_by(pool, target_type, target_id)
+            if not created_by:
+                return
+            await pool.execute(
+                """
+                INSERT INTO generation_runs (
+                    id, target_id, target_type, status, model,
+                    tokens_in, tokens_out, cost_usd, prompt_version,
+                    error_code, error_msg, created_by, created_at, updated_at, completed_at
+                )
+                VALUES (
+                    $1::uuid, $2::uuid, $3, $4, $5,
+                    $6, $7, 0, 'v1',
+                    $8, $9, $10::uuid, NOW(), NOW(),
+                    CASE WHEN $11 THEN NULL ELSE NOW() END
+                )
+                """,
+                str(uuid.uuid4()),
+                target_id,
+                target_type,
+                "failed" if failed else "completed",
+                model_used,
+                tokens_in,
+                tokens_out,
+                ("generation_failed" if failed else None),
+                (error or "")[:500],
+                created_by,
+                failed,
+            )
+            logger.info(
+                "Recorded generation run target=%s/%s model=%s tokens_in=%s tokens_out=%s status=%s",
+                target_type, target_id, model_used, tokens_in, tokens_out,
+                "failed" if failed else "completed",
+            )
+        except Exception:
+            logger.exception("Failed to record generation usage for %s %s", target_type, target_id)
+
     async def _handle_ingest_source(self, job_data: dict):
         """Handle a source ingestion job."""
         source_id = job_data.get("source_id")
         try:
             source_type = job_data.get("source_type", "url")
-            if source_type == "url":
+            if source_type in {"url", "rss", "website"}:
                 result = await self.ingestion_worker.process_url_source(
                     url=job_data.get("url", ""),
                     workspace_id=job_data.get("workspace_id", ""),
@@ -542,6 +785,46 @@ def _is_idle_redis_timeout(exc: BaseException) -> bool:
     return "timeout" in text
 
 
-if __name__ == "__main__":
+async def _lookup_created_by(pool: asyncpg.Pool, target_type: str, target_id: str) -> str | None:
+    """Best-effort lookup of the owning user for generation_runs rows."""
+    try:
+        async with pool.acquire() as conn:
+            if target_type == "issue":
+                row = await conn.fetchrow(
+                    "SELECT created_by FROM issues WHERE id = $1::uuid",
+                    target_id,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT created_by FROM series WHERE id = $1::uuid",
+                    target_id,
+                )
+            return str(row["created_by"]) if row else None
+    except Exception:
+        logger.exception("created_by lookup failed for %s %s", target_type, target_id)
+        return None
+
+
+async def _main() -> None:
     worker = AIWorker()
-    asyncio.run(worker.start())
+    loop = asyncio.get_running_loop()
+    stop_signal = asyncio.Event()
+
+    def _request_stop():
+        logger.info("Shutdown signal received; finishing in-flight jobs")
+        stop_signal.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, _request_stop)
+
+    worker_task = asyncio.create_task(worker.start())
+    await stop_signal.wait()
+    worker_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await worker_task
+    await worker.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())
