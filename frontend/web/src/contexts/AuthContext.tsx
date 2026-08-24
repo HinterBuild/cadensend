@@ -22,33 +22,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const verifyToken = useCallback(async (token: string) => {
+  // The JWT lives in an httpOnly cookie managed by the /api proxy; the
+  // browser only asks "who am I?" and gets a clean answer or a 401.
+  const loadSession = useCallback(async () => {
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const userId = payload.user_id;
-      const userData = await authApi.getUser(userId);
-      setUser(userData.data);
-    } catch (error) {
-      localStorage.removeItem('token');
+      const response = await authApi.me();
+      setUser(response.data);
+    } catch {
+      setUser(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      verifyToken(token);
-    } else {
-      setLoading(false);
-    }
-  }, [verifyToken]);
+    loadSession();
+  }, [loadSession]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
     try {
       const response = await authApi.login(email, password);
-      localStorage.setItem('token', response.token);
       setUser(response.user);
       router.push('/dashboard');
     } finally {
@@ -57,8 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    localStorage.removeItem('token');
     setUser(null);
+    await fetch('/api/v1/users/me').catch(() => null);
     router.push('/login');
   };
 
@@ -68,15 +62,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyMagicLink = async (token: string) => {
     const response = await authApi.verifyMagicLink(token);
-    localStorage.setItem('token', response.token);
     setUser(response.user);
     router.push('/dashboard');
   };
 
   const refreshUser = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    await verifyToken(token);
+    await loadSession();
   };
 
   return (
@@ -100,9 +91,9 @@ export function useRequireAuth() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.replace('/login');
     }
-  }, [user, loading, router]);
+  }, [loading, user, router]);
 
   return { user, loading };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, FormEvent } from 'react';
+import Link from 'next/link';
 import { Mail, Lock, Send, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrandLogo } from '@/components/BrandLogo';
@@ -41,7 +42,7 @@ export default function LoginPage() {
       if (backendError.includes('user not found')) {
         setError('We could not find an account with that email. Please check your email or sign up.');
       } else if (backendError.includes('incorrect password')) {
-        setError('Incorrect password. Please try again or use "Forgot password?".');
+        setError('Incorrect password. Please try again or reset your password.');
       } else {
         setError(backendError || 'Something went wrong. Please try again.');
       }
@@ -125,7 +126,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white text-base sm:text-sm"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -165,7 +166,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white text-base sm:text-sm"
                     placeholder="you@example.com"
                   />
                 </div>
@@ -184,7 +185,7 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white"
+                    className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent text-gray-900 bg-white text-base sm:text-sm"
                     placeholder="••••••••"
                   />
                   <button
@@ -207,12 +208,12 @@ export default function LoginPage() {
                   />
                   <span>Remember me</span>
                 </label>
-                <button
-                  type="button"
-                  className="font-medium text-stone-800 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+                <Link
+                  href="/forgot-password"
+                  className="font-medium text-stone-800 hover:text-stone-900 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   Forgot password?
-                </button>
+                </Link>
               </div>
 
               <button
