@@ -79,7 +79,16 @@ func Send(cfg Config, msg Message) error {
 	return nil
 }
 
-func RenderIssueHTML(seriesTopic, seriesGoal string, content map[string]any, test bool) (subject string, htmlBody string) {
+// SourceRef resolves a source_id into a display label for citations.
+type SourceRef struct {
+	Label string
+	URL   string
+}
+
+func RenderIssueHTML(seriesTopic, seriesGoal string, content map[string]any, test bool, opts ...any) (subject string, htmlBody string) {
+	unsubscribeURL := firstStringOption(opts)
+	sourceRefs := sourceRefsOption(opts)
+
 	subject = firstString(content, "subject", "title")
 	if subject == "" {
 		subject = seriesTopic
@@ -105,6 +114,7 @@ func RenderIssueHTML(seriesTopic, seriesGoal string, content map[string]any, tes
 			fmt.Fprintf(&body, `<h2 style="font-family:Georgia,serif;font-size:18px;color:#1c1917;margin:24px 0 8px;">%s</h2>`, esc(block.title))
 		}
 		body.WriteString(formatLessonHTML(block.text))
+		writeCitations(&body, block.citations, sourceRefs)
 	}
 	inBody := false
 	for _, block := range blocks {
@@ -117,8 +127,60 @@ func RenderIssueHTML(seriesTopic, seriesGoal string, content map[string]any, tes
 	if !inBody {
 		writeVisuals(&body, extractVisuals(content))
 	}
-	writeLayoutEnd(&body)
+	writeLayoutEndOpts(&body, unsubscribeURL)
 	return subject, body.String()
+}
+
+func firstStringOption(opts []any) string {
+	for _, o := range opts {
+		if s, ok := o.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func sourceRefsOption(opts []any) map[string]SourceRef {
+	for _, o := range opts {
+		if m, ok := o.(map[string]SourceRef); ok {
+			return m
+		}
+	}
+	return nil
+}
+
+// writeCitations renders a compact grounded-sources footer for a content
+// block when the generation pipeline attached citations to it.
+func writeCitations(b *strings.Builder, citations []citation, refs map[string]SourceRef) {
+	if len(citations) == 0 {
+		return
+	}
+	b.WriteString(`<div style="border-top:1px dashed #d6cdc0;margin-top:14px;padding-top:10px;">`)
+	b.WriteString(`<p style="margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#78716c;">Sources</p>`)
+	b.WriteString(`<ul style="margin:0;padding-left:18px;color:#57534e;font-size:12px;line-height:1.55;">`)
+	for _, cit := range citations {
+		label := cit.SourceID
+		url := ""
+		if ref, ok := refs[cit.SourceID]; ok {
+			if ref.Label != "" {
+				label = ref.Label
+			}
+			url = ref.URL
+		}
+		snippet := strings.TrimSpace(cit.Text)
+		if len(snippet) > 160 {
+			snippet = snippet[:157] + "..."
+		}
+		content := esc(label)
+		if url != "" {
+			content = fmt.Sprintf(`<a href="%s" style="color:#57534e;" target="_blank" rel="noopener">%s</a>`, esc(url), esc(label))
+		}
+		if snippet != "" {
+			content += " — " + esc("“" + snippet + "”")
+		}
+		fmt.Fprintf(b, `<li style="margin:0 0 4px;">%s</li>`, content)
+	}
+	b.WriteString(`</ul></div>`)
 }
 
 func RenderPlanModuleHTML(seriesTopic, seriesGoal, level string, index int, module map[string]any) (subject string, htmlBody string) {
@@ -155,8 +217,14 @@ func RenderPlanModuleHTML(seriesTopic, seriesGoal, level string, index int, modu
 }
 
 type contentBlock struct {
-	title string
-	text  string
+	title      string
+	text       string
+	citations  []citation
+}
+
+type citation struct {
+	SourceID string
+	Text     string
 }
 
 func extractBlocks(content map[string]any) []contentBlock {
@@ -175,8 +243,32 @@ func extractBlocks(content map[string]any) []contentBlock {
 			continue
 		}
 		out = append(out, contentBlock{
-			title: firstString(block, "title"),
-			text:  text,
+			title:     firstString(block, "title"),
+			text:      text,
+			citations: extractCitations(block["citations"]),
+		})
+	}
+	return out
+}
+
+func extractCitations(raw any) []citation {
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]citation, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		sourceID := firstString(m, "source_id")
+		if sourceID == "" {
+			continue
+		}
+		out = append(out, citation{
+			SourceID: sourceID,
+			Text:     firstString(m, "text", "quote", "snippet"),
 		})
 	}
 	return out
@@ -195,7 +287,44 @@ func writeLayoutStart(b *strings.Builder, seriesTopic, kind string, test bool) {
 }
 
 func writeLayoutEnd(b *strings.Builder) {
+	writeLayoutEndOpts(b, "")
+}
+
+// writeLayoutEndOpts closes the layout and appends a footer. When
+// unsubscribeURL is non-empty (real subscriber sends) it renders the
+// legally required one-click unsubscribe link.
+func writeLayoutEndOpts(b *strings.Builder, unsubscribeURL string) {
+	if unsubscribeURL != "" {
+		fmt.Fprintf(
+			b,
+			`<div style="border-top:1px solid #e7e0d6;margin-top:24px;padding-top:14px;font-size:12px;color:#78716c;">`+
+				`You are receiving this because you subscribed to this series on Cadensend. `+
+				`<a href="%s" style="color:#78716c;" target="_blank" rel="noopener">Unsubscribe</a></div>`,
+			esc(unsubscribeURL),
+		)
+	}
 	b.WriteString(`</td></tr></table></td></tr></table></body></html>`)
+}
+
+// RenderNotificationHTML renders a simple transactional email (password
+// resets, alerts). actionURL is rendered as a prominent button.
+func RenderNotificationHTML(title, body, buttonText, actionURL string) (string, string) {
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html><html><body style="margin:0;background:#f5f0e8;padding:24px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;">`)
+	b.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">`)
+	b.WriteString(`<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fffaf3;border:1px solid #e7e0d6;border-radius:16px;overflow:hidden;">`)
+	b.WriteString(`<tr><td style="background:#1c1917;color:#fafaf9;padding:16px 24px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;">Cadensend</td></tr>`)
+	b.WriteString(`<tr><td style="padding:28px;">`)
+	fmt.Fprintf(&b, `<h2 style="font-family:Georgia,serif;font-size:22px;color:#1c1917;margin:0 0 14px;">%s</h2>`, esc(title))
+	fmt.Fprintf(&b, `<p style="color:#44403c;font-size:15px;line-height:1.65;margin:0 0 20px;">%s</p>`, esc(body))
+	if buttonText != "" && actionURL != "" {
+		fmt.Fprintf(&b,
+			`<a href="%s" style="display:inline-block;background:#1c1917;color:#fafaf9;text-decoration:none;font-size:14px;padding:11px 22px;border-radius:8px;" target="_blank" rel="noopener">%s</a>`,
+			esc(actionURL), esc(buttonText))
+		fmt.Fprintf(&b, `<p style="color:#78716c;font-size:12px;margin:18px 0 0;word-break:break-all;">Or paste this link into your browser: %s</p>`, esc(actionURL))
+	}
+	b.WriteString(`</td></tr></table></td></tr></table></body></html>`)
+	return title, b.String()
 }
 
 func firstString(m map[string]any, keys ...string) string {
