@@ -28,6 +28,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Typography refinements (progressive enhancement; ignored by browsers
+   without text-wrap support):
+   - balance keeps multi-line headings visually even
+   - pretty avoids orphaned words on the final line of body copy */
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
 .font-display {
   font-family: var(--font-newsreader), Georgia, "Times New Roman", serif;
 }
