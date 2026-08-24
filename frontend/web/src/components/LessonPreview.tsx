@@ -149,7 +149,11 @@ export function EmailPreview({
 }: {
   subject: string;
   preheader: string;
-  blocks: Array<{ title?: string; text: string }>;
+  blocks: Array<{
+    title?: string;
+    text: string;
+    citations?: Array<{ source_id?: string; text?: string }>;
+  }>;
   visuals?: Array<{ type?: string; content?: string; alt_text?: string }>;
 }) {
   const bodyHasDiagram = blocks.some((block) => /```(mermaid|d2)\b/i.test(block.text));
@@ -163,6 +167,19 @@ export function EmailPreview({
           <section key={idx}>
             {block.title ? <h3 className="mb-2 font-semibold text-stone-800">{block.title}</h3> : null}
             <LessonPreview text={block.text} />
+            {block.citations && block.citations.length > 0 ? (
+              <div className="mt-3 border-t border-dashed border-stone-300 pt-2">
+                <p className="mb-1 text-[11px] uppercase tracking-wider text-stone-500">Sources</p>
+                <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-stone-600">
+                  {block.citations.map((citation, citIdx) => (
+                    <li key={citIdx}>
+                      <span className="font-mono text-[11px]">{citation.source_id?.slice(0, 8)}</span>
+                      {citation.text ? <> — “{citation.text.length > 160 ? `${citation.text.slice(0, 157)}...` : citation.text}”</> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </section>
         ))}
         {!bodyHasDiagram &&

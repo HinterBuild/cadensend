@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, BookOpen, Settings, BarChart3, Sparkles } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Settings, BarChart3, Sparkles, Users } from 'lucide-react';
 import { BrandWordmark } from '@/components/BrandLogo';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Insights', href: '/insights', icon: Sparkles },
+  { name: 'Recipients', href: '/recipients', icon: Users },
   { name: 'Sources', href: '/sources', icon: BookOpen },
   { name: 'Run Center', href: '/runs', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef } from 'react';
-import { Upload, Link2, FileText } from 'lucide-react';
+import { Upload, Link2, FileText, X } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
 import type { Source } from '@/types';
+
+type ChunkPreview = { chunk_index: number; title?: string; heading_path: string[]; preview: string };
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -14,6 +16,12 @@ export default function SourcesPage() {
   const [fileValue, setFileValue] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [error, setError] = useState('');
+  const [previewSourceId, setPreviewSourceId] = useState<string | null>(null);
+  const [previewChunks, setPreviewChunks] = useState<ChunkPreview[] | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [reindexingId, setReindexingId] = useState<string | null>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
   const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
   const lastFocusableRef = useRef<HTMLButtonElement | null>(null);
@@ -171,36 +179,171 @@ export default function SourcesPage() {
           <div className="grid gap-4">
             {sources.map((source) => (
               <div key={source.id} className="bg-white rounded-lg shadow p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium text-gray-900">{source.url || 'File source'}</h3>
-                    <p className="text-sm text-gray-600">{source.type}</p>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-medium text-gray-900">{source.url || 'File source'}</h3>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">{source.type}</span>
+                      {source.scope === 'series' ? (
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Series-only</span>
+                      ) : (
+                        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">Workspace-wide</span>
+                      )}
+                      {!['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) &&
+                        source.status !== 'failed' && (
+                          <span>
+                            {(source.chunk_count ?? 0) > 0
+                              ? `${source.chunk_count} indexed chunks`
+                              : source.duplicate_of
+                              ? 'Duplicate content'
+                              : ''}
+                          </span>
+                        )}
+                    </div>
+                    {source.duplicate_of && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        Identical content already ingested — shares the same index, no extra storage.
+                      </p>
+                    )}
                     {source.status === 'failed' && source.ingest_error && (
                       <p className="mt-1 text-sm text-red-600">{source.ingest_error}</p>
                     )}
                   </div>
-                  <span
-                    className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
-                      source.status === 'ready'
-                        ? 'bg-green-100 text-green-800'
-                        : source.status === 'failed'
-                        ? 'bg-red-100 text-red-800'
-                        : ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                    aria-label={`Source status: ${source.status}`}
-                  >
-                    {['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) && (
-                      <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
-                    )}
-                    {source.status === 'pending' || source.status === 'ingesting' ? 'In progress' : source.status}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span
+                      className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
+                        source.status === 'ready'
+                          ? 'bg-green-100 text-green-800'
+                          : source.status === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                      aria-label={`Source status: ${source.status}`}
+                    >
+                      {['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) && (
+                        <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
+                      )}
+                      {source.status === 'pending' || source.status === 'ingesting' ? 'In progress' : source.status}
+                    </span>
+                    <div className="flex gap-1">
+                      {source.status === 'ready' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setPreviewSourceId(source.id);
+                              setPreviewLoading(true);
+                              setPreviewChunks(null);
+                              try {
+                                const response = await sourceApi.preview(source.id);
+                                setPreviewChunks(response.data?.chunks ?? []);
+                              } catch (err: any) {
+                                setPreviewChunks([]);
+                                setPreviewError(err.message || 'Could not load preview');
+                              } finally {
+                                setPreviewLoading(false);
+                              }
+                            }}
+                            aria-label={`Preview indexed chunks of ${source.url || 'source'}`}
+                            className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setReindexingId(source.id);
+                              try {
+                                await sourceApi.reindex(source.id);
+                                await loadSources(false);
+                              } catch (err: any) {
+                                setError(err.message || 'Reindex failed');
+                              } finally {
+                                setReindexingId(null);
+                              }
+                            }}
+                            disabled={reindexingId === source.id}
+                            aria-label={`Re-ingest ${source.url || 'source'}`}
+                            title="Re-fetch and re-index this source"
+                            className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {reindexingId === source.id ? 'Queuing…' : 'Re-ingest'}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(
+                            `Remove “${source.url || 'this file'}”? Future issue generation will no longer use it as context. Already generated issues keep their citations.`,
+                          )) return;
+                          try {
+                            await sourceApi.delete(source.id);
+                            await loadSources(false);
+                          } catch (err: any) {
+                            setError(err.message || 'Delete failed');
+                          }
+                        }}
+                        aria-label={`Delete ${source.url || 'source'}`}
+                        className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
           </>
+        )}
+
+        {/* Chunk Preview Drawer */}
+        {previewSourceId && (
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Indexed content preview"
+          >
+            <div className="bg-white rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Indexed chunks</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreviewSourceId(null);
+                    setPreviewChunks(null);
+                    setPreviewError('');
+                  }}
+                  aria-label="Close preview"
+                  className="rounded p-1 text-gray-400 hover:text-gray-700"
+                >
+                  <X className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
+              {previewLoading && <p className="text-sm text-gray-500" role="status">Loading…</p>}
+              {previewError && <p className="text-sm text-red-600" role="alert">{previewError}</p>}
+              {previewChunks && previewChunks.length === 0 && (
+                <p className="text-sm text-gray-500">No indexed chunks found for this source.</p>
+              )}
+              {previewChunks && previewChunks.length > 0 && (
+                <ul className="space-y-3">
+                  {previewChunks.map((chunk, index) => (
+                    <li key={index} className="rounded-xl border border-[#e7e0d6] bg-[#faf8f5] p-4">
+                      <p className="mb-1 text-xs text-stone-500">
+                        Chunk {chunk.chunk_index}
+                        {(chunk.heading_path || []).length > 0 ? ` · ${chunk.heading_path.join(' › ')}` : ''}
+                      </p>
+                      <p className="text-sm leading-relaxed text-stone-800">{chunk.preview}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Add Source Dialog */}
