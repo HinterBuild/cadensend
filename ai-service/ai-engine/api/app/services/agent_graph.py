@@ -65,6 +65,17 @@ class NewsletterState(TypedDict):
     force_final: bool
 
 
+def _aggregate_usage(messages: Sequence[Any]) -> Dict[str, int]:
+    """Sum provider-reported token usage across every model turn."""
+    tokens_in = 0
+    tokens_out = 0
+    for message in messages:
+        usage = getattr(message, "usage_metadata", None) or {}
+        tokens_in += int(usage.get("input_tokens") or 0)
+        tokens_out += int(usage.get("output_tokens") or 0)
+    return {"input_tokens": tokens_in, "output_tokens": tokens_out}
+
+
 class NewsletterAgent:
     """Orchestrates the newsletter generation workflow using LangGraph."""
 
@@ -243,6 +254,7 @@ class NewsletterAgent:
                 "status": result.get("status", "complete"),
                 "plan": result.get("plan"),
                 "error": result.get("error"),
+                "usage": _aggregate_usage(result.get("messages") or []),
                 "messages": [
                     {"type": type(m).__name__, "content": m.content}
                     for m in result.get("messages", [])
@@ -322,6 +334,7 @@ class NewsletterAgent:
                 "error": result.get("error"),
                 "citations": result.get("citations", []),
                 "visual_specs": result.get("visual_specs", []),
+                "usage": _aggregate_usage(result.get("messages") or []),
                 "messages": [
                     {"type": type(m).__name__, "content": m.content}
                     for m in result.get("messages", [])
