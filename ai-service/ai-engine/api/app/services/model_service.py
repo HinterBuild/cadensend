@@ -65,6 +65,12 @@ def openrouter_api_key() -> str:
     return key or "not-configured"
 
 
+def resolve_default_model(model: str | None = None) -> str:
+    """Explicit model when provided (and configured), otherwise the default."""
+    chosen = (model or "").strip()
+    return chosen or settings.DEFAULT_MODEL
+
+
 class ModelService:
     """LLM and embedding calls go through OpenRouter only."""
 
