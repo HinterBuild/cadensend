@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -167,10 +168,15 @@ func updateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req struct {
-			Topic    *string `json:"topic"`
-			Goal     *string `json:"goal"`
-			Level    *string `json:"level"`
-			Timezone *string `json:"timezone"`
+			Topic          *string `json:"topic"`
+			Goal           *string `json:"goal"`
+			Level          *string `json:"level"`
+			Timezone       *string `json:"timezone"`
+			Cadence        *string `json:"cadence"`
+			StartDate      *string `json:"start_date"`
+			SendTime       *string `json:"send_time"`
+			SendDays       []string `json:"send_days"`
+			ManualApproval *bool   `json:"manual_approval"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -178,37 +184,74 @@ func updateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		series, ok := loadWorkspaceSeries(db, c, id)
+		if !ok {
+			return
+		}
+
 		updates := buildSeriesUpdates(req)
+		if len(updates) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no supported fields to update"})
+			return
+		}
 		updates["updated_at"] = time.Now()
 
-		if err := db.Model(&service.Series{}).Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).Updates(updates).Error; err != nil {
+		if err := db.Model(series).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "series updated"})
+		var fresh service.Series
+		db.Where("id = ?", id).First(&fresh)
+		c.JSON(http.StatusOK, gin.H{"data": fresh})
 	}
 }
 
 // buildSeriesUpdates constructs a partial-update map from optional pointers.
 func buildSeriesUpdates(req struct {
-	Topic    *string `json:"topic"`
-	Goal     *string `json:"goal"`
-	Level    *string `json:"level"`
-	Timezone *string `json:"timezone"`
+	Topic          *string  `json:"topic"`
+	Goal           *string  `json:"goal"`
+	Level          *string  `json:"level"`
+	Timezone       *string  `json:"timezone"`
+	Cadence        *string  `json:"cadence"`
+	StartDate      *string  `json:"start_date"`
+	SendTime       *string  `json:"send_time"`
+	SendDays       []string `json:"send_days"`
+	ManualApproval *bool    `json:"manual_approval"`
 }) map[string]interface{} {
 	updates := make(map[string]interface{})
-	if req.Topic != nil {
-		updates["topic"] = *req.Topic
+	if req.Topic != nil && strings.TrimSpace(*req.Topic) != "" {
+		updates["topic"] = strings.TrimSpace(*req.Topic)
 	}
-	if req.Goal != nil {
-		updates["goal"] = *req.Goal
+	if req.Goal != nil && strings.TrimSpace(*req.Goal) != "" {
+		updates["goal"] = strings.TrimSpace(*req.Goal)
 	}
 	if req.Level != nil {
-		updates["level"] = *req.Level
+		updates["level"] = strings.TrimSpace(*req.Level)
 	}
-	if req.Timezone != nil {
-		updates["timezone"] = *req.Timezone
+	if req.Timezone != nil && strings.TrimSpace(*req.Timezone) != "" {
+		updates["timezone"] = strings.TrimSpace(*req.Timezone)
+	}
+	if req.Cadence != nil && strings.TrimSpace(*req.Cadence) != "" {
+		updates["cadence"] = strings.TrimSpace(*req.Cadence)
+	}
+	if req.StartDate != nil {
+		updates["start_date"] = strings.TrimSpace(*req.StartDate)
+	}
+	if req.SendTime != nil && strings.TrimSpace(*req.SendTime) != "" {
+		updates["send_time"] = strings.TrimSpace(*req.SendTime)
+	}
+	if req.SendDays != nil {
+		days := make([]string, 0, len(req.SendDays))
+		for _, d := range req.SendDays {
+			if trimmed := strings.TrimSpace(d); trimmed != "" {
+				days = append(days, trimmed)
+			}
+		}
+		updates["send_days"] = strings.Join(days, ",")
+	}
+	if req.ManualApproval != nil {
+		updates["manual_approval"] = *req.ManualApproval
 	}
 	return updates
 }
@@ -491,6 +534,10 @@ func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
 			return
 		}
+
+		service.WriteAudit(db, c.Request.Context(), c.GetString("user_id"),
+			service.AuditSeriesDeleted, "series", id, nil, c.ClientIP())
+
 		c.JSON(http.StatusOK, gin.H{"message": "series deleted"})
 	}
 }
@@ -532,6 +579,7 @@ func createUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
 		user, err := svc.CreateUser(req.Email, req.Password, req.Name, req.Timezone, req.WorkspaceID)
 		if err != nil {
@@ -555,7 +603,7 @@ func loginHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 			return
 		}
 
-		user, token, err := svc.AuthenticateUser(req.Email, req.Password)
+		user, token, err := svc.AuthenticateUser(strings.ToLower(strings.TrimSpace(req.Email)), req.Password)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
@@ -576,7 +624,7 @@ func magicLinkHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 			return
 		}
 
-		token, err := svc.GenerateMagicLink(req.Email)
+		token, err := svc.GenerateMagicLink(strings.ToLower(strings.TrimSpace(req.Email)))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -669,7 +717,18 @@ func changePasswordHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFun
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "password updated"})
+
+		// A credential change revokes every existing session; re-mint so the
+		// current device stays signed in.
+		_ = svc.BumpTokenVersion(userID)
+		service.WriteAudit(db, c.Request.Context(), userID, service.AuditPasswordChanged, "user", userID, nil, c.ClientIP())
+		_, freshToken, tokenErr := svc.AuthenticateUserByID(userID)
+
+		resp := gin.H{"message": "password updated"}
+		if tokenErr == nil {
+			resp["token"] = freshToken
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -694,6 +753,7 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			Preheader     string          `json:"preheader"`
 			ContentBlocks json.RawMessage `json:"content_blocks"`
 			ScheduledAt   string          `json:"scheduled_at"`
+			Autosave      bool            `json:"autosave"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -725,6 +785,15 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		encodedStr := string(encoded)
+
+		// Snapshot the live content before overwriting it so the editor can
+		// offer version history and restore. Background autosaves are
+		// throttled; explicit saves always capture.
+		if err := snapshotIssueVersion(db, &issue, c.GetString("user_id"), req.Autosave); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to snapshot issue version: " + err.Error()})
+			return
+		}
+
 		updates := map[string]interface{}{
 			"content_json": encodedStr,
 			"updated_at":   time.Now().UTC(),
@@ -767,6 +836,12 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 				"issue_id": id,
 				"message":  "issue generation already in progress",
 			})
+			return
+		}
+
+		// Keep the current draft as a version so a regenerate is reversible.
+		if err := snapshotIssueVersion(db, issue, c.GetString("user_id"), false); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to snapshot issue version: " + err.Error()})
 			return
 		}
 
@@ -947,7 +1022,7 @@ func testSendIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true)
+		subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true, sourceRefsForContent(db, series.WorkspaceID, content))
 		if err := sendTestEmail(to, "[TEST] "+subject, htmlBody); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
@@ -991,7 +1066,7 @@ func testSendSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			First(&issue).Error
 		if issueErr == nil && issue.ContentJSON != nil && strings.TrimSpace(*issue.ContentJSON) != "" && *issue.ContentJSON != "null" {
 			content := parseJSONMap(issue.ContentJSON)
-			subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true)
+			subject, htmlBody := mail.RenderIssueHTML(series.Topic, series.Goal, content, true, sourceRefsForContent(db, series.WorkspaceID, content))
 			if err := sendTestEmail(to, "[TEST] "+subject, htmlBody); err != nil {
 				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 				return
@@ -1130,12 +1205,105 @@ func parseJSONMap(raw *string) map[string]any {
 	return out
 }
 
+// sourceRefsForContent resolves source_ids referenced by issue citations
+// into display labels and links for the email renderer.
+func sourceRefsForContent(db *gorm.DB, workspaceID string, content map[string]any) map[string]mail.SourceRef {
+	ids := map[string]bool{}
+	for _, rawBlock := range content["content_blocks"].([]any) {
+		block, ok := rawBlock.(map[string]any)
+		if !ok {
+			continue
+		}
+		citations, ok := block["citations"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawCit := range citations {
+			cit, ok := rawCit.(map[string]any)
+			if !ok {
+				continue
+			}
+			if id, _ := cit["source_id"].(string); id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	refs := map[string]mail.SourceRef{}
+	for id := range ids {
+		var src service.Source
+		if err := db.Where("id = ? AND workspace_id = ? AND deleted_at IS NULL", id, workspaceID).
+			First(&src).Error; err != nil {
+			continue
+		}
+		label := src.URL
+		if strings.HasPrefix(src.Type, "file") || label == "" {
+			label = "Uploaded " + src.Type + " source"
+		}
+		refs[id] = mail.SourceRef{Label: label, URL: src.URL}
+	}
+	return refs
+}
+
 // Source handlers
+
+// maxSourceUploadBytes caps in-memory uploads before they are queued for
+// ingestion (they are base64-encoded into the Redis job payload).
+const maxSourceUploadBytes = 20 << 20 // 20 MiB
+
+var allowedSourceMimeTypes = map[string]bool{
+	"application/pdf":       true,
+	"application/msword":    true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
+	"application/vnd.ms-powerpoint": true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+	"application/vnd.ms-excel": true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
+	"text/html":                true,
+	"text/plain":               true,
+	"text/markdown":            true,
+	"application/json":         true,
+	"text/csv":                 true,
+	"application/xml":          true,
+	"text/xml":                 true,
+	"application/rss+xml":      true,
+	"application/atom+xml":     true,
+}
+
+func allowedSourceExtension(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range []string{
+		".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
+		".html", ".htm", ".txt", ".md", ".markdown", ".json", ".csv",
+		".xml", ".rss",
+	} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 func uploadSourceHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+			return
+		}
+		if file.Size <= 0 || file.Size > maxSourceUploadBytes {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+				"error": fmt.Sprintf("file must be between 1 byte and %d MiB", maxSourceUploadBytes>>20),
+			})
+			return
+		}
+		if !allowedSourceExtension(file.Filename) {
+			c.JSON(http.StatusUnsupportedMediaType, gin.H{
+				"error": "unsupported file type; allowed: pdf, doc(x), ppt(x), xls(x), html, txt, md, json, csv, xml, rss",
+			})
 			return
 		}
 
@@ -1178,9 +1346,20 @@ func uploadSourceHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		defer opened.Close()
-		content, err := io.ReadAll(opened)
+		content, err := io.ReadAll(io.LimitReader(opened, maxSourceUploadBytes+1))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read upload"})
+			return
+		}
+		if int64(len(content)) > maxSourceUploadBytes {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+				"error": fmt.Sprintf("file exceeds the %d MiB limit", maxSourceUploadBytes>>20),
+			})
+			return
+		}
+		contentType := file.Header.Get("Content-Type")
+		if contentType != "" && !allowedSourceMimeTypes[strings.TrimSpace(strings.Split(contentType, ";")[0])] {
+			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "unsupported content type: " + contentType})
 			return
 		}
 
@@ -1242,6 +1421,17 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			workspaceID = series.WorkspaceID
+		}
+
+		// Duplicate detection: same workspace + same normalized URL.
+		var existing service.Source
+		if err := db.Where("workspace_id = ? AND url = ? AND deleted_at IS NULL", workspaceID, req.URL).
+			First(&existing).Error; err == nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      "this source was already added",
+				"existing":   map[string]interface{}{"id": existing.ID, "status": existing.Status, "series_id": existing.SeriesID},
+			})
+			return
 		}
 
 		src := &service.Source{
@@ -1337,30 +1527,83 @@ func getSourceHandler(db *gorm.DB) gin.HandlerFunc {
 func previewSourceHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		c.JSON(http.StatusOK, gin.H{
-			"message":   "preview not implemented in MVP",
-			"source_id": id,
-		})
+		var src service.Source
+		if err := db.Where("id = ? AND workspace_id = ? AND deleted_at IS NULL", id, c.GetString("workspace_id")).
+			First(&src).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "source not found"})
+			return
+		}
+		if src.Status != SourceStatusReady && src.CurrentVersionID == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "source has not finished ingesting yet"})
+			return
+		}
+
+		payload := map[string]interface{}{
+			"workspace_id": src.WorkspaceID,
+			"source_id":    src.ID,
+			"top_k":        8,
+		}
+		status, body, err := aiEngineRequest(http.MethodPost, "/v1/sources/"+src.ID+"/preview", payload)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ai engine unreachable: " + err.Error()})
+			return
+		}
+		c.Data(status, "application/json", body)
 	}
 }
 
 func reindexSourceHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		result := db.Model(&service.Source{}).
-			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
-			Update("status", SourceStatusPending)
-
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-		if result.RowsAffected == 0 {
+		var src service.Source
+		if err := db.Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
+			First(&src).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "source not found"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "reindex started"})
+		now := time.Now()
+		if strings.HasPrefix(src.Type, "file") {
+			// Uploaded file bytes are not retained after ingestion; a file
+			// source must be re-uploaded to refresh its index.
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "file sources cannot be re-ingested automatically; upload the file again",
+			})
+			return
+		}
+		if err := db.Model(&src).Updates(map[string]interface{}{
+			"status":       SourceStatusPending,
+			"ingest_error": "",
+			"updated_at":   now,
+		}).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Re-queue the ingestion job for the stored content.
+		jobType := src.Type
+		payload := map[string]interface{}{
+			"task":         "ingest_source",
+			"source_type":  jobType,
+			"url":          src.URL,
+			"workspace_id": src.WorkspaceID,
+			"series_id":    src.SeriesID,
+			"source_id":    src.ID,
+			"reindex":      true,
+		}
+		job, _ := json.Marshal(payload)
+		if err := enqueueGenerationJob(job); err != nil {
+			db.Model(&src).Updates(map[string]interface{}{
+				"status":       SourceStatusFailed,
+				"ingest_error": err.Error(),
+				"updated_at":   time.Now(),
+			})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "could not queue re-ingestion: " + err.Error()})
+			return
+		}
+
+		src.Status = SourceStatusPending
+		c.JSON(http.StatusOK, gin.H{"message": "reindex started", "data": src})
 	}
 }
 
@@ -1381,28 +1624,82 @@ func deleteSourceHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		service.WriteAudit(db, c.Request.Context(), c.GetString("user_id"),
+			service.AuditSourceDeleted, "source", id, nil, c.ClientIP())
+
 		c.JSON(http.StatusOK, gin.H{"message": "source deleted"})
 	}
 }
 
+// aiEngineRequest performs an authenticated service-to-service call against
+// the AI engine and returns its status code and body.
+func aiEngineRequest(method, path string, payload map[string]interface{}) (int, []byte, error) {
+	var body io.Reader
+	if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return 0, nil, err
+		}
+		body = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, cfg.AIAPIURL+path, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token := strings.TrimSpace(cfg.JWTSecret); token != "" {
+		req.Header.Set("X-Internal-Token", token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, data, nil
+}
+
 // Retrieval handler
+// retrievalPreviewHandler shows the exact chunks a generation would retrieve
+// for a query, by delegating to the AI engine's retrieval pipeline.
 func retrievalPreviewHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		seriesID := c.Param("series_id")
 		var req struct {
 			Query string `json:"query" binding:"required"`
+			TopK  int    `json:"top_k"`
 		}
-
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"results":   []interface{}{},
-			"query":     req.Query,
-			"series_id": seriesID,
-		})
+		series, ok := loadWorkspaceSeries(db, c, seriesID)
+		if !ok {
+			return
+		}
+
+		topK := req.TopK
+		if topK <= 0 || topK > 25 {
+			topK = 8
+		}
+		payload := map[string]interface{}{
+			"query":        req.Query,
+			"workspace_id": series.WorkspaceID,
+			"series_id":    series.ID,
+			"top_k":        topK,
+		}
+		status, body, err := aiEngineRequest(http.MethodPost, "/v1/retrieval/preview/"+series.ID, payload)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ai engine unreachable: " + err.Error()})
+			return
+		}
+		c.Data(status, "application/json", body)
 	}
 }
 
@@ -1424,22 +1721,7 @@ func getOperationHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// Webhook handler
-func emailWebhookHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		provider := c.Param("provider")
-		payload, err := c.GetRawData()
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
-			return
-		}
-
-		_ = payload // TODO: implement webhook signature verification and processing
-		_ = provider
-
-		c.JSON(http.StatusOK, gin.H{"message": "webhook received", "provider": provider})
-	}
-}
+// Webhook handler: implemented in handlers_webhooks.go
 
 func listModelsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {

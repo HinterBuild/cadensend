@@ -23,6 +23,9 @@ type runItem struct {
 	SourceID  string `json:"source_id,omitempty"`
 	Href      string `json:"href,omitempty"`
 	CanRetry  bool   `json:"can_retry"`
+	TokensIn  int64  `json:"tokens_in,omitempty"`
+	TokensOut int64  `json:"tokens_out,omitempty"`
+	Model     string `json:"model,omitempty"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -78,6 +81,26 @@ func listRunsHandler(db *gorm.DB) gin.HandlerFunc {
 func collectRuns(db *gorm.DB, workspaceID string) []runItem {
 	items := make([]runItem, 0, 64)
 
+	// Latest generation stats per issue, so issue rows can show usage.
+	type runStat struct {
+		TargetID  string `gorm:"column:target_id"`
+		Model     string `gorm:"column:model"`
+		TokensIn  int64  `gorm:"column:tokens_in"`
+		TokensOut int64  `gorm:"column:tokens_out"`
+		Status    string `gorm:"column:status"`
+	}
+	var stats []runStat
+	db.Table("generation_runs").
+		Select("DISTINCT ON (target_id) target_id, model, tokens_in, tokens_out, status").
+		Where("target_type = 'issue'").
+		Order("target_id, updated_at DESC").
+		Limit(400).
+		Find(&stats)
+	statsByTarget := map[string]runStat{}
+	for _, s := range stats {
+		statsByTarget[s.TargetID] = s
+	}
+
 	type issueRow struct {
 		service.Issue
 		Topic string `gorm:"column:topic"`
@@ -95,7 +118,7 @@ func collectRuns(db *gorm.DB, workspaceID string) []runItem {
 		if status == "" {
 			status = "unknown"
 		}
-		items = append(items, runItem{
+		item := runItem{
 			ID:        "issue:" + row.ID,
 			Kind:      "issue",
 			Status:    status,
@@ -108,7 +131,13 @@ func collectRuns(db *gorm.DB, workspaceID string) []runItem {
 			CanRetry:  status == "failed" || status == "pending",
 			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
-		})
+		}
+		if s, ok := statsByTarget[row.ID]; ok && s.TokensIn+s.TokensOut > 0 {
+			item.TokensIn = s.TokensIn
+			item.TokensOut = s.TokensOut
+			item.Model = s.Model
+		}
+		items = append(items, item)
 	}
 
 	var sources []service.Source
@@ -161,6 +190,54 @@ func collectRuns(db *gorm.DB, workspaceID string) []runItem {
 			CanRetry:  row.PlanStatus == "failed",
 			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	// Dead-lettered generation jobs (gave up after all retries) so failures
+	// never disappear into a log line.
+	// Dead-lettered generation jobs (gave up after all retries) so failures
+	// never disappear into a log line.
+	type deadRunRow struct {
+		ID         string    `gorm:"column:id"`
+		TargetID   string    `gorm:"column:target_id"`
+		TargetType string    `gorm:"column:target_type"`
+		Model      string    `gorm:"column:model"`
+		ErrorMsg   string    `gorm:"column:error_msg"`
+		CreatedAt  time.Time `gorm:"column:created_at"`
+	}
+	var deadRuns []deadRunRow
+	db.Table("generation_runs").
+		Joins("LEFT JOIN issues i ON i.id = generation_runs.target_id AND generation_runs.target_type = 'issue'").
+		Joins("LEFT JOIN series s ON s.id = generation_runs.target_id AND generation_runs.target_type = 'series'").
+		Joins("LEFT JOIN series ws ON ws.id = COALESCE(i.series_id, s.id)").
+		Where(`generation_runs.status = 'failed'
+		       AND generation_runs.error_code = 'job_failed'
+		       AND (i.deleted_at IS NULL AND s.deleted_at IS NULL)
+		       AND ws.workspace_id = ?`, workspaceID).
+		Order("generation_runs.created_at DESC").
+		Limit(20).
+		Find(&deadRuns)
+	for _, row := range deadRuns {
+		href := ""
+		if row.TargetType == "issue" && row.TargetID != "" {
+			href = "/issues/" + row.TargetID
+		} else if row.TargetType == "series" && row.TargetID != "" {
+			href = "/series/" + row.TargetID
+		}
+		items = append(items, runItem{
+			ID:        "generation:" + row.ID,
+			Kind:      "generation",
+			Status:    "failed",
+			Title:     "Generation gave up after repeated retries",
+			Detail:    "model " + firstNonEmpty(row.Model, "unknown"),
+			Error:     row.ErrorMsg,
+			IssueID:   map[bool]string{row.TargetType == "issue": row.TargetID}[true],
+			SeriesID:  map[bool]string{row.TargetType == "series": row.TargetID}[true],
+			Href:      href,
+			CanRetry:  true,
+			Model:     row.Model,
+			CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 

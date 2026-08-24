@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"gorm.io/gorm"
 
 	"backend/control-api/internal/config"
@@ -28,7 +29,6 @@ import (
 	applogger "backend/control-api/internal/logger"
 	"backend/control-api/internal/middleware"
 	"backend/control-api/internal/service"
-	"backend/control-api/internal/telemetry"
 	"backend/control-api/internal/version"
 )
 
@@ -57,6 +57,7 @@ func init() {
 	if err := database.AutoMigrate(
 		&service.User{},
 		&service.MagicLinkToken{},
+		&service.PasswordResetToken{},
 		&service.Workspace{},
 		&service.Series{},
 		&service.Issue{},
@@ -64,6 +65,8 @@ func init() {
 		&service.Schedule{},
 		&service.Delivery{},
 		&service.Recipient{},
+		&service.AuditLog{},
+		&service.GenerationRun{},
 	); err != nil {
 		log.Println("AutoMigrate warning:", err)
 	}
@@ -80,14 +83,24 @@ func main() {
 	r := gin.New()
 
 	// Add middleware
+	isDev := cfg.Env != "production"
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestIDMiddleware())
+	r.Use(middleware.SecurityHeadersMiddleware(isDev))
 	r.Use(corsMiddleware())
-	r.Use(telemetry.Middleware("cadensend-control-api"))
+	r.Use(middleware.RateLimitMiddleware())
 
-	// Health check endpoint
+	// Health check endpoint (deep checks included)
 	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+		checks := deepHealthChecks()
+		status := http.StatusOK
+		for _, ok := range checks {
+			if !ok {
+				status = http.StatusServiceUnavailable
+			}
+		}
+		c.JSON(status, gin.H{"status": map[bool]string{true: "healthy", false: "degraded"}[status == http.StatusOK], "checks": checks})
 	})
 	r.GET("/version", func(c *gin.Context) {
 		info := version.Get()
@@ -100,7 +113,17 @@ func main() {
 
 	// Initialize services
 	userService := service.NewUserService(db, cfg.JWTSecret, cfg.JWTExpiry, nil)
-	authMW := middleware.JWTMiddleware(cfg.JWTSecret)
+	authMW := middleware.JWTMiddleware(cfg.JWTSecret, db)
+	recipients := newRecipientsHandler(db, userService)
+
+	// Expired auth tokens would otherwise accumulate forever.
+	go func() {
+		ticker := time.NewTicker(12 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			userService.CleanupExpiredTokens()
+		}
+	}()
 
 	// API v1 routes
 	v1 := r.Group("/v1")
@@ -112,7 +135,12 @@ func main() {
 			users.POST("/login", loginHandler(db, userService))
 			users.POST("/magic-link", magicLinkHandler(db, userService))
 			users.POST("/magic-link/verify", verifyMagicLinkHandler(db, userService))
+			users.POST("/forgot-password", forgotPasswordHandler(db, userService))
+			users.POST("/reset-password", resetPasswordHandler(db, userService))
 		}
+
+		// Public recipient lifecycle links (emailed, token-verified)
+		v1.GET("/recipients/verify", recipients.publicVerify)
 
 		// Protected routes
 		api := v1.Group("")
@@ -120,9 +148,13 @@ func main() {
 		{
 			protectedUsers := api.Group("/users")
 			{
+				protectedUsers.GET("/me", meHandler(db, userService))
+				protectedUsers.POST("/me/session/refresh", refreshSessionHandler(db, userService))
+				protectedUsers.POST("/me/sessions/revoke", revokeSessionsHandler(db, userService))
 				protectedUsers.GET("/:id", getUserHandler(db, userService))
 				protectedUsers.PATCH("/:id", updateUserHandler(db, userService))
 				protectedUsers.PATCH("/:id/password", changePasswordHandler(db, userService))
+				protectedUsers.DELETE("/:id", deleteAccountHandler(db, userService))
 			}
 
 			series := api.Group("/series")
@@ -140,6 +172,7 @@ func main() {
 				series.POST("/:id/pause", pauseSeriesHandler(db))
 				series.POST("/:id/resume", resumeSeriesHandler(db))
 				series.POST("/:id/test-send", testSendSeriesHandler(db))
+				series.POST("/:id/retrieval-preview", retrievalPreviewHandler(db))
 				series.DELETE("/:id", deleteSeriesHandler(db))
 			}
 
@@ -151,6 +184,11 @@ func main() {
 				issues.POST("/:id/generate", generateIssueHandler(db))
 				issues.POST("/:id/approve", approveIssueHandler(db))
 				issues.POST("/:id/test-send", testSendIssueHandler(db))
+				issues.GET("/:id/versions", listIssueVersionsHandler(db))
+				issues.POST("/:id/versions/:version/restore", restoreIssueVersionHandler(db))
+				issues.POST("/:id/schedule", rescheduleIssueHandler(db))
+				issues.POST("/:id/cancel-send", cancelIssueSendHandler(db))
+				issues.GET("/:id/preview-html", previewEmailHTMLHandler(db))
 			}
 
 			// Source endpoints
@@ -161,15 +199,17 @@ func main() {
 				sources.GET("", listSourcesHandler(db))
 				sources.GET("/:id", getSourceHandler(db))
 				sources.GET("/:id/preview", previewSourceHandler(db))
+				sources.POST("/:id/chunks", sourceChunksHandler(db))
 				sources.POST("/:id/reindex", reindexSourceHandler(db))
 				sources.DELETE("/:id", deleteSourceHandler(db))
 			}
 
-			// Retrieval endpoints
-			retrieval := api.Group("/retrieval")
-			{
-				retrieval.POST("/preview/:series_id", retrievalPreviewHandler(db))
-			}
+			// Recipient (audience) management
+			api.GET("/recipients", recipients.list)
+			api.POST("/recipients", recipients.create)
+			api.DELETE("/recipients/:id", recipients.remove)
+			api.POST("/recipients/:id/resend-verification", recipients.resendVerification)
+			api.PATCH("/recipients/:id/suppression", recipients.setSuppressed)
 
 			// Operation monitoring
 			operations := api.Group("/operations")
@@ -182,10 +222,13 @@ func main() {
 			api.GET("/runs", listRunsHandler(db))
 		}
 
-		// Webhook endpoints (no auth)
+		// Webhook endpoints (secret-verified, no JWT)
 		webhooks := v1.Group("/webhooks")
 		{
 			webhooks.POST("/email/:provider", emailWebhookHandler(db))
+			// Unsubscribe: GET renders the confirmation page, POST performs it.
+			webhooks.GET("/unsubscribe", recipients.publicUnsubscribeForm)
+			webhooks.POST("/unsubscribe", recipients.publicUnsubscribeConfirm)
 		}
 	}
 
@@ -223,20 +266,28 @@ func main() {
 	log.Println("Server exited")
 }
 
-// corsMiddleware provides basic CORS support without an external dependency
+// corsMiddleware allows only explicitly configured origins. In development,
+// localhost ports are accepted for convenience; production requires an exact
+// FRONTEND_ORIGIN match.
 func corsMiddleware() gin.HandlerFunc {
 	allowed := strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN"))
 	if allowed == "" {
 		allowed = "http://localhost:3000"
 	}
+	isDev := cfg.Env != "production"
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		if origin == allowed || strings.HasPrefix(origin, "http://localhost:") {
+		matched := origin == allowed
+		if !matched && isDev && strings.HasPrefix(origin, "http://localhost:") {
+			matched = true
+		}
+		if matched {
 			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
 		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		c.Header("Access-Control-Expose-Headers", "Content-Length")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization, X-Request-ID")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, X-Request-ID")
 		c.Header("Vary", "Origin")
 
 		if c.Request.Method == "OPTIONS" {
@@ -246,6 +297,32 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// deepHealthChecks verifies that backing services are reachable.
+func deepHealthChecks() map[string]bool {
+	checks := map[string]bool{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	sqlDB, err := db.DB()
+	if err == nil {
+		checks["postgres"] = sqlDB.PingContext(ctx) == nil
+	} else {
+		checks["postgres"] = false
+	}
+
+	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+	client := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
+	defer client.Close()
+	if err := client.Ping(ctx).Err(); err == nil {
+		checks["redis"] = true
+	} else {
+		checks["redis"] = false
+	}
+
+	return checks
 }
 
 func parseRedisURL(rawURL string) (addr string, dbNum int, password string) {
