@@ -7,9 +7,11 @@ services:
       POSTGRES_DB: cadensend
       POSTGRES_USER: cadensend
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cadensend}
+      MIGRATIONS_DIR: /migrations
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/migrations-docker:/docker-entrypoint-initdb.d
+      - ./db/migrations:/migrations:ro
+      - ./db/run-migrations.sh:/docker-entrypoint-initdb.d/10-run-migrations.sh:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -65,11 +67,20 @@ services:
       BREVO_API_KEY: "${BREVO_API_KEY}"
       BREVO_API_URL: "${BREVO_API_URL}"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:3000}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
+      AI_API_URL: http://ai-engine-api:8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   backend-worker:
     build: ./backend/control-worker
@@ -88,11 +99,18 @@ services:
       BREVO_API_KEY: "${BREVO_API_KEY}"
       BREVO_API_URL: "${BREVO_API_URL}"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:3000}"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   ai-engine-api:
     build: ./ai-service/ai-engine/api
@@ -117,6 +135,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=5)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   ai-engine-worker:
     build:
@@ -166,6 +190,12 @@ services:
         condition: service_started
       ai-engine-api:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:
