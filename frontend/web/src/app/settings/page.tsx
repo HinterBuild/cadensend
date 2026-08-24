@@ -4,7 +4,7 @@ import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
 import { authApi, modelsApi, OpenRouterModel } from '@/lib/api';
-import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock } from 'lucide-react';
+import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck } from 'lucide-react';
 import { ModelSelect } from '@/components/ModelSelect';
 
 export default function SettingsPage() {
@@ -23,6 +23,10 @@ export default function SettingsPage() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [revokingSessions, setRevokingSessions] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [showDeleteZone, setShowDeleteZone] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -97,6 +101,36 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRevokeSessions = async () => {
+    setRevokingSessions(true);
+    setError(null);
+    try {
+      const response = await authApi.revokeSessions();
+      setSuccess(response.message || 'All other sessions were signed out.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to revoke sessions.');
+    } finally {
+      setRevokingSessions(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user || deleteConfirmText !== user.email) {
+      setError(`Type ${user?.email} to confirm account deletion.`);
+      return;
+    }
+    setDeletingAccount(true);
+    setError(null);
+    try {
+      await authApi.deleteAccount(user.id);
+      localStorage.clear();
+      window.location.href = '/login';
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete account.');
+      setDeletingAccount(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -168,7 +202,7 @@ export default function SettingsPage() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white text-base sm:text-sm"
                   placeholder="Enter your name"
                   aria-label="Full Name"
                 />
@@ -185,11 +219,25 @@ export default function SettingsPage() {
                     type="email"
                     value={email}
                     disabled
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed text-base sm:text-sm"
                     aria-label="Email address (cannot be changed)"
                   />
                 </div>
-                <p className="mt-1 text-xs text-gray-500">Email cannot be changed from here.</p>
+                <p className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                  Email cannot be changed from here.
+                  {user?.email_verified ? (
+                    <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 font-medium text-green-700">
+                      Verified
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700"
+                      title="Sign in once with a magic link to verify this address"
+                    >
+                      Not verified — sign in with a magic link to verify
+                    </span>
+                  )}
+                </p>
               </div>
 
               <div>
@@ -202,7 +250,7 @@ export default function SettingsPage() {
                     id="timezone"
                     value={timezone}
                     onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                    className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white text-base sm:text-sm"
                   >
                     <option value="UTC">UTC</option>
                     <option value="America/New_York">America/New_York</option>
@@ -260,7 +308,7 @@ export default function SettingsPage() {
                   type="password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white text-base sm:text-sm"
                   placeholder="••••••••"
                   autoComplete="current-password"
                   required
@@ -278,7 +326,7 @@ export default function SettingsPage() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white text-base sm:text-sm"
                   placeholder="At least 8 characters"
                   autoComplete="new-password"
                   required
@@ -297,7 +345,7 @@ export default function SettingsPage() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white text-base sm:text-sm"
                   placeholder="••••••••"
                   autoComplete="new-password"
                   required
@@ -317,6 +365,78 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Security */}
+          <div className="bg-white rounded-xl shadow p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <ShieldCheck className="h-5 w-5 text-gray-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-gray-900">Security</h2>
+            </div>
+            <p className="mb-4 text-sm text-gray-600">
+              Signed out everywhere else? Revoke all sessions if a device was lost or you suspect
+              unauthorized access. This device stays signed in.
+            </p>
+            <button
+              type="button"
+              onClick={handleRevokeSessions}
+              disabled={revokingSessions}
+              className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2 font-medium"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              {revokingSessions ? 'Revoking…' : 'Sign out all other sessions'}
+            </button>
+          </div>
+
+          {/* Danger zone */}
+          <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+            <h2 className="text-xl font-semibold text-red-800">Danger zone</h2>
+            <p className="mb-4 mt-1 text-sm text-red-700">
+              Deleting your account revokes all access immediately and signs out every device.
+              Your series stay in the workspace for other members.
+            </p>
+            {!showDeleteZone ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteZone(true)}
+                className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
+              >
+                Delete account…
+              </button>
+            ) : (
+              <form onSubmit={(e) => { e.preventDefault(); handleDeleteAccount(); }} className="space-y-3">
+                <label htmlFor="delete-confirm" className="block text-sm font-medium text-red-800">
+                  Type <span className="font-mono">{user?.email}</span> to confirm
+                </label>
+                <input
+                  id="delete-confirm"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  autoComplete="off"
+                  className="w-full max-w-sm px-3 py-2.5 border border-red-300 rounded-lg bg-white text-base sm:text-sm"
+                />
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={deletingAccount || deleteConfirmText !== user?.email}
+                    className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+                  >
+                    {deletingAccount ? 'Deleting…' : 'Permanently delete my account'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeleteZone(false);
+                      setDeleteConfirmText('');
+                    }}
+                    className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-white"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       </div>

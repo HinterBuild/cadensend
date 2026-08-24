@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { seriesApi, modelsApi, sourceApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
+import { RadioGroup } from '@/components/RadioGroup';
 
 type FormValues = {
   topic: string;
@@ -465,64 +466,42 @@ export default function CreateSeriesPage() {
                 />
                 <p className="mt-1 text-xs text-gray-500">{formData.goal.length}/500</p>
               </div>
-              <fieldset>
-                <legend className="block text-sm font-medium text-gray-700 mb-2">Audience</legend>
-                <div className="grid grid-cols-3 gap-3">
-                  {levelOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateField('level', option.value)}
-                      className={`p-3 border rounded-lg text-center ${
-                        formData.level === option.value
-                          ? 'border-stone-900 bg-stone-100 text-stone-900 font-medium'
-                          : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
+              <RadioGroup
+                legend="Audience"
+                value={formData.level}
+                options={levelOptions}
+                onChange={(value) => updateField('level', value)}
+                containerClassName="grid grid-cols-3 gap-3"
+              />
               <div className="grid gap-4 sm:grid-cols-2">
-                <fieldset>
-                  <legend className="block text-sm font-medium text-gray-700 mb-2">Voice</legend>
-                  <div className="grid grid-cols-1 gap-2">
-                    {toneOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => updateField('tone', option.value)}
-                        className={`p-2 border rounded-lg text-sm ${
-                          formData.tone === option.value
-                            ? 'border-stone-900 bg-stone-100 font-medium'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                <fieldset>
-                  <legend className="block text-sm font-medium text-gray-700 mb-2">Lesson length</legend>
-                  <div className="grid grid-cols-1 gap-2">
-                    {lengthOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => updateField('length', option.value)}
-                        className={`p-2 border rounded-lg text-sm ${
-                          formData.length === option.value
-                            ? 'border-stone-900 bg-stone-100 font-medium'
-                            : 'border-gray-300 hover:border-gray-400'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
+                <RadioGroup
+                  legend="Voice"
+                  value={formData.tone}
+                  options={toneOptions}
+                  onChange={(value) => updateField('tone', value)}
+                  containerClassName="grid grid-cols-1 gap-2"
+                  itemClassName={(checked) =>
+                    `p-2 border rounded-lg text-sm ${
+                      checked
+                        ? 'border-stone-900 bg-stone-100 font-medium'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`
+                  }
+                />
+                <RadioGroup
+                  legend="Lesson length"
+                  value={formData.length}
+                  options={lengthOptions}
+                  onChange={(value) => updateField('length', value)}
+                  containerClassName="grid grid-cols-1 gap-2"
+                  itemClassName={(checked) =>
+                    `p-2 border rounded-lg text-sm ${
+                      checked
+                        ? 'border-stone-900 bg-stone-100 font-medium'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`
+                  }
+                />
               </div>
             </div>
           )}
@@ -613,7 +592,7 @@ export default function CreateSeriesPage() {
                       </span>
                       <button
                         type="button"
-                        aria-label="Remove source"
+                        aria-label={`Remove source ${source.value}`}
                         onClick={() => setSources((prev) => prev.filter((_, i) => i !== index))}
                         className="text-stone-500 hover:text-stone-900"
                       >
@@ -646,44 +625,34 @@ export default function CreateSeriesPage() {
                   />
                 </div>
               </div>
-              <fieldset>
-                <legend className="block text-sm font-medium text-gray-700 mb-2">Duration</legend>
-                <div className="grid grid-cols-2 gap-3">
-                  {durationOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateField('duration', option.value)}
-                      className={`p-3 border rounded-lg ${
-                        formData.duration === option.value
-                          ? 'border-stone-900 bg-stone-100 font-medium'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
-              <fieldset>
-                <legend className="block text-sm font-medium text-gray-700 mb-2">How often</legend>
-                <div className="grid grid-cols-2 gap-3">
-                  {cadenceOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateField('cadence', option.value)}
-                      className={`p-3 border rounded-lg ${
-                        formData.cadence === option.value
-                          ? 'border-stone-900 bg-stone-100 font-medium'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
+              <RadioGroup
+                legend="Duration"
+                value={formData.duration}
+                options={durationOptions}
+                onChange={(value) => updateField('duration', value)}
+                containerClassName="grid grid-cols-2 gap-3"
+                itemClassName={(checked) =>
+                  `p-3 border rounded-lg ${
+                    checked
+                      ? 'border-stone-900 bg-stone-100 font-medium'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`
+                }
+              />
+              <RadioGroup
+                legend="How often"
+                value={formData.cadence}
+                options={cadenceOptions}
+                onChange={(value) => updateField('cadence', value)}
+                containerClassName="grid grid-cols-2 gap-3"
+                itemClassName={(checked) =>
+                  `p-3 border rounded-lg ${
+                    checked
+                      ? 'border-stone-900 bg-stone-100 font-medium'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`
+                }
+              />
               {formData.cadence !== 'daily' && (
                 <fieldset>
                   <legend className="block text-sm font-medium text-gray-700 mb-2">Send days</legend>
@@ -694,6 +663,7 @@ export default function CreateSeriesPage() {
                         <button
                           key={day}
                           type="button"
+                          aria-pressed={on}
                           onClick={() =>
                             updateField(
                               'sendDays',
