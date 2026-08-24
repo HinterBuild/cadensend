@@ -21,7 +21,7 @@ import (
 	applogger "backend/control-worker/internal/logger"
 	"backend/control-worker/internal/scheduler"
 	"backend/control-worker/internal/tasks"
-	"backend/control-worker/internal/telemetry"
+	"backend/control-worker/internal/watchdog"
 )
 
 var cfg *config.Config
@@ -33,6 +33,7 @@ func init() {
 	deliveryWorker := delivery.StartDeliveryWorker(cfg)
 	tasks.SetDeliverer(deliveryWorker.DeliverScheduled)
 	go scheduler.StartScheduler(cfg)
+	watchdog.Start(cfg)
 }
 
 func main() {
@@ -46,7 +47,6 @@ func main() {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
-	r.Use(telemetry.Middleware("cadensend-control-worker"))
 
 	r.GET("/healthz", healthHandler)
 	r.GET("/metrics", metricsHandler)
@@ -84,7 +84,27 @@ func main() {
 }
 
 func healthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	checks := map[string]bool{}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+
+	sqlDB, err := database.Get().DB()
+	if err == nil && sqlDB.PingContext(ctx) == nil {
+		checks["postgres"] = true
+	} else {
+		checks["postgres"] = false
+	}
+
+	status := http.StatusOK
+	for _, ok := range checks {
+		if !ok {
+			status = http.StatusServiceUnavailable
+		}
+	}
+	c.JSON(status, gin.H{
+		"status": map[bool]string{true: "healthy", false: "degraded"}[status == http.StatusOK],
+		"checks": checks,
+	})
 }
 
 func metricsHandler(c *gin.Context) {

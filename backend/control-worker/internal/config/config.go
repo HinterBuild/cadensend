@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,9 @@ type Config struct {
 	SMTPFrom      string
 	SMTPFromName  string
 	OTELEndpoint  string
+
+	// Frontend base URL used in alert links.
+	FrontendOrigin string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -45,6 +49,8 @@ func LoadConfig() *Config {
 		SMTPFrom:      getEnv("SMTP_FROM", ""),
 		SMTPFromName:  getEnv("SMTP_FROM_NAME", ""),
 		OTELEndpoint:  getEnv("OTEL_ENDPOINT", "http://localhost:4318"),
+
+		FrontendOrigin: strings.TrimRight(getEnv("FRONTEND_ORIGIN", "http://localhost:3000"), "/"),
 	}
 
 	if expiry := getEnv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"); expiry != "" {
