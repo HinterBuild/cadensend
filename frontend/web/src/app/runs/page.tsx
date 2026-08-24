@@ -10,6 +10,7 @@ const KIND_LABEL: Record<string, string> = {
   issue: 'Issue',
   ingest: 'Ingest',
   plan: 'Plan',
+  generation: 'Generation',
 };
 
 function statusClass(status: string) {
@@ -21,6 +22,16 @@ function statusClass(status: string) {
     return 'bg-emerald-50 text-emerald-800';
   }
   return 'bg-stone-100 text-stone-700';
+}
+
+function formatTokens(tokensIn?: number, tokensOut?: number) {
+  if (!tokensIn && !tokensOut) return '';
+  const fmt = (n?: number) => {
+    if (!n) return '0';
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+  };
+  return `${fmt(tokensIn)} in / ${fmt(tokensOut)} out`;
 }
 
 export default function RunCenterPage() {
@@ -74,11 +85,11 @@ export default function RunCenterPage() {
   const retry = async (run: RunItem) => {
     setRetrying(run.id);
     try {
-      if (run.kind === 'issue' && run.issue_id) {
+      if ((run.kind === 'issue' || run.kind === 'generation') && run.issue_id) {
         await issueApi.generate(run.issue_id);
       } else if (run.kind === 'ingest' && run.source_id) {
         await sourceApi.reindex(run.source_id);
-      } else if (run.kind === 'plan' && run.series_id) {
+      } else if ((run.kind === 'plan' || run.kind === 'generation') && !run.issue_id && run.series_id) {
         await seriesApi.generatePlan(run.series_id);
       }
       await loadRuns();
@@ -161,6 +172,7 @@ export default function RunCenterPage() {
           <option value="issue">Issues</option>
           <option value="ingest">Ingest</option>
           <option value="plan">Plans</option>
+          <option value="generation">Dead-lettered generations</option>
         </select>
         <select
           value={status}
@@ -208,6 +220,14 @@ export default function RunCenterPage() {
               ) : null}
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-stone-500">
                 <span>Updated {new Date(run.updated_at).toLocaleString()}</span>
+                {(run.tokens_in || run.tokens_out) ? (
+                  <span className="tabular-nums" title={`Model: ${run.model || 'unknown'}`}>
+                    {formatTokens(run.tokens_in, run.tokens_out)} tokens
+                  </span>
+                ) : null}
+                {run.model && (run.tokens_in || run.tokens_out) ? (
+                  <span className="text-xs">{run.model}</span>
+                ) : null}
                 {run.href ? (
                   <Link href={run.href} className="font-medium text-stone-800 underline">
                     Open

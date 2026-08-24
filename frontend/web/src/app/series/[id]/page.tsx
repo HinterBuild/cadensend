@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Send, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, Send, RefreshCw, Trash2, Pause, Play, Settings2 } from 'lucide-react';
 import { seriesApi, sourceApi, issueApi, modelsApi, OpenRouterModel } from '@/lib/api';
-import { Series, Issue, Source } from '@/types';
+import { Series, Issue, Source, RetrievedChunk } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 
@@ -21,6 +21,8 @@ const SOURCE_BUSY = new Set([
   'embedding',
   'indexing',
 ]);
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 function isIssueBusy(status?: string) {
   return status === 'generating';
@@ -56,6 +58,23 @@ function progressLabel(status: string) {
   }
 }
 
+// Render a scheduled time in the series' own timezone so "09:00" means
+// what the author intended regardless of where they travel.
+function formatInZone(value?: string | null, timezone?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: timezone || undefined,
+    }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
 export default function SeriesViewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -65,15 +84,17 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'issues' | 'sources' | 'plan'>('issues');
+  const [activeTab, setActiveTab] = useState<'issues' | 'sources' | 'plan' | 'context'>('issues');
   const [showIssueDialog, setShowIssueDialog] = useState(false);
   const [showSourceDialog, setShowSourceDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [issueObjective, setIssueObjective] = useState('');
   const [issueScheduledAt, setIssueScheduledAt] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [savingIssue, setSavingIssue] = useState(false);
   const [savingSource, setSavingSource] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [formError, setFormError] = useState('');
   const [planStatus, setPlanStatus] = useState<string>('');
   const [plan, setPlan] = useState<Record<string, any> | null>(null);
@@ -82,10 +103,27 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [deleting, setDeleting] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [testNotice, setTestNotice] = useState('');
+  const [testEmail, setTestEmail] = useState('');
   const [generationModel, setGenerationModel] = useState('');
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
   const [retryingIssueId, setRetryingIssueId] = useState<string | null>(null);
+
+  // Edit-settings dialog state
+  const [editTopic, setEditTopic] = useState('');
+  const [editGoal, setEditGoal] = useState('');
+  const [editLevel, setEditLevel] = useState('');
+  const [editTimezone, setTimezoneEdit] = useState('');
+  const [editCadence, setEditCadence] = useState('weekly');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editSendTime, setEditSendTime] = useState('09:00');
+  const [editSendDays, setEditSendDays] = useState<string[]>([]);
+
+  // Retrieval context preview state
+  const [contextQuery, setContextQuery] = useState('');
+  const [contextChunks, setContextChunks] = useState<RetrievedChunk[]>([]);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState('');
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -94,6 +132,19 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       loadSeriesData();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (series) {
+      setEditTopic(series.topic || '');
+      setEditGoal(series.goal || '');
+      setEditLevel(series.level || '');
+      setTimezoneEdit(series.timezone || 'UTC');
+      setEditCadence(series.cadence || 'weekly');
+      setEditStartDate(series.start_date || '');
+      setEditSendTime(series.send_time || '09:00');
+      setEditSendDays((series.send_days || '').split(',').map((d) => d.trim()).filter(Boolean));
+    }
+  }, [series]);
 
   useEffect(() => {
     if (user?.preferred_model) {
@@ -234,7 +285,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     try {
       const result = await seriesApi.testSend(
         id,
-        moduleIndex === undefined ? {} : { module_index: moduleIndex },
+        moduleIndex === undefined
+          ? testEmail.trim() ? { email: testEmail.trim() } : {}
+          : { module_index: moduleIndex },
       );
       const email = (result as { email?: string }).email || user?.email || 'your inbox';
       setTestNotice(`Test email sent to ${email}.`);
@@ -245,7 +298,81 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     }
   };
 
-  const handleTabChange = (tab: 'issues' | 'sources' | 'plan') => {
+  const handlePauseResume = async () => {
+    if (!series) return;
+    setError(null);
+    try {
+      if (series.status === 'active') {
+        await seriesApi.pause(id);
+        setSeries({ ...series, status: 'paused' });
+      } else {
+        await seriesApi.resume(id);
+        setSeries({ ...series, status: 'active' });
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to change series status');
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setFormError('');
+    try {
+      const response = await seriesApi.update(id, {
+        topic: editTopic.trim(),
+        goal: editGoal.trim(),
+        level: editLevel,
+        timezone: editTimezone,
+        cadence: editCadence,
+        start_date: editStartDate,
+        send_time: editSendTime,
+        send_days: editSendDays,
+      });
+      if (response.data) {
+        setSeries(response.data);
+      }
+      setShowEditDialog(false);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to update series');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleContextPreview = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const query = contextQuery.trim();
+    if (!query) {
+      setContextError('Type a question or objective to preview retrieval.');
+      return;
+    }
+    setContextLoading(true);
+    setContextError('');
+    try {
+      const response = await seriesApi.retrievalPreview(id, query, 8);
+      setContextChunks(response.results ?? []);
+      if ((response.results ?? []).length === 0) {
+        setContextError('No indexed content matched this query. Add or reindex sources.');
+      }
+    } catch (err: any) {
+      setContextError(err.message || 'Retrieval preview failed');
+      setContextChunks([]);
+    } finally {
+      setContextLoading(false);
+    }
+  };
+
+  // The next scheduled send across all issues of this series.
+  const nextIssue = issues
+    .filter((issue) => issue.scheduled_at && !['sent', 'failed'].includes(issue.status))
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0];
+
+  const nextSendLabel = nextIssue
+    ? formatInZone(nextIssue.scheduled_at, series?.timezone)
+    : '';
+
+  const handleTabChange = (tab: 'issues' | 'sources' | 'plan' | 'context') => {
     setActiveTab(tab);
     tabRefs.current[tab]?.focus();
   };
@@ -360,14 +487,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     { id: 'issues', label: 'Issues', busy: issuesBusy },
     { id: 'sources', label: 'Sources', busy: sourcesBusy },
     { id: 'plan', label: 'Curriculum Plan', busy: planStatus === 'generating' },
+    { id: 'context', label: 'Context Preview', busy: false },
   ] as const;
 
   return (
     <div className="min-h-full">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center space-x-4 min-w-0">
               <button
                 type="button"
                 aria-label="Back to Dashboard"
@@ -376,13 +504,23 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
-              <h1 className="text-2xl font-bold text-gray-900">{series?.topic}</h1>
+              <h1 className="text-2xl font-bold text-gray-900 truncate text-wrap:balance">{series?.topic}</h1>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {nextIssue && (
+                <span
+                  className="hidden md:inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800"
+                  title={`Next issue #${nextIssue.sequence_no} sends ${formatInZone(nextIssue.scheduled_at, series?.timezone)} (${series?.timezone})`}
+                >
+                  Next send: {nextSendLabel}
+                </span>
+              )}
               <span
                 className={`px-3 py-1 rounded-full text-sm font-medium ${
                   series?.status === 'active'
                     ? 'bg-green-100 text-green-800'
+                    : series?.status === 'paused'
+                    ? 'bg-yellow-100 text-yellow-800'
                     : series?.status === 'planned'
                     ? 'bg-yellow-100 text-yellow-800'
                     : 'bg-gray-100 text-gray-800'
@@ -391,6 +529,31 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               >
                 {series?.status}
               </span>
+              {(series?.status === 'active' || series?.status === 'paused') && (
+                <button
+                  type="button"
+                  onClick={handlePauseResume}
+                  aria-label={series?.status === 'active' ? 'Pause series' : 'Resume series'}
+                  title={series?.status === 'active' ? 'Pause scheduled sends' : 'Resume scheduled sends'}
+                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-stone-900"
+                >
+                  {series?.status === 'active'
+                    ? <Pause className="h-4 w-4" aria-hidden="true" />
+                    : <Play className="h-4 w-4" aria-hidden="true" />}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setFormError('');
+                  setShowEditDialog(true);
+                }}
+                aria-label="Edit series settings"
+                title="Edit topic, cadence, and schedule"
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-stone-900"
+              >
+                <Settings2 className="h-4 w-4" aria-hidden="true" />
+              </button>
               <button
                 type="button"
                 onClick={() => handleSendTest()}
@@ -400,6 +563,14 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                 <Send className="h-4 w-4" />
                 {sendingTest ? 'Sending…' : 'Send test email'}
               </button>
+              <input
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="test@you.com (optional)"
+                aria-label="Custom test email address"
+                className="hidden lg:block w-44 rounded-lg border border-gray-300 px-3 py-2 text-sm text-stone-900 bg-white placeholder:text-stone-400"
+              />
               <button
                 type="button"
                 aria-label="Delete series"
@@ -534,7 +705,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                       >
                         <h3 className="font-medium text-gray-900">#{issue.sequence_no} {issue.objective || ''}</h3>
                         <p className="text-sm text-gray-600">
-                          Scheduled: {issue.scheduled_at ? new Date(issue.scheduled_at).toLocaleString() : 'Not scheduled'}
+                          Scheduled: {issue.scheduled_at
+                            ? `${formatInZone(issue.scheduled_at, series?.timezone)} (${series?.timezone || 'UTC'})`
+                            : 'Not scheduled'}
                         </p>
                         {issue.status === 'failed' && issue.generate_error && (
                           <p className="mt-1 text-sm text-red-600">{issue.generate_error}</p>
@@ -650,31 +823,73 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               <div className="space-y-4">
                 {sources.map((source) => (
                   <div key={source.id} className="bg-white rounded-lg shadow p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium text-gray-900">{source.url || 'File source'}</h3>
-                        <p className="text-sm text-gray-600">{source.type}</p>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h3 className="truncate font-medium text-gray-900">{source.url || 'File source'}</h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">{source.type}</span>
+                          {source.scope === 'series' ? (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">This series only</span>
+                          ) : (
+                            <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">Whole workspace</span>
+                          )}
+                          {!isSourceBusy(source.status) && source.status !== 'failed' && (
+                            <span>
+                              {(source.chunk_count ?? 0) > 0
+                                ? `${source.chunk_count} indexed chunks`
+                                : source.duplicate_of
+                                ? 'Duplicate content'
+                                : ''}
+                            </span>
+                          )}
+                        </div>
                         {source.status === 'failed' && source.ingest_error && (
                           <p className="mt-1 text-sm text-red-600">{source.ingest_error}</p>
                         )}
-                      </div>
-                      <span
-                        className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
-                          source.status === 'ready'
-                            ? 'bg-green-100 text-green-800'
-                            : source.status === 'failed'
-                            ? 'bg-red-100 text-red-800'
-                            : isSourceBusy(source.status)
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}
-                        aria-label={`Source status: ${source.status}`}
-                      >
-                        {isSourceBusy(source.status) && (
-                          <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
+                        {source.duplicate_of && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Identical content was already ingested — this entry shares the same index and costs nothing extra.
+                          </p>
                         )}
-                        {progressLabel(source.status)}
-                      </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm(
+                              `Remove “${source.url || 'this file'}”? Future issue generation will no longer use it as context (already generated issues keep their citations).`,
+                            )) return;
+                            try {
+                              await sourceApi.delete(source.id);
+                              const sourcesRes = await seriesApi.getSources(id);
+                              setSources(sourcesRes.data ?? []);
+                            } catch (err: any) {
+                              setError(err.message || 'Failed to delete source');
+                            }
+                          }}
+                          aria-label={`Delete source ${source.url || ''}`}
+                          className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                        <span
+                          className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
+                            source.status === 'ready'
+                              ? 'bg-green-100 text-green-800'
+                              : source.status === 'failed'
+                              ? 'bg-red-100 text-red-800'
+                              : isSourceBusy(source.status)
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                          aria-label={`Source status: ${source.status}`}
+                        >
+                          {isSourceBusy(source.status) && (
+                            <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
+                          )}
+                          {progressLabel(source.status)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -798,7 +1013,189 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
         )}
+
+        {activeTab === 'context' && (
+          <div
+            id="context-panel"
+            role="tabpanel"
+            aria-labelledby="tab-context"
+            tabIndex={0}
+          >
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="font-display text-xl text-stone-900">What will the AI read?</h2>
+              <p className="mt-1 mb-5 text-sm text-gray-600">
+                Ask a question like the objective of your next issue. You'll see exactly which source
+                chunks generation would retrieve as context.
+              </p>
+              <form onSubmit={handleContextPreview} className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  type="text"
+                  value={contextQuery}
+                  onChange={(e) => setContextQuery(e.target.value)}
+                  placeholder="e.g. How does continuous batching work?"
+                  aria-label="Retrieval test query"
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-stone-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent"
+                />
+                <button
+                  type="submit"
+                  disabled={contextLoading}
+                  className="inline-flex items-center justify-center rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+                >
+                  {contextLoading ? 'Searching…' : 'Preview retrieval'}
+                </button>
+              </form>
+
+              {contextError && (
+                <p role="alert" className="mt-4 text-sm text-red-600">{contextError}</p>
+              )}
+
+              {contextChunks.length > 0 && (
+                <ul className="mt-6 space-y-3">
+                  {contextChunks.map((chunk, index) => (
+                    <li key={`${chunk.source_id}-${index}`} className="rounded-xl border border-[#e7e0d6] bg-[#faf8f5] p-4">
+                      <div className="mb-1 flex items-center justify-between gap-3 text-xs text-stone-500">
+                        <span className="truncate">{(chunk.heading_path || []).join(' › ') || 'Chunk'}</span>
+                        <span className="shrink-0 tabular-nums">score {Number(chunk.score).toFixed(3)}</span>
+                      </div>
+                      <p className="text-sm leading-relaxed text-stone-800">{chunk.preview}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {showEditDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <form
+            onSubmit={handleSaveSettings}
+            className="bg-white rounded-lg p-8 w-full max-w-md max-h-[90vh] overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-series-title"
+          >
+            <h3 id="edit-series-title" className="text-lg font-semibold mb-4">Series settings</h3>
+            {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
+
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-topic">Topic</label>
+            <input
+              id="edit-topic" type="text" value={editTopic}
+              onChange={(e) => setEditTopic(e.target.value)} required
+              className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+            />
+
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-goal">Goal</label>
+            <textarea
+              id="edit-goal" value={editGoal} rows={3}
+              onChange={(e) => setEditGoal(e.target.value)} required
+              className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+            />
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-level">Level</label>
+                <select
+                  id="edit-level" value={editLevel}
+                  onChange={(e) => setEditLevel(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                >
+                  <option value="">Unspecified</option>
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-cadence">Cadence</label>
+                <select
+                  id="edit-cadence" value={editCadence}
+                  onChange={(e) => setEditCadence(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Bi-weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-start-date">Start date</label>
+                <input
+                  id="edit-start-date" type="date" value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-send-time">Send time</label>
+                <input
+                  id="edit-send-time" type="time" value={editSendTime}
+                  onChange={(e) => setEditSendTime(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                />
+              </div>
+            </div>
+
+            <fieldset className="mb-4">
+              <legend className="block text-sm font-medium text-gray-700 mb-2">Send days (weekly cadence)</legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {WEEKDAYS.map((day) => (
+                  <label key={day} className="flex items-center gap-1.5 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={editSendDays.includes(day)}
+                      onChange={(e) =>
+                        setEditSendDays((current) =>
+                          e.target.checked ? [...current, day] : current.filter((d) => d !== day),
+                        )
+                      }
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    {day.slice(0, 3)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-timezone">Timezone</label>
+            <select
+              id="edit-timezone" value={editTimezone}
+              onChange={(e) => setTimezoneEdit(e.target.value)}
+              className="w-full mb-6 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+            >
+              {['UTC', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney'].map((tz) => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+            </select>
+
+            <p className="mb-4 text-xs text-gray-500">
+              Changes apply to future scheduling; already-scheduled sends keep their times unless you reschedule them.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setShowEditDialog(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingSettings}
+                className="px-4 py-2 bg-stone-900 text-white rounded-lg disabled:opacity-50"
+              >
+                {savingSettings ? 'Saving…' : 'Save settings'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {showIssueDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
