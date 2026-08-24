@@ -106,6 +106,12 @@ func EnsureAppSchema() error {
 		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS series_id UUID`,
 		`CREATE INDEX IF NOT EXISTS idx_sources_series ON sources(series_id)`,
 		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS ingest_error TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS duplicate_of UUID`,
+		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS chunk_count INTEGER NOT NULL DEFAULT 0`,
+		`CREATE INDEX IF NOT EXISTS idx_sources_content_hash ON sources(workspace_id, content_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_schedules_issue ON schedules(issue_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deliveries_recipient_status ON deliveries(recipient_id, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_deliveries_issue_status ON deliveries(issue_id, status)`,
 		`ALTER TABLE issues ADD COLUMN IF NOT EXISTS content_json JSONB`,
 		`ALTER TABLE issues ADD COLUMN IF NOT EXISTS generate_error TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE series ADD COLUMN IF NOT EXISTS plan_status VARCHAR(50) NOT NULL DEFAULT ''`,
@@ -117,6 +123,11 @@ func EnsureAppSchema() error {
 		`ALTER TABLE series ADD COLUMN IF NOT EXISTS send_days TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE series ADD COLUMN IF NOT EXISTS manual_approval BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_model TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE recipients ADD COLUMN IF NOT EXISTS suppressed BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE recipients ADD COLUMN IF NOT EXISTS suppression_reason VARCHAR(50) NOT NULL DEFAULT ''`,
+		`ALTER TABLE recipients ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE`,
+		`ALTER TABLE generation_runs ADD COLUMN IF NOT EXISTS error_msg TEXT NOT NULL DEFAULT ''`,
 	}
 
 	for _, stmt := range statements {

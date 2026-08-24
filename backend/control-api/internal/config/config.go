@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -38,6 +39,12 @@ type Config struct {
 	SMTPFromName  string
 	BrevoAPIKey   string
 	BrevoAPIURL   string
+
+	FrontendOrigin string
+
+	WebhookSecret string
+
+	AIAPIURL string
 
 	// JWT settings
 	JWTSecret    string
@@ -75,6 +82,9 @@ func LoadConfig() *Config {
 		SMTPFromName:       getEnv("SMTP_FROM_NAME", ""),
 		BrevoAPIKey:        getEnv("BREVO_API_KEY", ""),
 		BrevoAPIURL:        getEnv("BREVO_API_URL", ""),
+		FrontendOrigin:     strings.TrimRight(getEnv("FRONTEND_ORIGIN", "http://localhost:3000"), "/"),
+		WebhookSecret:      getEnv("WEBHOOK_SECRET", ""),
+		AIAPIURL:           strings.TrimRight(getEnv("AI_API_URL", "http://localhost:8000"), "/"),
 		JWTSecret:          getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTAlgorithm:       getEnv("JWT_ALGORITHM", "HS256"),
 		JWTExpiry:          time.Hour * 24,
