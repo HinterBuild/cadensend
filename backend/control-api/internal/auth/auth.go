@@ -19,6 +19,7 @@ type Claims struct {
     WorkspaceID string `json:"workspace_id"`
     Email       string `json:"email"`
     Role        string `json:"role"`
+    TokenVersion int   `json:"tok_ver,omitempty"`
     jwt.RegisteredClaims
 }
 
@@ -72,13 +73,15 @@ func AuthenticateUser(user *User, password string) error {
     return nil
 }
 
-// GenerateJWT creates a JWT token
-func GenerateJWT(user *User, secret string, expiry time.Duration) (string, error) {
+// GenerateJWT creates a JWT token. tokenVersion enables session revocation:
+// bumping the stored version invalidates every token issued before it.
+func GenerateJWT(user *User, secret string, expiry time.Duration, tokenVersion int) (string, error) {
     claims := &Claims{
-        UserID:      user.ID,
-        WorkspaceID: user.WorkspaceID,
-        Email:       user.Email,
-        Role:        "user",
+        UserID:       user.ID,
+        WorkspaceID:  user.WorkspaceID,
+        Email:        user.Email,
+        Role:         "user",
+        TokenVersion: tokenVersion,
         RegisteredClaims: jwt.RegisteredClaims{
             IssuedAt:  jwt.NewNumericDate(time.Now()),
             ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),

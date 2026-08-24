@@ -46,8 +46,7 @@ func TestFormatLessonHTMLUnfencedCodeAndCalls(t *testing.T) {
 		t.Fatalf("expected unfenced class as code block, got %s", html)
 	}
 }
-func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {
-	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
+func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
 		"subject":   "Deployments",
 		"preheader": "Keep pods alive",
 		"content_blocks": []any{
@@ -66,5 +65,74 @@ func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {
 	}
 	if !strings.Contains(body, "Why Deployments?") {
 		t.Fatalf("expected heading, got %s", body)
+	}
+}
+
+func TestRenderIssueHTMLRendersCitations(t *testing.T) {
+	content := map[string]any{
+		"subject":   "Grounded issue",
+		"preheader": "with sources",
+		"content_blocks": []any{
+			map[string]any{
+				"title": "Body",
+				"text":  "Deployments manage ReplicaSets.",
+				"citations": []any{
+					map[string]any{"source_id": "src-1", "text": "A Deployment provides declarative updates for Pods."},
+				},
+			},
+		},
+	}
+	refs := map[string]SourceRef{
+		"src-1": {Label: "https://kubernetes.io/docs/deployments", URL: "https://kubernetes.io/docs/deployments"},
+	}
+	subject, body := RenderIssueHTML("K8s course", "learn deploys", content, false, refs, "")
+	if subject != "Grounded issue" {
+		t.Fatalf("unexpected subject %q", subject)
+	}
+	if !strings.Contains(body, ">Sources<") {
+		t.Fatalf("expected citations footer, got %s", body)
+	}
+	if !strings.Contains(body, `href="https://kubernetes.io/docs/deployments"`) {
+		t.Fatalf("expected citation link, got %s", body)
+	}
+	if !strings.Contains(body, "declarative updates") {
+		t.Fatalf("expected citation snippet, got %s", body)
+	}
+}
+
+func TestRenderIssueHTMLSubscriberGetsUnsubscribeFooter(t *testing.T) {
+	content := map[string]any{
+		"subject":        "Hello",
+		"content_blocks": []any{map[string]any{"text": "Hi there."}},
+	}
+	_, real := RenderIssueHTML("Topic", "goal", content, false, nil, "https://app.example.com/unsub")
+	if !strings.Contains(real, "https://app.example.com/unsub") || !strings.Contains(real, "Unsubscribe") {
+		t.Fatalf("expected unsubscribe link on a subscriber send, got %s", real)
+	}
+	if strings.Contains(real, "TEST EMAIL") {
+		t.Fatalf("subscriber send must not carry the test banner: %s", real)
+	}
+
+	_, test := RenderIssueHTML("Topic", "goal", content, true, nil, "")
+	if strings.Contains(test, "Unsubscribe</a>") && !strings.Contains(test, "TEST EMAIL") {
+		t.Fatalf("test render should keep the test banner and no forced unsub: %s", test)
+	}
+}
+
+func TestCitationsWithoutRefsStillRenderSnippet(t *testing.T) {
+	content := map[string]any{
+		"subject": "S",
+		"content_blocks": []any{
+			map[string]any{
+				"text": "Body text.",
+				"citations": []any{
+					map[string]any{"source_id": "abc123", "text": "quoted fact"},
+				},
+			},
+		},
+	}
+	_, body := RenderIssueHTML("T", "g", content, true)
+	if !strings.Contains(body, "abc123") || !strings.Contains(body, "quoted fact") {
+		t.Fatalf("expected fallback citation rendering, got %s", body)
 	}
 }

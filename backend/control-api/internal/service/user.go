@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +27,7 @@ type User struct {
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" gorm:"index"`
 	EmailVerified  bool       `json:"email_verified" gorm:"not null"`
 	PreferredModel string     `json:"preferred_model" gorm:"column:preferred_model"`
+	TokenVersion   int        `json:"-" gorm:"not null;default:1"`
 }
 
 // MagicLinkToken model
@@ -106,6 +108,8 @@ type Source struct {
 	IngestError      string     `json:"ingest_error"`
 	CurrentVersionID string     `json:"current_version_id"`
 	ContentHash      string     `json:"content_hash"`
+	DuplicateOf      string     `json:"duplicate_of,omitempty"`
+	ChunkCount       int        `json:"chunk_count" gorm:"not null;default:0"`
 	CreatedBy        string     `json:"created_by" gorm:"not null"`
 	CreatedAt        time.Time  `json:"created_at" gorm:"not null"`
 	UpdatedAt        time.Time  `json:"updated_at" gorm:"not null"`
@@ -150,13 +154,61 @@ type Delivery struct {
 
 // Recipient model for database
 type Recipient struct {
-	ID          string    `json:"id" gorm:"primarykey"`
-	WorkspaceID string    `json:"workspace_id" gorm:"not null"`
-	Email       string    `json:"email" gorm:"not null"`
-	Verified    bool      `json:"verified" gorm:"not null;default:false"`
-	CreatedAt   time.Time `json:"created_at" gorm:"not null"`
-	UpdatedAt   time.Time `json:"updated_at" gorm:"not null"`
+	ID                string     `json:"id" gorm:"primarykey"`
+	WorkspaceID       string     `json:"workspace_id" gorm:"not null"`
+	Email             string     `json:"email" gorm:"not null"`
+	Verified          bool       `json:"verified" gorm:"not null;default:false"`
+	Suppressed        bool       `json:"suppressed" gorm:"not null;default:false"`
+	SuppressionReason string     `json:"suppression_reason" gorm:"not null;default:''"`
+	VerifiedAt        *time.Time `json:"verified_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at" gorm:"not null"`
+	UpdatedAt         time.Time  `json:"updated_at" gorm:"not null"`
 }
+
+// PasswordResetToken is a single-use token emailed for password resets.
+type PasswordResetToken struct {
+	Token     string     `gorm:"primarykey"`
+	UserID    string     `gorm:"not null"`
+	ExpiresAt time.Time  `gorm:"not null"`
+	UsedAt    *time.Time
+	CreatedAt time.Time  `gorm:"not null"`
+}
+
+// AuditLog records destructive or security-relevant actions.
+type AuditLog struct {
+	ID           string    `gorm:"primarykey"`
+	ActorID      string    `gorm:"not null"`
+	Action       string    `gorm:"not null"`
+	TargetType   string    `gorm:"not null"`
+	TargetID     string    `gorm:"not null"`
+	MetadataJSON string    `gorm:"column:metadata_json;type:jsonb;not null"`
+	Timestamp    time.Time `gorm:"not null"`
+	SessionID    string
+	IPAddress    string
+}
+
+func (AuditLog) TableName() string { return "audit_logs" }
+
+// GenerationRun tracks one LLM execution with its token usage and cost.
+type GenerationRun struct {
+	ID           string     `gorm:"primarykey"`
+	TargetID     string     `gorm:"not null"`
+	TargetType   string     `gorm:"not null"`
+	Status       string     `gorm:"not null"`
+	Model        string     `gorm:"not null"`
+	TokensIn     int64      `gorm:"not null;default:0"`
+	TokensOut    int64      `gorm:"not null;default:0"`
+	CostUSD      float64    `gorm:"column:cost_usd;not null;default:0"`
+	PromptVersion string
+	ErrorCode    string
+	ErrorMsg     string
+	CreatedBy    string     `gorm:"not null"`
+	CreatedAt    time.Time  `gorm:"not null"`
+	UpdatedAt    time.Time  `gorm:"not null"`
+	CompletedAt  *time.Time
+}
+
+func (GenerationRun) TableName() string { return "generation_runs" }
 
 // UserService provides user business logic
 type UserService struct {
@@ -226,7 +278,7 @@ func (s *UserService) AuthenticateUser(email, password string) (*User, string, e
 		Timezone:    user.Timezone,
 		Status:      user.Status,
 		WorkspaceID: user.WorkspaceID,
-	}, s.jwtSecret, s.jwtExpiry)
+	}, s.jwtSecret, s.jwtExpiry, user.TokenVersion)
 
 	if err != nil {
 		return nil, "", err
@@ -252,7 +304,7 @@ func (s *UserService) AuthenticateUserByID(userID string) (*User, string, error)
 		Timezone:    user.Timezone,
 		Status:      user.Status,
 		WorkspaceID: user.WorkspaceID,
-	}, s.jwtSecret, s.jwtExpiry)
+	}, s.jwtSecret, s.jwtExpiry, user.TokenVersion)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
 	}
@@ -303,16 +355,6 @@ func (s *UserService) ValidateMagicLink(token string) (string, error) {
 	}
 
 	return magicLink.UserID, nil
-}
-
-// VerifyMagicLink validates a magic link token and returns the user with a JWT
-func (s *UserService) VerifyMagicLink(token string) (*User, string, error) {
-	userID, err := s.ValidateMagicLink(token)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return s.AuthenticateUserByID(userID)
 }
 
 // GetUser retrieves a user by ID
@@ -390,4 +432,138 @@ func (s *UserService) ChangePassword(userID, currentPassword, newPassword string
 // DeleteUser soft deletes a user
 func (s *UserService) DeleteUser(userID string) error {
 	return s.db.Model(&User{}).Where("id = ?", userID).Update("deleted_at", time.Now()).Error
+}
+
+// BumpTokenVersion invalidates every previously issued JWT for the user.
+func (s *UserService) BumpTokenVersion(userID string) error {
+	return s.db.Model(&User{}).Where("id = ?", userID).
+		Update("token_version", gorm.Expr("token_version + 1")).Error
+}
+
+// TokenVersion returns the current JWT generation for a user (0 if unknown).
+func (s *UserService) TokenVersion(userID string) int {
+	var v int
+	if err := s.db.Model(&User{}).Select("token_version").
+		Where("id = ? AND deleted_at IS NULL", userID).Scan(&v).Error; err != nil {
+		return 0
+	}
+	return v
+}
+
+// VerifyMagicLink validates a magic link token and returns the user with a JWT.
+// The token is consumed on first use and the user's email is marked verified.
+func (s *UserService) VerifyMagicLink(token string) (*User, string, error) {
+	userID, err := s.ValidateMagicLink(token)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Consume: single use.
+	if err := s.db.Where("token = ?", token).Delete(&MagicLinkToken{}).Error; err != nil {
+		return nil, "", fmt.Errorf("failed to consume magic link: %w", err)
+	}
+
+	if err := s.UpdateUserEmailVerified(userID); err != nil {
+		return nil, "", err
+	}
+
+	return s.AuthenticateUserByID(userID)
+}
+
+// CleanupExpiredTokens removes stale magic-link and password-reset tokens.
+func (s *UserService) CleanupExpiredTokens() {
+	now := time.Now()
+	s.db.Where("expires_at < ?", now.Add(-24*time.Hour)).Delete(&MagicLinkToken{})
+	s.db.Where("expires_at < ?", now.Add(-7*24*time.Hour)).Delete(&PasswordResetToken{})
+}
+
+// RequestPasswordReset creates a single-use reset token for the email.
+// Returns an empty token when the account does not exist so callers can
+// respond identically without leaking account existence.
+func (s *UserService) RequestPasswordReset(email string) (string, *User, error) {
+	var user User
+	if err := s.db.Where("email = ? AND deleted_at IS NULL", strings.ToLower(strings.TrimSpace(email))).First(&user).Error; err != nil {
+		return "", nil, nil
+	}
+
+	token, err := auth.GenerateMagicLink()
+	if err != nil {
+		return "", nil, err
+	}
+
+	reset := &PasswordResetToken{
+		Token:     token,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour),
+		CreatedAt: time.Now(),
+	}
+	if err := s.db.Create(reset).Error; err != nil {
+		return "", nil, fmt.Errorf("failed to store reset token: %w", err)
+	}
+	return token, &user, nil
+}
+
+// ResetPassword consumes a reset token and sets a new password.
+func (s *UserService) ResetPassword(token, newPassword string) error {
+	var reset PasswordResetToken
+	now := time.Now()
+	if err := s.db.Where("token = ? AND expires_at > ? AND used_at IS NULL", token, now).
+		First(&reset).Error; err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&User{}).Where("id = ?", reset.UserID).
+			Updates(map[string]interface{}{
+				"password_hash": string(hash),
+				"updated_at":    now,
+			}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&PasswordResetToken{}).Where("token = ?", token).
+			Update("used_at", now).Error; err != nil {
+			return err
+		}
+		// Invalidate existing sessions after a credential change.
+		return tx.Model(&User{}).Where("id = ?", reset.UserID).
+			Update("token_version", gorm.Expr("token_version + 1")).Error
+	})
+}
+
+// CreateRecipient adds a recipient to the workspace unless it already exists.
+func (s *UserService) CreateRecipient(workspaceID, email string) (*Recipient, bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var existing Recipient
+	if err := s.db.Where("workspace_id = ? AND email = ?", workspaceID, email).First(&existing).Error; err == nil {
+		return &existing, false, nil
+	}
+	rcpt := &Recipient{
+		ID:          uuid.NewString(),
+		WorkspaceID: workspaceID,
+		Email:       email,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	if err := s.db.Create(rcpt).Error; err != nil {
+		return nil, false, err
+	}
+	return rcpt, true, nil
+}
+
+// ListRecipients returns every recipient in the workspace.
+func (s *UserService) ListRecipients(workspaceID string) ([]Recipient, error) {
+	var out []Recipient
+	err := s.db.Where("workspace_id = ?", workspaceID).Order("created_at ASC").Find(&out).Error
+	return out, err
+}
+
+// DeleteRecipient removes a workspace recipient.
+func (s *UserService) DeleteRecipient(workspaceID, recipientID string) error {
+	return s.db.Where("id = ? AND workspace_id = ?", recipientID, workspaceID).
+		Delete(&Recipient{}).Error
 }
