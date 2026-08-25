@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Upload, Link2, FileText, X } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
+import { InjectionBadge } from '@/components/InjectionBadge';
 import type { Source } from '@/types';
 
 type ChunkPreview = { chunk_index: number; title?: string; heading_path: string[]; preview: string };
@@ -188,6 +189,9 @@ export default function SourcesPage() {
                         <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Series-only</span>
                       ) : (
                         <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">Workspace-wide</span>
+                      )}
+                      {source.injection_status === 'flagged' && (
+                        <InjectionBadge status={source.injection_status} findings={source.injection_findings} />
                       )}
                       {!['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) &&
                         source.status !== 'failed' && (

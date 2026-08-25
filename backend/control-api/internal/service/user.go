@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -98,22 +99,24 @@ type Issue struct {
 
 // Source model for database
 type Source struct {
-	ID               string     `json:"id" gorm:"primarykey"`
-	WorkspaceID      string     `json:"workspace_id" gorm:"not null"`
-	Scope            string     `json:"scope" gorm:"not null"`
-	Type             string     `json:"type" gorm:"not null"`
-	URL              string     `json:"url"`
-	SeriesID         string     `json:"series_id"`
-	Status           string     `json:"status" gorm:"not null"`
-	IngestError      string     `json:"ingest_error"`
-	CurrentVersionID string     `json:"current_version_id"`
-	ContentHash      string     `json:"content_hash"`
-	DuplicateOf      string     `json:"duplicate_of,omitempty"`
-	ChunkCount       int        `json:"chunk_count" gorm:"not null;default:0"`
-	CreatedBy        string     `json:"created_by" gorm:"not null"`
-	CreatedAt        time.Time  `json:"created_at" gorm:"not null"`
-	UpdatedAt        time.Time  `json:"updated_at" gorm:"not null"`
-	DeletedAt        *time.Time `json:"deleted_at,omitempty" gorm:"index"`
+	ID                string          `json:"id" gorm:"primarykey"`
+	WorkspaceID       string          `json:"workspace_id" gorm:"not null"`
+	Scope             string          `json:"scope" gorm:"not null"`
+	Type              string          `json:"type" gorm:"not null"`
+	URL               string          `json:"url"`
+	SeriesID          string          `json:"series_id"`
+	Status            string          `json:"status" gorm:"not null"`
+	IngestError       string          `json:"ingest_error"`
+	CurrentVersionID  string          `json:"current_version_id"`
+	ContentHash       string          `json:"content_hash"`
+	DuplicateOf       string          `json:"duplicate_of,omitempty"`
+	ChunkCount        int             `json:"chunk_count" gorm:"not null;default:0"`
+	InjectionStatus   string          `json:"injection_status" gorm:"not null;default:'clean'"`
+	InjectionFindings json.RawMessage `json:"injection_findings,omitempty" gorm:"column:injection_findings;type:jsonb"`
+	CreatedBy         string          `json:"created_by" gorm:"not null"`
+	CreatedAt         time.Time       `json:"created_at" gorm:"not null"`
+	UpdatedAt         time.Time       `json:"updated_at" gorm:"not null"`
+	DeletedAt         *time.Time      `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 // Schedule model for database
