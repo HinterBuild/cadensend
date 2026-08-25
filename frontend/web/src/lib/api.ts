@@ -213,6 +213,11 @@ export const issueApi = {
       method: 'POST',
     }),
 
+  cancelGeneration: (id: string) =>
+    fetchApi<{ data: Issue; message: string }>(`/issues/${id}/cancel-generation`, {
+      method: 'POST',
+    }),
+
   versions: (id: string) =>
     fetchApi<{ data: IssueVersion[] }>(`/issues/${id}/versions`),
 

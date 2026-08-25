@@ -241,6 +241,19 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     }
   };
 
+  const cancelGeneration = async () => {
+    if (!id) return;
+    if (!window.confirm('Stop generating this issue? Any progress is discarded.')) return;
+    setError(null);
+    try {
+      await issueApi.cancelGeneration(id);
+      await loadIssue();
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel generation');
+      await loadIssue();
+    }
+  };
+
   const sendTestEmail = async () => {
     if (!id) return;
     setSendingTest(true);
@@ -466,10 +479,19 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
           <div className="mb-6 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
             <div className="flex items-center gap-3">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-700" aria-hidden="true"></div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-medium text-yellow-900">Generating issue content</p>
                 <p className="text-sm text-yellow-800">The backend is working on this. You can leave this page and come back.</p>
               </div>
+              <button
+                type="button"
+                onClick={cancelGeneration}
+                aria-label="Stop generating this issue"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-yellow-300 bg-white px-3 py-2 text-sm font-medium text-yellow-900 hover:bg-yellow-100"
+              >
+                <Ban className="h-4 w-4" aria-hidden="true" />
+                Cancel generation
+              </button>
             </div>
           </div>
         )}
