@@ -56,6 +56,12 @@ def test_react_toolset_includes_must_have_tools():
         "get_issue_history",
         "validate_plan",
         "analyze_retrieval_coverage",
+        "generate_glossary",
+        "generate_examples",
+        "generate_analogies",
+        "generate_counterexamples",
+        "generate_case_study",
+        "generate_scenarios",
     }
 
 
@@ -137,3 +143,18 @@ def test_coverage_report_requires_min_score():
     strong = coverage_report([{"score": 0.8, "source_id": "s"}], min_score=0.25)
     assert weak["grounded"] is False
     assert strong["grounded"] is True
+
+
+def test_learning_aid_tools_return_structured_json():
+    models = Mock()
+    models.generate_text.return_value = (
+        '{"examples":[{"title":"Example 1","example":"A concrete case.","why_it_helps":"It grounds the idea."},'
+        '{"title":"Example 2","example":"Another case.","why_it_helps":"It broadens the concept."}]}'
+    )
+    box = NewsletterTools(model_service=models, catalog=FakeCatalog())
+    result = box.generate_examples("vector databases", audience_level="beginner", count=1)
+    assert result["examples"][0]["title"] == "Example 1"
+    assert len(result["examples"]) == 1
+    prompt = models.generate_text.call_args.args[0][1]["content"]
+    assert "Task: generate examples." in prompt
+    assert "vector databases" in prompt

@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
+
+import { defaultIssuePresentation, issuePresentationFonts, mermaidThemeForPresentation } from "@/lib/emailPresentation";
+import type { IssuePresentation } from "@/types";
 
 const FENCE = /```([a-zA-Z0-9_-]*)\s*\n([\s\S]*?)```/g;
 
@@ -32,7 +35,36 @@ function inlineFormat(text: string) {
   return html;
 }
 
-function MermaidBlock({ source }: { source: string }) {
+function diagramFrameStyle(presentation: IssuePresentation): CSSProperties {
+  const base: CSSProperties = {
+    borderRadius: presentation.diagram_style === "shadow" ? "16px" : "12px",
+    borderColor: presentation.border_color,
+    backgroundColor: presentation.surface_color,
+  };
+  if (presentation.diagram_style === "outline") {
+    return {
+      ...base,
+      borderWidth: "2px",
+      borderStyle: "solid",
+      boxShadow: "none",
+    };
+  }
+  if (presentation.diagram_style === "shadow") {
+    return {
+      ...base,
+      borderWidth: "1px",
+      borderStyle: "solid",
+      boxShadow: "0 16px 40px rgba(15, 23, 42, 0.10)",
+    };
+  }
+  return {
+    ...base,
+    borderWidth: "1px",
+    borderStyle: "solid",
+  };
+}
+
+function MermaidBlock({ source, presentation }: { source: string; presentation: IssuePresentation }) {
   const reactId = useId().replace(/:/g, "");
   const [svg, setSvg] = useState("");
   const [failed, setFailed] = useState(false);
@@ -45,7 +77,7 @@ function MermaidBlock({ source }: { source: string }) {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: "neutral",
+          theme: mermaidThemeForPresentation(presentation),
         });
         const { svg: rendered } = await mermaid.render(`diagram-${reactId}`, source.trim());
         if (!cancelled) {
@@ -59,22 +91,59 @@ function MermaidBlock({ source }: { source: string }) {
     return () => {
       cancelled = true;
     };
-  }, [reactId, source]);
+  }, [presentation, reactId, source]);
 
   if (failed) {
     return (
-      <pre className="overflow-x-auto bg-stone-900 px-3 py-3 font-mono text-[13px] text-stone-100 whitespace-pre-wrap">
+      <pre className="overflow-x-auto rounded-lg bg-stone-900 px-3 py-3 font-mono text-[13px] text-stone-100 whitespace-pre-wrap">
         {source}
       </pre>
     );
   }
   if (!svg) {
-    return <p className="text-sm text-stone-500">Rendering diagram…</p>;
+    return <p className="text-sm" style={{ color: presentation.muted_color }}>Rendering diagram…</p>;
   }
   return <div className="overflow-x-auto [&_svg]:h-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
-export function LessonPreview({ text }: { text: string }) {
+function DiagramPreview({
+  kind,
+  source,
+  altText,
+  presentation,
+}: {
+  kind?: string;
+  source: string;
+  altText?: string;
+  presentation: IssuePresentation;
+}) {
+  const label = altText || (kind === "d2" ? "D2 diagram" : "Diagram");
+  return (
+    <figure className="p-3" style={diagramFrameStyle(presentation)}>
+      <figcaption
+        className="mb-2 text-[11px] uppercase tracking-wider"
+        style={{ color: presentation.muted_color }}
+      >
+        {label}
+      </figcaption>
+      {kind === "d2" ? (
+        <pre className="overflow-x-auto rounded-lg bg-stone-900 px-3 py-3 font-mono text-[13px] text-stone-100 whitespace-pre-wrap">
+          {source}
+        </pre>
+      ) : (
+        <MermaidBlock source={source} presentation={presentation} />
+      )}
+    </figure>
+  );
+}
+
+export function LessonPreview({
+  text,
+  presentation = defaultIssuePresentation(),
+}: {
+  text: string;
+  presentation?: IssuePresentation;
+}) {
   const parts: Array<{ type: "md" | "code" | "diagram"; lang?: string; body: string }> = [];
   let last = 0;
   const source = text.replace(/\r\n/g, "\n");
@@ -97,7 +166,7 @@ export function LessonPreview({ text }: { text: string }) {
   }
 
   return (
-    <div className="space-y-3 text-sm leading-relaxed text-stone-700">
+    <div className="space-y-3 text-sm leading-relaxed" style={{ color: presentation.text_color }}>
       {parts.map((part, i) => {
         if (part.type === "code") {
           const label = ["shell", "sh", "zsh", "console"].includes(part.lang || "") ? "bash" : part.lang;
@@ -114,10 +183,12 @@ export function LessonPreview({ text }: { text: string }) {
         }
         if (part.type === "diagram") {
           return (
-            <figure key={i} className="rounded-xl border border-stone-200 bg-white p-3">
-              <figcaption className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">Diagram</figcaption>
-              <MermaidBlock source={part.body} />
-            </figure>
+            <DiagramPreview
+              key={i}
+              kind={part.lang}
+              source={part.body}
+              presentation={presentation}
+            />
           );
         }
         return part.body.trim().split("\n\n").map((para, j) => {
@@ -146,6 +217,7 @@ export function EmailPreview({
   preheader,
   blocks,
   visuals = [],
+  presentation = defaultIssuePresentation(),
 }: {
   subject: string;
   preheader: string;
@@ -155,22 +227,42 @@ export function EmailPreview({
     citations?: Array<{ source_id?: string; text?: string }>;
   }>;
   visuals?: Array<{ type?: string; content?: string; alt_text?: string }>;
+  presentation?: IssuePresentation;
 }) {
+  const fonts = issuePresentationFonts(presentation);
   const bodyHasDiagram = blocks.some((block) => /```(mermaid|d2)\b/i.test(block.text));
   return (
-    <article className="rounded-xl border border-stone-200 bg-[#fffaf3] p-6">
-      <p className="text-[11px] uppercase tracking-wider text-stone-500">Email preview</p>
-      <h2 className="mt-1 font-serif text-2xl text-stone-900">{subject || "Untitled"}</h2>
-      {preheader ? <p className="mt-1 text-sm text-stone-500">{preheader}</p> : null}
-      <div className="mt-5 space-y-6">
+    <article
+      className="rounded-xl border p-6"
+      style={{
+        backgroundColor: presentation.surface_color,
+        borderColor: presentation.border_color,
+        color: presentation.text_color,
+        boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+      }}
+    >
+      <p className="text-[11px] uppercase tracking-wider" style={{ color: presentation.muted_color }}>
+        Email preview
+      </p>
+      <h2 className="mt-1 text-2xl" style={{ color: presentation.text_color, fontFamily: fonts.heading }}>
+        {subject || "Untitled"}
+      </h2>
+      {preheader ? <p className="mt-1 text-sm" style={{ color: presentation.muted_color, fontFamily: fonts.body }}>{preheader}</p> : null}
+      <div className="mt-5 space-y-6" style={{ fontFamily: fonts.body }}>
         {blocks.map((block, idx) => (
           <section key={idx}>
-            {block.title ? <h3 className="mb-2 font-semibold text-stone-800">{block.title}</h3> : null}
-            <LessonPreview text={block.text} />
+            {block.title ? (
+              <h3 className="mb-2 text-base font-semibold" style={{ color: presentation.text_color, fontFamily: fonts.heading }}>
+                {block.title}
+              </h3>
+            ) : null}
+            <LessonPreview text={block.text} presentation={presentation} />
             {block.citations && block.citations.length > 0 ? (
-              <div className="mt-3 border-t border-dashed border-stone-300 pt-2">
-                <p className="mb-1 text-[11px] uppercase tracking-wider text-stone-500">Sources</p>
-                <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-stone-600">
+              <div className="mt-3 border-t border-dashed pt-2" style={{ borderColor: presentation.border_color }}>
+                <p className="mb-1 text-[11px] uppercase tracking-wider" style={{ color: presentation.muted_color }}>
+                  Sources
+                </p>
+                <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed" style={{ color: presentation.muted_color }}>
                   {block.citations.map((citation, citIdx) => (
                     <li key={citIdx}>
                       <span className="font-mono text-[11px]">{citation.source_id?.slice(0, 8)}</span>
@@ -186,12 +278,13 @@ export function EmailPreview({
           visuals
             .filter((visual) => visual.content)
             .map((visual, idx) => (
-              <figure key={`visual-${idx}`} className="rounded-xl border border-stone-200 bg-white p-3">
-                <figcaption className="mb-2 text-[11px] uppercase tracking-wider text-stone-500">
-                  {visual.alt_text || "Diagram"}
-                </figcaption>
-                <MermaidBlock source={visual.content || ""} />
-              </figure>
+              <DiagramPreview
+                key={`visual-${idx}`}
+                kind={visual.type}
+                source={visual.content || ""}
+                altText={visual.alt_text}
+                presentation={presentation}
+              />
             ))}
       </div>
     </article>

@@ -215,7 +215,7 @@ export const issueApi = {
       body: JSON.stringify(updates),
     }),
 
-  generate: (id: string, brief?: Record<string, unknown>) =>
+  generate: (id: string, brief?: { model?: string; refresh_from_current?: boolean }) =>
     fetchApi(`/issues/${id}/generate`, {
       method: 'POST',
       body: JSON.stringify(brief || {}),
