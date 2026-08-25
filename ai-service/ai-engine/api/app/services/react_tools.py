@@ -122,6 +122,94 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         )
         return _clip(result)
 
+    @tool
+    def generate_glossary(
+        issue_text: str,
+        state: Annotated[dict, InjectedState],
+        audience_level: str = "",
+        max_terms: int = 8,
+    ) -> str:
+        """Create a small glossary from important terms used in the issue draft."""
+        result = toolbox.generate_glossary(
+            issue_text=(issue_text or "")[:6000],
+            audience_level=(audience_level or "").strip(),
+            max_terms=max_terms,
+        )
+        return _clip(result)
+
+    @tool
+    def generate_examples(
+        concept: str,
+        state: Annotated[dict, InjectedState],
+        audience_level: str = "",
+        count: int = 3,
+    ) -> str:
+        """Generate concrete examples that make an idea easier to understand."""
+        result = toolbox.generate_examples(
+            concept=(concept or "")[:2000],
+            audience_level=(audience_level or "").strip(),
+            count=count,
+        )
+        return _clip(result)
+
+    @tool
+    def generate_analogies(
+        concept: str,
+        state: Annotated[dict, InjectedState],
+        audience_level: str = "",
+        count: int = 3,
+    ) -> str:
+        """Generate analogies for hard concepts, including where the analogy stops fitting."""
+        result = toolbox.generate_analogies(
+            concept=(concept or "")[:2000],
+            audience_level=(audience_level or "").strip(),
+            count=count,
+        )
+        return _clip(result)
+
+    @tool
+    def generate_counterexamples(
+        concept: str,
+        state: Annotated[dict, InjectedState],
+        rule: str = "",
+        count: int = 3,
+    ) -> str:
+        """Show where a concept, rule, or heuristic breaks or does not apply."""
+        result = toolbox.generate_counterexamples(
+            concept=(concept or "")[:1200],
+            rule=(rule or "")[:1200],
+            count=count,
+        )
+        return _clip(result)
+
+    @tool
+    def generate_case_study(
+        topic: str,
+        state: Annotated[dict, InjectedState],
+        lesson_goal: str = "",
+    ) -> str:
+        """Turn a topic into a short, useful case study."""
+        result = toolbox.generate_case_study(
+            topic=(topic or "")[:1200],
+            lesson_goal=(lesson_goal or "")[:1200],
+        )
+        return _clip(result)
+
+    @tool
+    def generate_scenarios(
+        topic: str,
+        state: Annotated[dict, InjectedState],
+        skill_focus: str = "",
+        count: int = 3,
+    ) -> str:
+        """Create realistic situations where the lesson can be applied."""
+        result = toolbox.generate_scenarios(
+            topic=(topic or "")[:1200],
+            skill_focus=(skill_focus or "")[:1200],
+            count=count,
+        )
+        return _clip(result)
+
     return [
         retrieve_context,
         search_sources,
@@ -131,4 +219,10 @@ def build_react_tools(toolbox: NewsletterTools) -> List:
         get_issue_history,
         validate_plan,
         analyze_retrieval_coverage,
+        generate_glossary,
+        generate_examples,
+        generate_analogies,
+        generate_counterexamples,
+        generate_case_study,
+        generate_scenarios,
     ]

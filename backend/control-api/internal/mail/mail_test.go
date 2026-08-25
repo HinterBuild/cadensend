@@ -7,7 +7,7 @@ import (
 
 func TestFormatLessonHTMLRendersCodeAndMermaid(t *testing.T) {
 	src := "Use this command:\n\n```bash\nkubectl get pods\n```\n\nFlow:\n\n```mermaid\nflowchart TD\n  A[Deployment] --> B[ReplicaSet]\n```\n"
-	html := formatLessonHTML(src)
+	html := formatLessonHTML(src, defaultPresentationTheme())
 	if !strings.Contains(html, "<pre") {
 		t.Fatalf("expected code pre block, got %s", html)
 	}
@@ -24,7 +24,7 @@ func TestFormatLessonHTMLRendersCodeAndMermaid(t *testing.T) {
 
 func TestFormatLessonHTMLInlineCodeAndList(t *testing.T) {
 	src := "Create a `Deployment`.\n\n- Keep replicas running\n- Roll forward safely"
-	html := formatLessonHTML(src)
+	html := formatLessonHTML(src, defaultPresentationTheme())
 	if !strings.Contains(html, "<code") {
 		t.Fatalf("expected inline code, got %s", html)
 	}
@@ -35,7 +35,7 @@ func TestFormatLessonHTMLInlineCodeAndList(t *testing.T) {
 
 func TestFormatLessonHTMLUnfencedCodeAndCalls(t *testing.T) {
 	src := "Use setPosition(x, y) and keep balance >= 0.\n\nclass Money {\n  private int cents;\n}\n"
-	html := formatLessonHTML(src)
+	html := formatLessonHTML(src, defaultPresentationTheme())
 	if !strings.Contains(html, "<code") {
 		t.Fatalf("expected inline code chips, got %s", html)
 	}
@@ -46,7 +46,8 @@ func TestFormatLessonHTMLUnfencedCodeAndCalls(t *testing.T) {
 		t.Fatalf("expected unfenced class as code block, got %s", html)
 	}
 }
-func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
+func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {
+	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
 		"subject":   "Deployments",
 		"preheader": "Keep pods alive",
 		"content_blocks": []any{
@@ -134,5 +135,37 @@ func TestCitationsWithoutRefsStillRenderSnippet(t *testing.T) {
 	_, body := RenderIssueHTML("T", "g", content, true)
 	if !strings.Contains(body, "abc123") || !strings.Contains(body, "quoted fact") {
 		t.Fatalf("expected fallback citation rendering, got %s", body)
+	}
+}
+
+func TestRenderIssueHTMLAppliesPresentationSettings(t *testing.T) {
+	themedSource := themedDiagramSource("mermaid", "flowchart LR\n  A --> B", presentationTheme{DiagramTheme: "dark"})
+	if !strings.Contains(themedSource, "theme': 'dark'") {
+		t.Fatalf("expected dark mermaid init directive, got %s", themedSource)
+	}
+
+	_, body := RenderIssueHTML("Topic", "goal", map[string]any{
+		"subject":   "Styled issue",
+		"preheader": "Styled preview",
+		"presentation": map[string]any{
+			"style_preset":     "digest",
+			"font_pair":        "technical",
+			"diagram_theme":    "dark",
+			"diagram_style":    "shadow",
+			"accent_color":     "#123456",
+			"background_color": "#f0f4ff",
+		},
+		"content_blocks": []any{
+			map[string]any{"title": "Body", "text": "```mermaid\nflowchart LR\n  A --> B\n```"},
+		},
+	}, true)
+	if !strings.Contains(body, "background:#f0f4ff") {
+		t.Fatalf("expected custom background color, got %s", body)
+	}
+	if !strings.Contains(body, "background:#123456") {
+		t.Fatalf("expected custom accent color, got %s", body)
+	}
+	if !strings.Contains(body, "box-shadow:0 16px 40px") {
+		t.Fatalf("expected shadow diagram styling, got %s", body)
 	}
 }
