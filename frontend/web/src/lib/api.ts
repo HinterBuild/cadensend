@@ -3,7 +3,17 @@
 // Authentication is cookie-based: the browser sends no credentials itself;
 // the Next.js proxy attaches the JWT from an httpOnly cookie and transparently
 // refreshes sliding sessions. 401 responses mean "session expired".
-import type { Issue, Series, Source, User, AnalyticsOverview, Recipient, IssueVersion, RetrievedChunk } from '@/types';
+import type {
+  AnalyticsOverview,
+  ExtractedBrief,
+  Issue,
+  IssueVersion,
+  Recipient,
+  RetrievedChunk,
+  Series,
+  Source,
+  User,
+} from '@/types';
 
 async function fetchApi<T>(
   endpoint: string,
@@ -26,6 +36,7 @@ async function fetchApi<T>(
     } else {
       const errorData = await response.json().catch(() => ({}));
       if (errorData?.error) message = errorData.error;
+      else if (typeof errorData?.detail === 'string' && errorData.detail) message = errorData.detail;
     }
     const err = new Error(message) as Error & { status?: number };
     err.status = response.status;
@@ -106,6 +117,20 @@ export const seriesApi = {
     fetchApi<{ data: Series; warning?: string }>('/series', {
       method: 'POST',
       body: JSON.stringify(brief),
+    }),
+
+  extractBrief: (payload: {
+    raw_text: string;
+    source_type?: string;
+    preferred_level?: string;
+    preferred_tone?: string;
+    preferred_length?: string;
+    preferred_cadence?: string;
+    model?: string;
+  }) =>
+    fetchApi<{ brief: ExtractedBrief }>('/series/brief-extract', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 
   get: (id: string) =>

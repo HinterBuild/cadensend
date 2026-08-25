@@ -86,6 +86,23 @@ export interface Series {
   updated_at: string;
 }
 
+export interface ExtractedBrief {
+  topic: string;
+  goal: string;
+  level: string;
+  tone: string;
+  length: string;
+  cadence: string;
+  key_points: string[];
+  must_include: string[];
+  must_avoid: string[];
+  suggested_titles: string[];
+  suggested_series_outcome: string;
+  ambiguities: string[];
+  confidence: number;
+  source_type: string;
+}
+
 // Issue types
 export interface Issue {
   id: string;

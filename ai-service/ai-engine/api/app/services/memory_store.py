@@ -292,5 +292,176 @@ Be concise but comprehensive - this will be used as long-term memory for future 
         )
         return summary_text
 
+    async def update_publication_profile(
+        self,
+        namespace: tuple[str, ...],
+        brief: dict[str, Any],
+        issues: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Store recurring publication voice and writing habits for future runs."""
+        if not issues:
+            return {}
+
+        existing_item = await self.aget(namespace, "publication_profile")
+        existing = existing_item.value if existing_item is not None and hasattr(existing_item, "value") else (
+            existing_item or {}
+        )
+        sample = self._issue_sample(issues[:2])
+        schema = {
+            "voice_summary": "string",
+            "values": ["string"],
+            "writing_habits": ["string"],
+            "recurring_phrases": ["string"],
+            "formatting_habits": ["string"],
+            "do_more_of": ["string"],
+            "avoid": ["string"],
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You maintain a compact publication memory for a newsletter writer. "
+                    "Return JSON only. Keep only durable stylistic patterns that should influence future issues. "
+                    "Do not store factual claims from the issue body. Prefer recurring phrases, values, voice, and formatting habits."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Current brief:\n{json.dumps(brief, ensure_ascii=True)}\n\n"
+                    f"Existing publication profile:\n{json.dumps(existing, ensure_ascii=True)}\n\n"
+                    f"New issue sample:\n{sample}\n\n"
+                    "Update the publication profile using the new issue while preserving the strongest recurring patterns."
+                ),
+            },
+        ]
+
+        try:
+            parsed = await self.model_service.generate_structured_output(
+                messages,
+                schema,
+                temperature=0.1,
+                max_retries=1,
+                max_tokens=1200,
+            )
+            profile = self._normalize_publication_profile(parsed, brief)
+        except Exception as exc:
+            logger.error("Failed to update publication profile: %s", exc)
+            profile = self._fallback_publication_profile(existing, brief, issues)
+
+        await self.aput(
+            namespace,
+            "publication_profile",
+            {
+                **profile,
+                "updated_at": datetime.now().isoformat(),
+            },
+        )
+        return profile
+
+    def _normalize_publication_profile(
+        self,
+        parsed: dict[str, Any],
+        brief: dict[str, Any],
+    ) -> dict[str, Any]:
+        voice_summary = self._clean_text(parsed.get("voice_summary"), 300)
+        if not voice_summary:
+            tone = str(brief.get("tone") or "instructor")
+            length = str(brief.get("length") or "10 min")
+            voice_summary = f"{tone} voice, concise explanations, roughly {length} lesson length."
+
+        return {
+            "voice_summary": voice_summary,
+            "values": self._clean_list(parsed.get("values"), 6, 120),
+            "writing_habits": self._clean_list(parsed.get("writing_habits"), 8, 140),
+            "recurring_phrases": self._clean_list(parsed.get("recurring_phrases"), 8, 80),
+            "formatting_habits": self._clean_list(parsed.get("formatting_habits"), 6, 120),
+            "do_more_of": self._clean_list(parsed.get("do_more_of"), 6, 120),
+            "avoid": self._clean_list(parsed.get("avoid"), 6, 120),
+        }
+
+    def _fallback_publication_profile(
+        self,
+        existing: dict[str, Any],
+        brief: dict[str, Any],
+        issues: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        current = self._normalize_publication_profile(existing if isinstance(existing, dict) else {}, brief)
+        habits = list(current.get("writing_habits") or [])
+        formatting = list(current.get("formatting_habits") or [])
+        values = list(current.get("values") or [])
+
+        if brief.get("tone"):
+            habits.append(f"Keep a {brief['tone']} voice.")
+        if brief.get("length"):
+            habits.append(f"Aim for roughly {brief['length']} reading length.")
+        if any(issue.get("visual_specs") for issue in issues):
+            formatting.append("Use diagrams when they clarify a concept.")
+        if any("takeaway" in (block.get("title", "").lower()) for issue in issues for block in issue.get("content_blocks", [])):
+            formatting.append("End sections with explicit takeaways when useful.")
+
+        return {
+            "voice_summary": current.get("voice_summary") or f"{brief.get('tone') or 'instructor'} voice with practical explanations.",
+            "values": self._merge_lists(values, []),
+            "writing_habits": self._merge_lists(habits, []),
+            "recurring_phrases": self._merge_lists(list(current.get("recurring_phrases") or []), []),
+            "formatting_habits": self._merge_lists(formatting, []),
+            "do_more_of": self._merge_lists(list(current.get("do_more_of") or []), []),
+            "avoid": self._merge_lists(list(current.get("avoid") or []), []),
+        }
+
+    def _issue_sample(self, issues: list[dict[str, Any]]) -> str:
+        parts: list[str] = []
+        for issue in issues:
+            blocks = issue.get("content_blocks") or []
+            text_parts = []
+            for block in blocks[:3]:
+                title = self._clean_text(block.get("title"), 80)
+                body = self._clean_text(block.get("text"), 280)
+                if title or body:
+                    text_parts.append(f"{title}: {body}".strip(": "))
+            parts.append(
+                json.dumps(
+                    {
+                        "subject": self._clean_text(issue.get("subject"), 140),
+                        "preheader": self._clean_text(issue.get("preheader"), 180),
+                        "blocks": text_parts,
+                    },
+                    ensure_ascii=True,
+                )
+            )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _clean_text(value: Any, limit: int) -> str:
+        if not isinstance(value, str):
+            return ""
+        return " ".join(value.split())[:limit].strip()
+
+    @classmethod
+    def _clean_list(cls, values: Any, limit: int, item_limit: int) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        out: list[str] = []
+        for value in values:
+            cleaned = cls._clean_text(value, item_limit)
+            if cleaned:
+                out.append(cleaned)
+            if len(out) >= limit:
+                break
+        return cls._merge_lists(out, [])
+
+    @staticmethod
+    def _merge_lists(primary: list[str], secondary: list[str]) -> list[str]:
+        seen = set()
+        out: list[str] = []
+        for value in primary + secondary:
+            key = value.lower()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            out.append(value)
+        return out[:8]
+
 
 memory_store = LongTermMemoryStore()

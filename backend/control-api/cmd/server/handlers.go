@@ -322,6 +322,44 @@ func queuePlanGeneration(series *service.Series, model string) error {
 	return enqueueGenerationJob(job)
 }
 
+func extractSeriesBriefHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			RawText          string `json:"raw_text" binding:"required"`
+			SourceType       string `json:"source_type"`
+			PreferredLevel   string `json:"preferred_level"`
+			PreferredTone    string `json:"preferred_tone"`
+			PreferredLength  string `json:"preferred_length"`
+			PreferredCadence string `json:"preferred_cadence"`
+			Model            string `json:"model"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "raw_text is required"})
+			return
+		}
+		if len(strings.TrimSpace(req.RawText)) < 20 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "raw_text must be at least 20 characters"})
+			return
+		}
+
+		payload := map[string]interface{}{
+			"raw_text":           req.RawText,
+			"source_type":        firstNonEmpty(strings.TrimSpace(req.SourceType), "notes"),
+			"preferred_level":    strings.TrimSpace(req.PreferredLevel),
+			"preferred_tone":     strings.TrimSpace(req.PreferredTone),
+			"preferred_length":   strings.TrimSpace(req.PreferredLength),
+			"preferred_cadence":  strings.TrimSpace(req.PreferredCadence),
+			"model":              strings.TrimSpace(req.Model),
+		}
+		status, body, err := aiEngineRequest(http.MethodPost, "/v1/brief/extract", payload)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ai engine unreachable: " + err.Error()})
+			return
+		}
+		c.Data(status, "application/json", body)
+	}
+}
+
 func getPlanHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
