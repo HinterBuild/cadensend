@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Save, Calendar, Clock, CheckCircle, Plus, X, Link2, Rss, FileUp } from 'lucide-react';
+import { ArrowLeft, Save, Calendar, Clock, CheckCircle, Plus, X, Link2, Rss, FileUp, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { seriesApi, modelsApi, sourceApi, OpenRouterModel } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RadioGroup } from '@/components/RadioGroup';
+import type { ExtractedBrief } from '@/types';
 
 type FormValues = {
   topic: string;
@@ -181,6 +182,9 @@ export default function CreateSeriesPage() {
   const [urlDraft, setUrlDraft] = useState('');
   const [rssDraft, setRssDraft] = useState('');
   const [sources, setSources] = useState<PendingSource[]>([]);
+  const [rawBriefText, setRawBriefText] = useState('');
+  const [extractingBrief, setExtractingBrief] = useState(false);
+  const [extractedBrief, setExtractedBrief] = useState<ExtractedBrief | null>(null);
 
   const [formData, setFormData] = useState<FormValues>({
     topic: '',
@@ -269,6 +273,46 @@ export default function CreateSeriesPage() {
     setSources((prev) => [...prev, { kind, value }]);
     clear('');
     setFieldError(null);
+  };
+
+  const applyExtractedBrief = (brief: ExtractedBrief) => {
+    setFormData((prev) => ({
+      ...prev,
+      topic: brief.topic || prev.topic,
+      goal: brief.goal || prev.goal,
+      level: brief.level || prev.level,
+      tone: brief.tone || prev.tone,
+      length: brief.length || prev.length,
+      cadence: brief.cadence || prev.cadence,
+    }));
+  };
+
+  const handleExtractBrief = async () => {
+    const input = rawBriefText.trim();
+    if (input.length < 20) {
+      setFieldError('Paste at least a few lines of notes or transcript before extracting.');
+      return;
+    }
+    setExtractingBrief(true);
+    setError(null);
+    setFieldError(null);
+    try {
+      const response = await seriesApi.extractBrief({
+        raw_text: input,
+        source_type: 'notes',
+        preferred_level: formData.level,
+        preferred_tone: formData.tone,
+        preferred_length: formData.length,
+        preferred_cadence: formData.cadence,
+        model: formData.model || undefined,
+      });
+      setExtractedBrief(response.brief);
+      applyExtractedBrief(response.brief);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to extract a brief.');
+    } finally {
+      setExtractingBrief(false);
+    }
   };
 
   const validateStep = (step: number): boolean => {
@@ -423,6 +467,64 @@ export default function CreateSeriesPage() {
 
           {currentStep === 1 && (
             <div className="space-y-6">
+              <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-stone-900">Extract From Raw Notes</h3>
+                    <p className="mt-1 text-sm text-stone-600">
+                      Paste messy notes, a transcript, or a voice-note dump. Cadensend will turn it into a cleaner newsletter brief.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExtractBrief}
+                    disabled={extractingBrief}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-stone-900 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    {extractingBrief ? 'Extracting...' : 'Extract brief'}
+                  </button>
+                </div>
+                <textarea
+                  value={rawBriefText}
+                  onChange={(e) => setRawBriefText(e.target.value)}
+                  rows={7}
+                  className={`${inputClass} mt-4 resize-y bg-white`}
+                  placeholder="Paste raw notes, planning bullets, transcript snippets, or a voice-note transcript here..."
+                  maxLength={6000}
+                />
+                <p className="mt-1 text-xs text-stone-500">{rawBriefText.length}/6000</p>
+                {extractedBrief && (
+                  <div className="mt-4 rounded-lg border border-stone-200 bg-white p-4 text-sm text-stone-700">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-stone-900">Extraction ready</span>
+                      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-700">
+                        Confidence {Math.round((extractedBrief.confidence || 0) * 100)}%
+                      </span>
+                    </div>
+                    {extractedBrief.key_points.length > 0 && (
+                      <div className="mt-3">
+                        <p className="font-medium text-stone-900">Key points</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-5 text-stone-600">
+                          {extractedBrief.key_points.slice(0, 4).map((point) => (
+                            <li key={point}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {extractedBrief.ambiguities.length > 0 && (
+                      <div className="mt-3">
+                        <p className="font-medium text-amber-900">Please confirm</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-5 text-amber-700">
+                          {extractedBrief.ambiguities.slice(0, 4).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <p className="rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">{summaryLine}</p>
               <div>
                 <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">

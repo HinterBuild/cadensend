@@ -119,12 +119,31 @@ export interface Issue {
   updated_at: string;
 }
 
+export type EmailStylePreset = 'classic' | 'editorial' | 'digest' | 'minimal';
+export type FontPair = 'classic' | 'modern' | 'newsroom' | 'technical';
+export type DiagramTheme = 'neutral' | 'forest' | 'dark';
+export type DiagramStyle = 'card' | 'outline' | 'shadow';
+
+export interface IssuePresentation {
+  style_preset: EmailStylePreset;
+  font_pair: FontPair;
+  diagram_theme: DiagramTheme;
+  diagram_style: DiagramStyle;
+  accent_color: string;
+  background_color: string;
+  surface_color: string;
+  text_color: string;
+  muted_color: string;
+  border_color: string;
+}
+
 export interface IssueContent {
   subject: string;
   preheader: string;
   content_blocks: ContentBlock[];
   visual_specs: VisualSpec[];
   citations: Citation[];
+  presentation?: IssuePresentation;
 }
 
 export interface ContentBlock {

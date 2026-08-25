@@ -352,7 +352,7 @@ class NewsletterAgent:
         """Load latest plan/conversation notes for this workspace/series."""
         namespace = ("cadensend", "workspace", state["workspace_id"], "series", state.get("series_id") or "default")
         memory_context = []
-        for key in ("latest_plan", "latest_conversation"):
+        for key in ("latest_plan", "latest_conversation", "publication_profile"):
             try:
                 item = await self.memory_store.aget(namespace, key)
             except Exception as exc:
@@ -375,6 +375,7 @@ class NewsletterAgent:
     def _seed_messages(self, state: NewsletterState) -> List[BaseMessage]:
         brief = state.get("brief") or {}
         memory = state.get("memory_context") or []
+        publication_memory = self._publication_memory_text(memory)
         if state.get("workflow") == "issue":
             module = ((state.get("plan") or {}).get("modules") or [{}])[0]
             system = f"""You are Cadensend's issue writer. Work in a ReAct loop:
@@ -394,6 +395,7 @@ Never describe runnable code only as prose.
 When done, do not call tools. Return ONLY JSON:
 {{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[{{"type":"mermaid","content":"flowchart TD; A-->B","alt_text":"..."}}]}}
 Series topic: {brief.get("topic","")} | level: {brief.get("level","")} | tone: {brief.get("tone","instructor")} | length: {brief.get("length","10 min")}
+{publication_memory}
 Include code samples and diagrams when the topic is technical.
 """
             user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}"
@@ -600,6 +602,15 @@ Each module needs:
 JSON shape:
 {{"modules":[{{"title":"...","summary":"...","learning_objectives":["..."],"duration_weeks":1}}],"prerequisites":["..."],"total_weeks":4}}
 """
+
+    @staticmethod
+    def _publication_memory_text(memory_context: List[Dict[str, Any]]) -> str:
+        for mem in memory_context:
+            if mem.get("id") != "publication_profile":
+                continue
+            content = str(mem.get("content") or "")
+            return f"Publication memory:\n{content[:800]}"
+        return ""
 
     async def _generate_plan_json(
         self,
@@ -1015,6 +1026,11 @@ JSON shape:
                 namespace,
                 "latest_conversation",
                 state.get("messages", []),
+            )
+            await self.memory_store.update_publication_profile(
+                namespace,
+                state.get("brief", {}),
+                state.get("issues", []),
             )
 
         plan = state.get("plan", {})
