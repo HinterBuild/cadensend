@@ -6,6 +6,7 @@ that the LangGraph agent can call during execution.
 
 from typing import List, Dict, Any, Optional
 import logging
+import json
 import re
 
 from langchain_core.tools import tool
@@ -51,6 +52,12 @@ class NewsletterTools:
         self._tools["get_issue_history"] = tool(self.get_issue_history)
         self._tools["validate_plan"] = tool(self.validate_plan)
         self._tools["analyze_retrieval_coverage"] = tool(self.analyze_retrieval_coverage)
+        self._tools["generate_glossary"] = tool(self.generate_glossary)
+        self._tools["generate_examples"] = tool(self.generate_examples)
+        self._tools["generate_analogies"] = tool(self.generate_analogies)
+        self._tools["generate_counterexamples"] = tool(self.generate_counterexamples)
+        self._tools["generate_case_study"] = tool(self.generate_case_study)
+        self._tools["generate_scenarios"] = tool(self.generate_scenarios)
 
     def get_tools(self) -> List:
         """Return all registered tools as a list for LangGraph."""
@@ -364,6 +371,232 @@ Output the refined {diagram_type} code only.
         report = coverage_report(results, settings.COVERAGE_MIN_SCORE)
         report["query"] = query
         return report
+
+    def generate_glossary(
+        self,
+        issue_text: str,
+        audience_level: str = "",
+        max_terms: int = 8,
+    ) -> Dict[str, Any]:
+        """Create a concise glossary from terms used in a lesson draft."""
+        return self._generate_learning_aid(
+            task="glossary",
+            schema={
+                "terms": [
+                    {
+                        "term": "string",
+                        "definition": "string",
+                        "why_it_matters": "string",
+                    }
+                ]
+            },
+            prompt=(
+                "Create a small glossary from the terms used in this issue draft. "
+                "Prefer the most important or potentially confusing terms. "
+                f"Keep it suitable for audience level: {audience_level or 'general'}.\n\n"
+                f"Issue draft:\n{issue_text[:6000]}"
+            ),
+            fallback={"terms": []},
+            limit=max_terms,
+        )
+
+    def generate_examples(
+        self,
+        concept: str,
+        audience_level: str = "",
+        count: int = 3,
+    ) -> Dict[str, Any]:
+        """Generate concrete examples that make a concept easier to understand."""
+        return self._generate_learning_aid(
+            task="examples",
+            schema={
+                "examples": [
+                    {
+                        "title": "string",
+                        "example": "string",
+                        "why_it_helps": "string",
+                    }
+                ]
+            },
+            prompt=(
+                "Generate concrete examples that make this idea easier to understand. "
+                f"Audience level: {audience_level or 'general'}.\n\n"
+                f"Concept:\n{concept[:2000]}"
+            ),
+            fallback={"examples": []},
+            limit=count,
+        )
+
+    def generate_analogies(
+        self,
+        concept: str,
+        audience_level: str = "",
+        count: int = 3,
+    ) -> Dict[str, Any]:
+        """Generate analogies for a hard concept."""
+        return self._generate_learning_aid(
+            task="analogies",
+            schema={
+                "analogies": [
+                    {
+                        "analogy": "string",
+                        "mapping": "string",
+                        "limit": "string",
+                    }
+                ]
+            },
+            prompt=(
+                "Create analogies for this hard concept. "
+                "Each analogy should explain what maps well and where the analogy breaks. "
+                f"Audience level: {audience_level or 'general'}.\n\n"
+                f"Concept:\n{concept[:2000]}"
+            ),
+            fallback={"analogies": []},
+            limit=count,
+        )
+
+    def generate_counterexamples(
+        self,
+        concept: str,
+        rule: str = "",
+        count: int = 3,
+    ) -> Dict[str, Any]:
+        """Show where a concept, rule, or heuristic breaks down."""
+        return self._generate_learning_aid(
+            task="counterexamples",
+            schema={
+                "counterexamples": [
+                    {
+                        "scenario": "string",
+                        "why_it_breaks": "string",
+                        "takeaway": "string",
+                    }
+                ]
+            },
+            prompt=(
+                "Generate counterexamples showing where this concept, rule, or heuristic does not apply. "
+                f"Concept: {concept[:1200]}\n"
+                f"Rule or claim: {rule[:1200]}"
+            ),
+            fallback={"counterexamples": []},
+            limit=count,
+        )
+
+    def generate_case_study(
+        self,
+        topic: str,
+        lesson_goal: str = "",
+    ) -> Dict[str, Any]:
+        """Turn a topic into a short, practical case study."""
+        return self._generate_learning_aid(
+            task="case study",
+            schema={
+                "title": "string",
+                "context": "string",
+                "problem": "string",
+                "actions": ["string"],
+                "result": "string",
+                "lesson": "string",
+            },
+            prompt=(
+                "Turn this topic into a short, useful case study. "
+                f"Topic: {topic[:1200]}\n"
+                f"Lesson goal: {lesson_goal[:1200]}"
+            ),
+            fallback={
+                "title": "",
+                "context": "",
+                "problem": "",
+                "actions": [],
+                "result": "",
+                "lesson": "",
+            },
+        )
+
+    def generate_scenarios(
+        self,
+        topic: str,
+        skill_focus: str = "",
+        count: int = 3,
+    ) -> Dict[str, Any]:
+        """Create realistic scenarios where the reader can apply the lesson."""
+        return self._generate_learning_aid(
+            task="scenarios",
+            schema={
+                "scenarios": [
+                    {
+                        "scenario": "string",
+                        "decision": "string",
+                        "good_answer_shape": "string",
+                    }
+                ]
+            },
+            prompt=(
+                "Create realistic situations where the lesson can be applied. "
+                f"Topic: {topic[:1200]}\n"
+                f"Skill focus: {skill_focus[:1200]}"
+            ),
+            fallback={"scenarios": []},
+            limit=count,
+        )
+
+    def _generate_learning_aid(
+        self,
+        task: str,
+        schema: Dict[str, Any],
+        prompt: str,
+        fallback: Dict[str, Any],
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Generate structured helper content for teaching aids."""
+        if not self.model_service:
+            return fallback
+
+        response = self.model_service.generate_text(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You create compact teaching aids for newsletter writers. "
+                        "Output valid JSON only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Task: generate {task}.\n"
+                        f"{prompt}\n\n"
+                        f"Return valid JSON matching this schema: {json.dumps(schema)}"
+                    ),
+                },
+            ],
+            temperature=0.3,
+            max_tokens=1800,
+        )
+
+        try:
+            parsed = json.loads(response)
+        except json.JSONDecodeError:
+            logger.warning("Learning aid tool %s returned invalid JSON", task)
+            return fallback
+
+        if limit is None:
+            return parsed if isinstance(parsed, dict) else fallback
+
+        return self._trim_learning_aid(parsed, fallback, limit)
+
+    def _trim_learning_aid(
+        self,
+        parsed: Any,
+        fallback: Dict[str, Any],
+        limit: int,
+    ) -> Dict[str, Any]:
+        if not isinstance(parsed, dict):
+            return fallback
+        for key, value in parsed.items():
+            if isinstance(value, list):
+                parsed[key] = value[: max(1, limit)]
+        return parsed
 
     def _validate_diagram(self, diagram_code: str, diagram_type: str) -> str:
         """Validate diagram code for safety and correctness."""

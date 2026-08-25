@@ -21,6 +21,8 @@ class IssueGenerateRequest(BaseModel):
     plan_item: Optional[Dict[str, Any]] = None
     brief: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
+    refresh_from_current: bool = False
+    refresh_source: Optional[Dict[str, Any]] = None
 
 
 class IssueGenerateResponse(BaseModel):
@@ -47,6 +49,10 @@ async def generate_issue(issue_id: str, request: IssueGenerateRequest):
             "topic": request.objective or "untitled",
             "objective": request.objective or "",
         }
+        if request.refresh_from_current:
+            brief["refresh_mode"] = "stale_content_refresh"
+        if request.refresh_source:
+            brief["refresh_source"] = request.refresh_source
 
         plan_item = request.plan_item or {
             "title": f"Issue {request.issue_number or 1}",
