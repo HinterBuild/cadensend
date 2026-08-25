@@ -161,6 +161,7 @@ func main() {
 			{
 				series.GET("", listSeriesHandler(db))
 				series.POST("", createSeriesHandler(db))
+				series.POST("/brief-extract", extractSeriesBriefHandler())
 				series.GET("/:id", getSeriesHandler(db))
 				series.PATCH("/:id", updateSeriesHandler(db))
 				series.POST("/:id/plan", generatePlanHandler(db))
