@@ -188,6 +188,7 @@ func main() {
 				issues.POST("/:id/versions/:version/restore", restoreIssueVersionHandler(db))
 				issues.POST("/:id/schedule", rescheduleIssueHandler(db))
 				issues.POST("/:id/cancel-send", cancelIssueSendHandler(db))
+				issues.POST("/:id/cancel-generation", cancelIssueGenerationHandler(db))
 				issues.GET("/:id/preview-html", previewEmailHTMLHandler(db))
 			}
 

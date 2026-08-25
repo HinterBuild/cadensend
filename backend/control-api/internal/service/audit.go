@@ -16,6 +16,7 @@ const (
 	AuditSeriesDeleted     = "series.deleted"
 	AuditSourceDeleted     = "source.deleted"
 	AuditIssueCanceled     = "issue.send_canceled"
+	AuditGenerationCanceled = "issue.generation_canceled"
 	AuditIssueRescheduled  = "issue.rescheduled"
 	AuditPasswordChanged   = "user.password_changed"
 	AuditPasswordReset     = "user.password_reset"
