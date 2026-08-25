@@ -25,33 +25,33 @@ var (
 
 const codeChip = `<code style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background-color:#1c1917;color:#fafaf9;border-radius:4px;padding:2px 6px;white-space:nowrap;">$1</code>`
 
-func formatLessonHTML(text string) string {
+func formatLessonHTML(text string, theme presentationTheme) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	var b strings.Builder
 	last := 0
 	for _, match := range fencePattern.FindAllStringSubmatchIndex(text, -1) {
 		if match[0] > last {
-			markdownToHTML(&b, text[last:match[0]])
+			markdownToHTML(&b, text[last:match[0]], theme)
 		}
 		lang := strings.ToLower(strings.TrimSpace(text[match[2]:match[3]]))
 		code := strings.TrimRight(text[match[4]:match[5]], "\n")
 		if lang == "mermaid" || lang == "d2" {
-			b.WriteString(diagramHTML(lang, code, lang+" diagram"))
+			b.WriteString(diagramHTML(lang, code, lang+" diagram", theme))
 		} else {
 			if lang == "" {
 				lang = guessLang(code)
 			}
-			b.WriteString(codeBlockHTML(lang, code))
+			b.WriteString(codeBlockHTML(lang, code, theme))
 		}
 		last = match[1]
 	}
 	if last < len(text) {
-		markdownToHTML(&b, text[last:])
+		markdownToHTML(&b, text[last:], theme)
 	}
 	return b.String()
 }
 
-func markdownToHTML(b *strings.Builder, raw string) {
+func markdownToHTML(b *strings.Builder, raw string, theme presentationTheme) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return
@@ -64,7 +64,7 @@ func markdownToHTML(b *strings.Builder, raw string) {
 			continue
 		}
 		if title, ok := headingText(lines[i]); ok {
-			fmt.Fprintf(b, `<h3 style="font-family:Georgia,serif;font-size:16px;color:#1c1917;margin:18px 0 8px;">%s</h3>`, inlineHTML(title))
+			fmt.Fprintf(b, `<h3 style="font-family:%s;font-size:16px;color:%s;margin:18px 0 8px;">%s</h3>`, theme.headingFont(), theme.Text, inlineHTML(title))
 			i++
 			continue
 		}
@@ -73,7 +73,7 @@ func markdownToHTML(b *strings.Builder, raw string) {
 			for i < len(lines) && listItem(lines[i]) != "" {
 				i++
 			}
-			writeList(b, lines[start:i])
+			writeList(b, lines[start:i], theme)
 			continue
 		}
 		if isIndented(lines[i]) || looksLikeCode(lines[i]) {
@@ -83,7 +83,7 @@ func markdownToHTML(b *strings.Builder, raw string) {
 			}
 			code := strings.TrimRight(dedent(lines[start:i]), "\n")
 			if strings.TrimSpace(code) != "" {
-				b.WriteString(codeBlockHTML(guessLang(code), code))
+				b.WriteString(codeBlockHTML(guessLang(code), code, theme))
 			}
 			continue
 		}
@@ -95,7 +95,7 @@ func markdownToHTML(b *strings.Builder, raw string) {
 			i++
 		}
 		joined := strings.Join(trimLines(lines[start:i]), " ")
-		fmt.Fprintf(b, `<p style="color:#44403c;font-size:15px;line-height:1.65;margin:0 0 14px;">%s</p>`, inlineHTML(joined))
+		fmt.Fprintf(b, `<p style="color:%s;font-family:%s;font-size:15px;line-height:1.65;margin:0 0 14px;">%s</p>`, theme.Text, theme.bodyFont(), inlineHTML(joined))
 	}
 }
 
@@ -250,8 +250,8 @@ func listItem(line string) string {
 	return ""
 }
 
-func writeList(b *strings.Builder, lines []string) {
-	b.WriteString(`<ul style="color:#44403c;font-size:15px;line-height:1.6;margin:0 0 14px;padding-left:22px;">`)
+func writeList(b *strings.Builder, lines []string, theme presentationTheme) {
+	fmt.Fprintf(b, `<ul style="color:%s;font-family:%s;font-size:15px;line-height:1.6;margin:0 0 14px;padding-left:22px;">`, theme.Text, theme.bodyFont())
 	for _, line := range lines {
 		item := listItem(line)
 		if item == "" {
@@ -302,34 +302,39 @@ func insideCode(s string, idx int) bool {
 	return close < open
 }
 
-func codeBlockHTML(lang, code string) string {
+func codeBlockHTML(lang, code string, theme presentationTheme) string {
 	label := lang
 	if label == "shell" || label == "sh" || label == "console" || label == "zsh" {
 		label = "bash"
 	}
 	return fmt.Sprintf(
-		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid #0c0a09;border-radius:8px;overflow:hidden;">`+
-			`<tr><td style="background:#0c0a09;color:#a8a29e;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px;">%s</td></tr>`+
+		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid %s;border-radius:8px;overflow:hidden;">`+
+			`<tr><td style="background:#0c0a09;color:#a8a29e;font-family:%s;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px;">%s</td></tr>`+
 			`<tr><td style="background:#1c1917;padding:14px 16px;"><pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#fafaf9;white-space:pre-wrap;word-break:break-word;">%s</pre></td></tr>`+
 			`</table>`,
+		theme.Border,
+		theme.bodyFont(),
 		esc(label),
 		esc(code),
 	)
 }
 
-func diagramHTML(kind, source, alt string) string {
-	src := krokiImageURL(kind, source)
+func diagramHTML(kind, source, alt string, theme presentationTheme) string {
+	src := krokiImageURL(kind, themedDiagramSource(kind, source, theme))
 	if src == "" {
-		return codeBlockHTML(kind, source)
+		return codeBlockHTML(kind, source, theme)
 	}
 	if strings.TrimSpace(alt) == "" {
 		alt = kind + " diagram"
 	}
 	return fmt.Sprintf(
-		`<div style="margin:16px 0;padding:12px;background:#ffffff;border:1px solid #e7e0d6;border-radius:12px;">`+
-			`<p style="margin:0 0 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#78716c;">Diagram</p>`+
+		`<div style="%s">`+
+			`<p style="margin:0 0 8px;font-family:%s;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:%s;">Diagram</p>`+
 			`<img src="%s" alt="%s" width="552" style="display:block;width:100%%;max-width:552px;height:auto;border:0;" />`+
 			`</div>`,
+		theme.diagramContainerStyle(),
+		theme.bodyFont(),
+		theme.Muted,
 		esc(src),
 		esc(alt),
 	)
@@ -375,7 +380,7 @@ func extractVisuals(content map[string]any) []map[string]any {
 	return out
 }
 
-func writeVisuals(b *strings.Builder, specs []map[string]any) {
+func writeVisuals(b *strings.Builder, specs []map[string]any, theme presentationTheme) {
 	for _, spec := range specs {
 		kind := strings.ToLower(firstString(spec, "type"))
 		code := firstString(spec, "content")
@@ -386,6 +391,6 @@ func writeVisuals(b *strings.Builder, specs []map[string]any) {
 		if kind != "d2" {
 			kind = "mermaid"
 		}
-		b.WriteString(diagramHTML(kind, code, alt))
+		b.WriteString(diagramHTML(kind, code, alt, theme))
 	}
 }

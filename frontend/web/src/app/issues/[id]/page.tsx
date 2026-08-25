@@ -6,20 +6,68 @@ import {
   ArrowLeft, Save, Send, RefreshCw, Plus, Trash2, ArrowUp, ArrowDown,
   Bold, Code, List, Braces, History, X, CalendarClock, Ban,
 } from 'lucide-react';
-import { issueApi, seriesApi } from '@/lib/api';
-import { Issue, IssueVersionSummary, ContentBlock, VisualSpec } from '@/types';
+import { issueApi } from '@/lib/api';
+import { defaultIssuePresentation, normalizeIssuePresentation, presentationPreset } from '@/lib/emailPresentation';
+import {
+  DiagramStyle,
+  DiagramTheme,
+  EmailStylePreset,
+  FontPair,
+  Issue,
+  IssuePresentation,
+  IssueVersionSummary,
+  ContentBlock,
+  VisualSpec,
+} from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { EmailPreview } from '@/components/LessonPreview';
 
 type BlockCitation = { source_id?: string; chunk_id?: string; text?: string };
 type EditorBlock = { id: string; type: string; title?: string; text: string; citations?: BlockCitation[] };
-type EditorVisual = { type?: string; content?: string; alt_text?: string };
+type EditorVisual = { id: string; type?: string; content?: string; alt_text?: string };
+type PreviewTab = 'styled' | 'rendered' | 'html';
+
+const EMAIL_STYLE_OPTIONS: Array<{ value: EmailStylePreset; label: string }> = [
+  { value: 'classic', label: 'Classic' },
+  { value: 'editorial', label: 'Editorial' },
+  { value: 'digest', label: 'Digest' },
+  { value: 'minimal', label: 'Minimal' },
+];
+
+const FONT_PAIR_OPTIONS: Array<{ value: FontPair; label: string }> = [
+  { value: 'classic', label: 'Classic serif' },
+  { value: 'modern', label: 'Modern sans' },
+  { value: 'newsroom', label: 'Newsroom' },
+  { value: 'technical', label: 'Technical' },
+];
+
+const DIAGRAM_THEME_OPTIONS: Array<{ value: DiagramTheme; label: string }> = [
+  { value: 'neutral', label: 'Neutral' },
+  { value: 'forest', label: 'Forest' },
+  { value: 'dark', label: 'Dark' },
+];
+
+const DIAGRAM_STYLE_OPTIONS: Array<{ value: DiagramStyle; label: string }> = [
+  { value: 'card', label: 'Card' },
+  { value: 'outline', label: 'Outline' },
+  { value: 'shadow', label: 'Shadow' },
+];
+
+function newVisual(): EditorVisual {
+  return {
+    id: `visual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: 'mermaid',
+    content: '',
+    alt_text: '',
+  };
+}
 
 function parseIssueContent(issue: Issue): {
   subject: string;
   preheader: string;
   blocks: EditorBlock[];
   visuals: EditorVisual[];
+  presentation: IssuePresentation;
 } {
   const raw = issue.content_json;
   let parsed: Record<string, any> | null = null;
@@ -46,7 +94,8 @@ function parseIssueContent(issue: Issue): {
     : [];
 
   const visuals = Array.isArray(parsed?.visual_specs)
-    ? parsed.visual_specs.map((spec: VisualSpec & { content?: string; alt_text?: string }) => ({
+    ? parsed.visual_specs.map((spec: VisualSpec & { id?: string; content?: string; alt_text?: string }, index: number) => ({
+        id: spec.id || `visual-${index}`,
         type: spec.type,
         content: spec.content,
         alt_text: spec.alt_text,
@@ -58,6 +107,7 @@ function parseIssueContent(issue: Issue): {
     preheader: parsed?.preheader || '',
     blocks,
     visuals,
+    presentation: normalizeIssuePresentation(parsed?.presentation),
   };
 }
 
@@ -89,12 +139,17 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const [versions, setVersions] = useState<IssueVersionSummary[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const [previewTab, setPreviewTab] = useState<PreviewTab>('styled');
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewHtmlLoading, setPreviewHtmlLoading] = useState(false);
+  const [previewHtmlError, setPreviewHtmlError] = useState<string | null>(null);
 
   const [content, setContent] = useState({
     subject: '',
     preheader: '',
     blocks: [] as EditorBlock[],
     visuals: [] as EditorVisual[],
+    presentation: defaultIssuePresentation(),
   });
 
   const blockTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -126,6 +181,26 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     }
   }, [id]);
 
+  const loadPreviewHtml = useCallback(async () => {
+    if (!id) return;
+    setPreviewHtmlLoading(true);
+    setPreviewHtmlError(null);
+    try {
+      const response = await fetch(issueApi.previewHtmlUrl(id), {
+        headers: { Accept: 'text/html' },
+      });
+      if (!response.ok) {
+        throw new Error('Preview HTML is not ready yet');
+      }
+      setPreviewHtml(await response.text());
+    } catch (err: any) {
+      setPreviewHtml('');
+      setPreviewHtmlError(err.message || 'Failed to load rendered HTML');
+    } finally {
+      setPreviewHtmlLoading(false);
+    }
+  }, [id]);
+
   const loadVersions = useCallback(async () => {
     if (!id) return;
     try {
@@ -139,6 +214,14 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     if (id && issue) loadVersions();
   }, [id, issue?.updated_at, loadVersions, issue]);
+
+  useEffect(() => {
+    if (!issue?.content_json) {
+      setPreviewHtml('');
+      return;
+    }
+    loadPreviewHtml();
+  }, [issue?.content_json, issue?.updated_at, loadPreviewHtml]);
 
   // Poll while generating.
   useEffect(() => {
@@ -167,15 +250,21 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     if (!id || !editable) return false;
     if (!silent) setSaving(true);
     try {
-      await issueApi.update(id, {
+      const response = await issueApi.update(id, {
         subject: contentRef.current.subject,
         preheader: contentRef.current.preheader,
         content_blocks: contentRef.current.blocks,
+        visual_specs: contentRef.current.visuals.map(({ id: visualId, ...visual }) => ({
+          id: visualId,
+          ...visual,
+        })),
+        presentation: contentRef.current.presentation,
         scheduled_at: scheduledAt || undefined,
         // Background saves are throttled by the version snapshotter;
         // explicit Save Draft captures history immediately.
         ...(silent ? { autosave: true } : {}),
       });
+      setIssue(response.data);
       setDirty(false);
       setLastSavedAt(new Date().toLocaleTimeString());
       return true;
@@ -223,20 +312,23 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     setDirty(true);
   };
 
-  const generateIssue = async () => {
+  const generateIssue = async (refreshFromCurrent = false) => {
     if (!id) return;
     if (dirty) {
-      const ok = window.confirm('Generating will replace your current draft. It will be saved as a version first. Continue?');
+      const ok = window.confirm(`${refreshFromCurrent ? 'Refreshing' : 'Generating'} will replace your current draft. It will be saved as a version first. Continue?`);
       if (!ok) return;
       await saveIssue(true);
     }
     setGenerating(true);
     setError(null);
     try {
-      await issueApi.generate(id, user?.preferred_model ? { model: user.preferred_model } : {});
+      await issueApi.generate(id, {
+        ...(user?.preferred_model ? { model: user.preferred_model } : {}),
+        ...(refreshFromCurrent ? { refresh_from_current: true } : {}),
+      });
       setIssue((current) => (current ? { ...current, status: 'generating' } : current));
     } catch (err: any) {
-      setError(err.message || 'Failed to generate issue');
+      setError(err.message || `Failed to ${refreshFromCurrent ? 'refresh' : 'generate'} issue`);
       setGenerating(false);
     }
   };
@@ -352,7 +444,66 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     });
   };
 
+  const addVisual = () => {
+    updateContent((current) => ({
+      ...current,
+      visuals: [...current.visuals, newVisual()],
+    }));
+  };
+
+  const removeVisual = (visualId: string) => {
+    updateContent((current) => ({
+      ...current,
+      visuals: current.visuals.filter((visual) => visual.id !== visualId),
+    }));
+  };
+
+  const updateVisual = (visualId: string, patch: Partial<EditorVisual>) => {
+    updateContent((current) => ({
+      ...current,
+      visuals: current.visuals.map((visual) => (visual.id === visualId ? { ...visual, ...patch } : visual)),
+    }));
+  };
+
+  const updatePresentation = (patch: Partial<IssuePresentation>) => {
+    updateContent((current) => ({
+      ...current,
+      presentation: normalizeIssuePresentation({
+        ...current.presentation,
+        ...patch,
+      }),
+    }));
+  };
+
+  const applyStylePreset = (preset: EmailStylePreset) => {
+    updateContent((current) => ({
+      ...current,
+      presentation: normalizeIssuePresentation({
+        ...presentationPreset(preset),
+        font_pair: current.presentation.font_pair,
+        diagram_theme: current.presentation.diagram_theme,
+        diagram_style: current.presentation.diagram_style,
+      }),
+    }));
+  };
+
   // --- markdown toolbar ---------------------------------------------------
+
+  const insertTemplate = (blockId: string, template: string) => {
+    const textarea = blockTextareaRefs.current[blockId];
+    if (!textarea) return;
+    const { selectionStart, selectionEnd, value } = textarea;
+    const next = value.slice(0, selectionStart) + template + value.slice(selectionEnd);
+    updateContent((current) => ({
+      ...current,
+      blocks: current.blocks.map((b) => (b.id === blockId ? { ...b, text: next } : b)),
+    }));
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const pos = selectionStart + template.length;
+      textarea.setSelectionRange(pos, pos);
+    });
+  };
 
   const wrapSelection = (blockId: string, before: string, after: string = before) => {
     const textarea = blockTextareaRefs.current[blockId];
@@ -396,6 +547,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   );
   const readMinutes = Math.max(1, Math.round(totalWords / 200));
   const subjectLength = content.subject.length;
+  const renderPreviewMuted = dirty ? 'Rendered email updates after save/autosave.' : 'Rendered email matches the server HTML preview.';
+  const hasRefreshableContent = content.blocks.some((block) => block.text.trim()) || content.visuals.some((visual) => (visual.content || '').trim());
 
   if (loading) {
     return (
@@ -538,12 +691,21 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
             <button
               type="button"
               aria-label="Generate with AI"
-              onClick={generateIssue}
+              onClick={() => generateIssue(false)}
               disabled={generating || issue?.status === 'generating' || !editable}
               className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-purple-500"
             >
               {(generating || issue?.status === 'generating') ? 'Generating...' : (issue?.status === 'ready' || issue?.status === 'failed' ? 'Regenerate with AI' : 'Generate with AI')}
               {!(generating || issue?.status === 'generating') && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              aria-label="Refresh stale draft"
+              onClick={() => generateIssue(true)}
+              disabled={generating || issue?.status === 'generating' || !editable || !hasRefreshableContent}
+              className="px-4 py-2 border border-amber-300 bg-amber-50 text-amber-900 rounded-lg hover:bg-amber-100 flex items-center gap-2 disabled:opacity-50"
+            >
+              Refresh stale draft
             </button>
             <button
               type="button"
@@ -695,6 +857,115 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               />
             </div>
 
+            <section className="rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-stone-900">Presentation</h3>
+                  <p className="text-xs text-stone-500">Pick an email style, tune colors, and change diagram framing.</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500">Email style</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {EMAIL_STYLE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => applyStylePreset(option.value)}
+                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        content.presentation.style_preset === option.value
+                          ? 'border-stone-900 bg-stone-900 text-white'
+                          : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="font-pair" className="mb-1 block text-sm font-medium text-gray-700">
+                    Font pair
+                  </label>
+                  <select
+                    id="font-pair"
+                    value={content.presentation.font_pair}
+                    onChange={(e) => updatePresentation({ font_pair: e.target.value as FontPair })}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
+                  >
+                    {FONT_PAIR_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="diagram-theme" className="mb-1 block text-sm font-medium text-gray-700">
+                    Diagram theme
+                  </label>
+                  <select
+                    id="diagram-theme"
+                    value={content.presentation.diagram_theme}
+                    onChange={(e) => updatePresentation({ diagram_theme: e.target.value as DiagramTheme })}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
+                  >
+                    {DIAGRAM_THEME_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="diagram-style" className="mb-1 block text-sm font-medium text-gray-700">
+                    Diagram frame
+                  </label>
+                  <select
+                    id="diagram-style"
+                    value={content.presentation.diagram_style}
+                    onChange={(e) => updatePresentation({ diagram_style: e.target.value as DiagramStyle })}
+                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
+                  >
+                    {DIAGRAM_STYLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { key: 'accent_color', label: 'Accent' },
+                  { key: 'background_color', label: 'Background' },
+                  { key: 'surface_color', label: 'Surface' },
+                  { key: 'text_color', label: 'Text' },
+                  { key: 'muted_color', label: 'Muted text' },
+                  { key: 'border_color', label: 'Borders' },
+                ].map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2">
+                    <input
+                      type="color"
+                      value={content.presentation[key as keyof IssuePresentation] as string}
+                      onChange={(e) => updatePresentation({ [key]: e.target.value } as Partial<IssuePresentation>)}
+                      className="h-9 w-10 rounded border border-stone-200 bg-transparent"
+                    />
+                    <span className="flex-1">
+                      <span className="block text-sm font-medium text-stone-800">{label}</span>
+                      <span className="block text-xs text-stone-500">{content.presentation[key as keyof IssuePresentation]}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </section>
+
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <label className="block text-sm font-medium text-gray-700">
@@ -789,6 +1060,24 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                         >
                           <List className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => insertTemplate(block.id, '\n```mermaid\nflowchart TD\n  A[Idea] --> B[Example]\n```\n')}
+                          aria-label="Insert Mermaid diagram"
+                          title="Mermaid diagram"
+                          className="rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                        >
+                          Mermaid
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => insertTemplate(block.id, '\n```d2\nconcept: Learning\nconcept -> issue: explained by\n```\n')}
+                          aria-label="Insert D2 diagram"
+                          title="D2 diagram"
+                          className="rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                        >
+                          D2
+                        </button>
                       </div>
 
                       <input
@@ -837,14 +1126,156 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 )}
               </div>
             </div>
+
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700">Detached visuals</h3>
+                  <p className="text-xs text-gray-500">Useful when a diagram should render after the lesson body instead of inline markdown.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addVisual}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add visual
+                </button>
+              </div>
+
+              {content.visuals.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500">
+                  No detached visuals yet. Inline Mermaid or D2 inside blocks still works.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {content.visuals.map((visual, idx) => (
+                    <div key={visual.id} className="rounded-lg border border-gray-200 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">Visual {idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeVisual(visual.id)}
+                          className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-700"
+                          aria-label={`Delete visual ${idx + 1}`}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">Format</label>
+                          <select
+                            value={visual.type || 'mermaid'}
+                            onChange={(e) => updateVisual(visual.id, { type: e.target.value })}
+                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
+                          >
+                            <option value="mermaid">Mermaid</option>
+                            <option value="d2">D2</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">Caption</label>
+                          <input
+                            type="text"
+                            value={visual.alt_text || ''}
+                            onChange={(e) => updateVisual(visual.id, { alt_text: e.target.value })}
+                            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
+                            placeholder="Diagram caption"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-gray-700">Source</label>
+                        <textarea
+                          value={visual.content || ''}
+                          onChange={(e) => updateVisual(visual.id, { content: e.target.value })}
+                          rows={8}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800"
+                          placeholder={visual.type === 'd2' ? 'concept: Reader\nconcept -> takeaway: understands' : 'flowchart TD\n  A[Start] --> B[Finish]'}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
           <div className="lg:sticky lg:top-6 lg:self-start">
-            <EmailPreview
-              subject={content.subject}
-              preheader={content.preheader}
-              blocks={content.blocks}
-              visuals={content.visuals}
-            />
+            <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 px-4 py-3">
+                {[
+                  { value: 'styled', label: 'Styled preview' },
+                  { value: 'rendered', label: 'Rendered email' },
+                  { value: 'html', label: 'HTML source' },
+                ].map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() => setPreviewTab(tab.value as PreviewTab)}
+                    className={`rounded-full px-3 py-1.5 text-sm ${
+                      previewTab === tab.value
+                        ? 'bg-stone-900 text-white'
+                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+                <p className="ml-auto text-xs text-stone-500">{renderPreviewMuted}</p>
+              </div>
+
+              <div className="p-4" style={{ backgroundColor: content.presentation.background_color }}>
+                {previewTab === 'styled' ? (
+                  <EmailPreview
+                    subject={content.subject}
+                    preheader={content.preheader}
+                    blocks={content.blocks}
+                    visuals={content.visuals}
+                    presentation={content.presentation}
+                  />
+                ) : null}
+
+                {previewTab === 'rendered' ? (
+                  <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+                    {previewHtmlLoading ? (
+                      <div className="px-4 py-10 text-center text-sm text-stone-500">Loading rendered HTML…</div>
+                    ) : previewHtmlError ? (
+                      <div className="px-4 py-10 text-center text-sm text-red-600">{previewHtmlError}</div>
+                    ) : (
+                      <iframe
+                        title="Rendered email HTML"
+                        srcDoc={previewHtml}
+                        className="h-[900px] w-full bg-white"
+                      />
+                    )}
+                  </div>
+                ) : null}
+
+                {previewTab === 'html' ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs uppercase tracking-wide text-stone-500">Server HTML</p>
+                      <button
+                        type="button"
+                        onClick={loadPreviewHtml}
+                        className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={previewHtml}
+                      className="h-[900px] w-full rounded-xl border border-stone-200 bg-stone-950 px-4 py-3 font-mono text-xs leading-relaxed text-stone-100"
+                    />
+                    {previewHtmlError ? (
+                      <p className="text-sm text-red-600">{previewHtmlError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
       </div>
