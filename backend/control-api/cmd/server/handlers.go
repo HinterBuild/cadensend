@@ -168,15 +168,15 @@ func updateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req struct {
-			Topic          *string `json:"topic"`
-			Goal           *string `json:"goal"`
-			Level          *string `json:"level"`
-			Timezone       *string `json:"timezone"`
-			Cadence        *string `json:"cadence"`
-			StartDate      *string `json:"start_date"`
-			SendTime       *string `json:"send_time"`
+			Topic          *string  `json:"topic"`
+			Goal           *string  `json:"goal"`
+			Level          *string  `json:"level"`
+			Timezone       *string  `json:"timezone"`
+			Cadence        *string  `json:"cadence"`
+			StartDate      *string  `json:"start_date"`
+			SendTime       *string  `json:"send_time"`
 			SendDays       []string `json:"send_days"`
-			ManualApproval *bool   `json:"manual_approval"`
+			ManualApproval *bool    `json:"manual_approval"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -343,13 +343,13 @@ func extractSeriesBriefHandler() gin.HandlerFunc {
 		}
 
 		payload := map[string]interface{}{
-			"raw_text":           req.RawText,
-			"source_type":        firstNonEmpty(strings.TrimSpace(req.SourceType), "notes"),
-			"preferred_level":    strings.TrimSpace(req.PreferredLevel),
-			"preferred_tone":     strings.TrimSpace(req.PreferredTone),
-			"preferred_length":   strings.TrimSpace(req.PreferredLength),
-			"preferred_cadence":  strings.TrimSpace(req.PreferredCadence),
-			"model":              strings.TrimSpace(req.Model),
+			"raw_text":          req.RawText,
+			"source_type":       firstNonEmpty(strings.TrimSpace(req.SourceType), "notes"),
+			"preferred_level":   strings.TrimSpace(req.PreferredLevel),
+			"preferred_tone":    strings.TrimSpace(req.PreferredTone),
+			"preferred_length":  strings.TrimSpace(req.PreferredLength),
+			"preferred_cadence": strings.TrimSpace(req.PreferredCadence),
+			"model":             strings.TrimSpace(req.Model),
 		}
 		status, body, err := aiEngineRequest(http.MethodPost, "/v1/brief/extract", payload)
 		if err != nil {
@@ -455,7 +455,7 @@ func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := queueIssueGeneration(&series, issue, req.Model); err != nil {
+		if err := queueIssueGeneration(&series, issue, req.Model, false); err != nil {
 			db.Model(issue).Updates(map[string]interface{}{
 				"status":         IssueStatusFailed,
 				"generate_error": err.Error(),
@@ -790,6 +790,8 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			Subject       string          `json:"subject"`
 			Preheader     string          `json:"preheader"`
 			ContentBlocks json.RawMessage `json:"content_blocks"`
+			VisualSpecs   json.RawMessage `json:"visual_specs"`
+			Presentation  json.RawMessage `json:"presentation"`
 			ScheduledAt   string          `json:"scheduled_at"`
 			Autosave      bool            `json:"autosave"`
 		}
@@ -813,9 +815,27 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		content["preheader"] = req.Preheader
 		if len(req.ContentBlocks) > 0 && string(req.ContentBlocks) != "null" {
 			var blocks any
-			if err := json.Unmarshal(req.ContentBlocks, &blocks); err == nil {
-				content["content_blocks"] = blocks
+			if err := json.Unmarshal(req.ContentBlocks, &blocks); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "content_blocks must be valid JSON"})
+				return
 			}
+			content["content_blocks"] = blocks
+		}
+		if len(req.VisualSpecs) > 0 && string(req.VisualSpecs) != "null" {
+			var visuals any
+			if err := json.Unmarshal(req.VisualSpecs, &visuals); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "visual_specs must be valid JSON"})
+				return
+			}
+			content["visual_specs"] = visuals
+		}
+		if len(req.Presentation) > 0 && string(req.Presentation) != "null" {
+			var presentation any
+			if err := json.Unmarshal(req.Presentation, &presentation); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "presentation must be valid JSON"})
+				return
+			}
+			content["presentation"] = presentation
 		}
 		encoded, err := json.Marshal(content)
 		if err != nil {
@@ -860,7 +880,8 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req struct {
-			Model string `json:"model"`
+			Model              string `json:"model"`
+			RefreshFromCurrent bool   `json:"refresh_from_current"`
 		}
 		_ = c.ShouldBindJSON(&req)
 
@@ -876,6 +897,10 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			})
 			return
 		}
+		if req.RefreshFromCurrent && len(parseJSONMap(issue.ContentJSON)) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue has no existing draft to refresh"})
+			return
+		}
 
 		// Keep the current draft as a version so a regenerate is reversible.
 		if err := snapshotIssueVersion(db, issue, c.GetString("user_id"), false); err != nil {
@@ -889,7 +914,7 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			"updated_at":     time.Now(),
 		})
 
-		if err := queueIssueGeneration(series, issue, req.Model); err != nil {
+		if err := queueIssueGeneration(series, issue, req.Model, req.RefreshFromCurrent); err != nil {
 			db.Model(issue).Updates(map[string]interface{}{
 				"status":         IssueStatusFailed,
 				"generate_error": err.Error(),
@@ -907,9 +932,22 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func queueIssueGeneration(series *service.Series, issue *service.Issue, model string) error {
+func queueIssueGeneration(series *service.Series, issue *service.Issue, model string, refreshFromCurrent bool) error {
 	if model == "" {
 		model = cfg.DefaultModel
+	}
+	brief := map[string]interface{}{
+		"topic":     series.Topic,
+		"goal":      series.Goal,
+		"level":     series.Level,
+		"objective": issue.Objective,
+		"model":     model,
+	}
+	threadID := "issue-" + issue.ID
+	if refreshFromCurrent {
+		brief["refresh_mode"] = "stale_content_refresh"
+		brief["refresh_source"] = buildRefreshSource(issue)
+		threadID = fmt.Sprintf("issue-%s-refresh-%d", issue.ID, time.Now().UTC().Unix())
 	}
 	job, err := json.Marshal(map[string]interface{}{
 		"task":         "generate_issue",
@@ -918,20 +956,34 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 		"workspace_id": series.WorkspaceID,
 		"issue_number": issue.SequenceNo,
 		"model":        model,
-		"brief": map[string]interface{}{
-			"topic":     series.Topic,
-			"goal":      series.Goal,
-			"level":     series.Level,
-			"objective": issue.Objective,
-			"model":     model,
-		},
-		"thread_id": "issue-" + issue.ID,
-		"plan_item": planItemForIssue(series, issue),
+		"brief":        brief,
+		"thread_id":    threadID,
+		"plan_item":    planItemForIssue(series, issue),
 	})
 	if err != nil {
 		return err
 	}
 	return enqueueGenerationJob(job)
+}
+
+func buildRefreshSource(issue *service.Issue) map[string]any {
+	content := parseJSONMap(issue.ContentJSON)
+	if len(content) == 0 {
+		return map[string]any{}
+	}
+
+	source := map[string]any{
+		"issue_id":     issue.ID,
+		"issue_number": issue.SequenceNo,
+		"objective":    issue.Objective,
+		"updated_at":   issue.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	for _, key := range []string{"subject", "preheader", "content_blocks", "visual_specs", "presentation"} {
+		if value, ok := content[key]; ok {
+			source[key] = value
+		}
+	}
+	return source
 }
 
 func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
@@ -1293,22 +1345,22 @@ func sourceRefsForContent(db *gorm.DB, workspaceID string, content map[string]an
 const maxSourceUploadBytes = 20 << 20 // 20 MiB
 
 var allowedSourceMimeTypes = map[string]bool{
-	"application/pdf":       true,
-	"application/msword":    true,
+	"application/pdf":    true,
+	"application/msword": true,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
-	"application/vnd.ms-powerpoint": true,
+	"application/vnd.ms-powerpoint":                                             true,
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
-	"application/vnd.ms-excel": true,
+	"application/vnd.ms-excel":                                                  true,
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
-	"text/html":                true,
-	"text/plain":               true,
-	"text/markdown":            true,
-	"application/json":         true,
-	"text/csv":                 true,
-	"application/xml":          true,
-	"text/xml":                 true,
-	"application/rss+xml":      true,
-	"application/atom+xml":     true,
+	"text/html":            true,
+	"text/plain":           true,
+	"text/markdown":        true,
+	"application/json":     true,
+	"text/csv":             true,
+	"application/xml":      true,
+	"text/xml":             true,
+	"application/rss+xml":  true,
+	"application/atom+xml": true,
 }
 
 func allowedSourceExtension(name string) bool {
@@ -1466,8 +1518,8 @@ func submitURLHandler(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Where("workspace_id = ? AND url = ? AND deleted_at IS NULL", workspaceID, req.URL).
 			First(&existing).Error; err == nil {
 			c.JSON(http.StatusConflict, gin.H{
-				"error":      "this source was already added",
-				"existing":   map[string]interface{}{"id": existing.ID, "status": existing.Status, "series_id": existing.SeriesID},
+				"error":    "this source was already added",
+				"existing": map[string]interface{}{"id": existing.ID, "status": existing.Status, "series_id": existing.SeriesID},
 			})
 			return
 		}

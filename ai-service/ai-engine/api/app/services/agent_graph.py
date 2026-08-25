@@ -378,6 +378,16 @@ class NewsletterAgent:
         publication_memory = self._publication_memory_text(memory)
         if state.get("workflow") == "issue":
             module = ((state.get("plan") or {}).get("modules") or [{}])[0]
+            refresh_mode = brief.get("refresh_mode") == "stale_content_refresh"
+            refresh_instructions = ""
+            if refresh_mode:
+                refresh_instructions = f"""
+- You are refreshing an older issue as of August 25, 2026.
+- Preserve the strongest structure, framing, and teaching moves from the old issue when they are still correct.
+- Replace stale claims, old dates, outdated tooling details, and weak examples with fresher material from retrieved context.
+- When the old draft conflicts with retrieved context, trust the retrieved context.
+- If you materially updated the lesson, include a short section titled "What changed" near the end.
+"""
             system = f"""You are Cadensend's issue writer. Work in a ReAct loop:
 Think about what you still need, Act by calling tools, Observe the tool JSON, then continue.
 Guardrails:
@@ -388,17 +398,20 @@ Guardrails:
 - Call retrieve_context (optionally with source_id) before stating facts. Cite only source_id values returned by tools.
 - If analyze_retrieval_coverage returns grounded=false, do not fabricate citations.
 - Call generate_visual when a simple Mermaid flow would help, and put that diagram in visual_specs.
+- Use generate_glossary, generate_examples, generate_analogies, generate_counterexamples, generate_case_study, and generate_scenarios when they would make the lesson clearer, more concrete, or easier to apply.
 - Put every command, YAML, JSON, class, or snippet in a fenced block with a language tag (```java, ```python, ```yaml, ```bash).
 - Wrap method names and expressions in backticks, e.g. `getBalance()`, `balance >= 0`.
 - Include at least one ```mermaid diagram when teaching a relationship or flow.
 Never describe runnable code only as prose.
+{refresh_instructions}
 When done, do not call tools. Return ONLY JSON:
 {{"subject":"...","preheader":"...","content_blocks":[{{"type":"markdown","title":"...","text":"...","citations":[{{"source_id":"...","chunk_id":"...","text":"..."}}]}}],"visual_specs":[{{"type":"mermaid","content":"flowchart TD; A-->B","alt_text":"..."}}]}}
 Series topic: {brief.get("topic","")} | level: {brief.get("level","")} | tone: {brief.get("tone","instructor")} | length: {brief.get("length","10 min")}
 {publication_memory}
 Include code samples and diagrams when the topic is technical.
 """
-            user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}"
+            refresh_context = self._refresh_source_text(brief.get("refresh_source"))
+            user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}{refresh_context}"
         else:
             system = self._plan_system_prompt(brief, memory) + """
 
@@ -414,6 +427,39 @@ When done, do not call tools. Return ONLY the plan JSON.
                 "Each module must have a unique title and unique learning objectives."
             )
         return [SystemMessage(content=system), HumanMessage(content=user)]
+
+    def _refresh_source_text(self, refresh_source: Any) -> str:
+        if not isinstance(refresh_source, dict) or not refresh_source:
+            return ""
+
+        clipped: Dict[str, Any] = {
+            "issue_id": refresh_source.get("issue_id"),
+            "issue_number": refresh_source.get("issue_number"),
+            "objective": refresh_source.get("objective"),
+            "updated_at": refresh_source.get("updated_at"),
+            "subject": refresh_source.get("subject"),
+            "preheader": refresh_source.get("preheader"),
+            "presentation": refresh_source.get("presentation"),
+            "visual_specs": refresh_source.get("visual_specs"),
+        }
+
+        blocks = []
+        for block in refresh_source.get("content_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            blocks.append({
+                "title": block.get("title"),
+                "type": block.get("type"),
+                "text": (block.get("text") or "")[:1200],
+            })
+        if blocks:
+            clipped["content_blocks"] = blocks[:6]
+
+        return (
+            "\n\nRefresh this older issue instead of writing from scratch. "
+            "Use it as the baseline draft, but update anything stale.\n"
+            f"{json.dumps(clipped, indent=2)}"
+        )
 
     async def _agent_node(self, state: NewsletterState) -> dict:
         """Think + Act: model may request tools or emit the final JSON."""
