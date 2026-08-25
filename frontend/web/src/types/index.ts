@@ -138,6 +138,14 @@ export interface VisualSpec {
 }
 
 // Source types
+export type InjectionFinding = {
+  pattern_id: string;
+  category: string;
+  count: number;
+  snippet?: string;
+  severity?: string;
+};
+
 export interface Source {
   id: string;
   workspace_id: string;
@@ -151,6 +159,8 @@ export interface Source {
   content_hash?: string;
   duplicate_of?: string;
   chunk_count?: number;
+  injection_status?: 'clean' | 'flagged';
+  injection_findings?: InjectionFinding[];
   created_by: string;
   created_at: string;
   updated_at: string;

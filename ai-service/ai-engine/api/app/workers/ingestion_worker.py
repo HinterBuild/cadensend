@@ -21,6 +21,7 @@ except ImportError:
 from app.core.config import settings
 from app.core.database import asyncpg_dsn
 from app.services.model_service import ModelService
+from app.services.prompt_injection import scan_source_text, sanitize_source_text
 from app.rag.chunking.text_splitter import chunking_service
 from app.rag.embeddings.qdrant import qdrant_service
 
@@ -141,6 +142,40 @@ class IngestionWorker:
 			await self._update_source_version_status(version.id, STATUS_FETCHING)
 			await self._update_source_version_status(version.id, STATUS_PARSING)
 
+			# Prompt-injection scan: source content is untrusted input that
+			# later lands inside the writer model's context window. High
+			# severity refuses the source entirely; lower severities are
+			# sanitized so only cleaned prose reaches chunking/embedding.
+			scan = scan_source_text(parsed_text)
+			if scan.severity == "high":
+				block_reason = (
+					f"blocked by prompt-injection scanner ({scan.summary()}); "
+					"use a trusted source instead"
+				)
+				logger.warning("Blocked poisoned source %s: %s", source.id, scan.summary())
+				await self._update_source_status(source.id, STATUS_FAILED, block_reason)
+				await self._update_source_version_status(version.id, STATUS_FAILED)
+				return {
+					"source_id": source.id,
+					"version_id": version.id,
+					"status": "blocked",
+					"findings": scan.findings,
+					"error": block_reason,
+				}
+
+			injection_status = "clean"
+			injection_findings_json = None
+			if scan.severity != "clean":
+				parsed_text, removals = sanitize_source_text(parsed_text)
+				injection_status = "flagged"
+				injection_findings_json = json.dumps(
+					[finding | {"severity": scan.severity} for finding in scan.findings]
+				)
+				logger.warning(
+					"Sanitized source %s (%s); %d span(s) neutralized before indexing",
+					source.id, scan.summary(), removals,
+				)
+
 			content_hash = self._content_hash(parsed_text)
 
 			# Duplicate detection: identical content already ingested into
@@ -158,6 +193,8 @@ class IngestionWorker:
 					content_hash=content_hash,
 					chunk_count=0,
 					duplicate_of=duplicate_of,
+					injection_status=injection_status,
+					injection_findings_json=injection_findings_json,
 				)
 				return {
 					"source_id": source.id,
@@ -190,6 +227,8 @@ class IngestionWorker:
 				status=STATUS_READY,
 				content_hash=content_hash,
 				chunk_count=len(chunks),
+				injection_status=injection_status,
+				injection_findings_json=injection_findings_json,
 			)
 			await self._update_source_version_status(version.id, STATUS_READY)
 
@@ -198,6 +237,7 @@ class IngestionWorker:
 				"version_id": version.id,
 				"total_chunks": len(chunks),
 				"status": "complete",
+				"injection_status": injection_status,
 			}
 
 		except Exception as e:
@@ -247,6 +287,8 @@ class IngestionWorker:
 		content_hash: str = "",
 		chunk_count: int = 0,
 		duplicate_of: Optional[str] = None,
+		injection_status: str = "clean",
+		injection_findings_json: Optional[str] = None,
 	):
 		"""Persist terminal ingestion state including hash/chunk metadata."""
 		import asyncpg
@@ -262,6 +304,8 @@ class IngestionWorker:
 				    content_hash = $4,
 				    chunk_count = $5,
 				    duplicate_of = $6::uuid,
+				    injection_status = $7,
+				    injection_findings = $8::jsonb,
 				    updated_at = NOW()
 				WHERE id = $1::uuid
 				""",
@@ -271,6 +315,8 @@ class IngestionWorker:
 				content_hash,
 				chunk_count,
 				duplicate_of,
+				injection_status,
+				injection_findings_json,
 			)
 		finally:
 			await conn.close()
