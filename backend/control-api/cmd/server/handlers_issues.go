@@ -2,10 +2,12 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -285,6 +287,62 @@ func cancelIssueSendHandler(db *gorm.DB) gin.HandlerFunc {
 			map[string]interface{}{"series_id": series.ID}, c.ClientIP())
 
 		c.JSON(http.StatusOK, gin.H{"message": "scheduled send canceled"})
+	}
+}
+
+// cancelIssueGenerationHandler stops an in-flight AI generation and restores
+// the issue to its pre-generation state. Jobs still queued (not yet picked up
+// by the worker) are skipped by its pre-flight status check; running tasks
+// are aborted via a Redis cancel signal.
+func cancelIssueGenerationHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		loaded, _, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
+			return
+		}
+		if loaded.Status != IssueStatusGenerating {
+			c.JSON(http.StatusConflict, gin.H{"error": "issue is not currently generating"})
+			return
+		}
+
+		// Regeneration leaves the previous draft intact until the worker
+		// persists, so restore to ready when content exists.
+		restoreStatus := IssueStatusPending
+		if len(parseJSONMap(loaded.ContentJSON)) > 0 {
+			restoreStatus = IssueStatusReady
+		}
+
+		now := time.Now().UTC()
+		if err := db.Model(loaded).Updates(map[string]interface{}{
+			"status":         restoreStatus,
+			"generate_error": "",
+			"updated_at":     now,
+		}).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if payload, err := json.Marshal(map[string]string{
+			"target_type": "issue",
+			"target_id":   id,
+		}); err == nil {
+			if err := generationQueue().Publish(context.Background(), "generation_queue:cancel", payload).Err(); err != nil {
+				// Non-fatal: jobs already popped but not yet started are
+				// still caught by the worker's pre-flight check.
+				log.Printf("cancel publish warning for issue %s: %v", id, err)
+			}
+		}
+
+		service.WriteAudit(db, c.Request.Context(), c.GetString("user_id"),
+			service.AuditGenerationCanceled, "issue", id, nil, c.ClientIP())
+
+		var fresh service.Issue
+		if err := db.Where("id = ?", id).First(&fresh).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": fresh, "message": "generation canceled"})
 	}
 }
 

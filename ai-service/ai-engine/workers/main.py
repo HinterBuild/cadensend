@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 QUEUE_KEY = "generation_queue"
 PROCESSING_KEY = "generation_queue:processing"
 DEAD_LETTER_KEY = "generation_queue:dead"
+CANCEL_CHANNEL = "generation_queue:cancel"
 MAX_JOB_ATTEMPTS = 3
 
 
@@ -67,6 +68,10 @@ class AIWorker:
         self.ingestion_worker = IngestionWorker(self.model_service)
         self.running = False
         self.tasks: dict[str, asyncio.Task] = {}
+        # In-flight LLM jobs keyed by cancel key ("issue:<id>" / "series:<id>")
+        # so a user cancellation can abort the running asyncio task.
+        self._running_jobs: dict[str, asyncio.Task] = {}
+        self._cancel_listener: asyncio.Task | None = None
         self._redis: redis_async.Redis | None = None
         self._pg: asyncpg.Pool | None = None
         self._llm_task: asyncio.Task | None = None
@@ -84,6 +89,7 @@ class AIWorker:
         qdrant_service.ensure_collection()
 
         await self._recover_processing_queue()
+        self._cancel_listener = asyncio.create_task(self._listen_for_generation_cancels())
         logger.info("AI Worker initialized with LangGraph agent")
 
         while self.running:
@@ -93,6 +99,9 @@ class AIWorker:
     async def stop(self):
         """Stop the AI worker and cancel pending tasks."""
         self.running = False
+        if self._cancel_listener is not None:
+            self._cancel_listener.cancel()
+            self._cancel_listener = None
         for task_id, task in self.tasks.items():
             task.cancel()
         if self._redis is not None:
@@ -261,6 +270,14 @@ class AIWorker:
             return
 
         task = asyncio.create_task(handler)
+        cancel_key = ""
+        if task_name == "generate_issue" and issue_id:
+            cancel_key = f"issue:{issue_id}"
+        elif task_name == "generate_plan" and series_id:
+            cancel_key = f"series:{series_id}"
+        if cancel_key:
+            self._running_jobs[cancel_key] = task
+            task.add_done_callback(lambda _t, key=cancel_key: self._running_jobs.pop(key, None))
         if task_name in {"generate_plan", "generate_issue"}:
             self._llm_task = task
             task.add_done_callback(self._mark_llm_finished)
@@ -270,6 +287,48 @@ class AIWorker:
             "Queued job=%s id=%s attempts=%d series=%s issue=%s source=%s",
             task_name, task_id, attempts, series_id, issue_id, source_id,
         )
+
+    async def _listen_for_generation_cancels(self):
+        """Abort in-flight generation tasks when the API publishes a cancel.
+
+        Jobs still sitting in the queue are handled separately by the
+        pre-flight status check before any model call is made.
+        """
+        redis = self._redis_client()
+        pubsub = redis.pubsub()
+        try:
+            await pubsub.subscribe(CANCEL_CHANNEL)
+            logger.info("Subscribed to %s for generation cancellations", CANCEL_CHANNEL)
+            while self.running:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if not message:
+                    continue
+                data = message.get("data")
+                if isinstance(data, bytes):
+                    data = data.decode("utf-8", "replace")
+                if not isinstance(data, str):
+                    continue
+                try:
+                    payload = json.loads(data)
+                except ValueError:
+                    continue
+                key = f"{payload.get('target_type', '')}:{payload.get('target_id', '')}"
+                job_task = self._running_jobs.get(key)
+                if job_task is not None and not job_task.done():
+                    job_task.cancel()
+                    logger.info("Cancellation received for %s; aborting in-flight generation", key)
+                else:
+                    logger.info(
+                        "Cancellation received for %s but no in-flight task matches (pre-flight check will handle it)",
+                        key,
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Generation cancellation listener crashed; restart it via worker restart")
+            with contextlib.suppress(Exception):
+                await pubsub.unsubscribe(CANCEL_CHANNEL)
+                await pubsub.aclose()
 
     async def _record_dead_letter(self, job_data: dict, attempts: int, error: str):
         """Persist terminal failures so the Run Center can show them."""
@@ -317,6 +376,19 @@ class AIWorker:
                 )
                 return
 
+            # Pre-flight: skip jobs whose series is no longer waiting on us.
+            pool = await self._pg_pool()
+            current_status = await pool.fetchval(
+                "SELECT plan_status FROM series WHERE id = $1::uuid",
+                series_id,
+            )
+            if current_status != "generating":
+                logger.info(
+                    "Skipping plan generation for series=%s (plan_status is %s; likely canceled)",
+                    series_id, current_status,
+                )
+                return
+
             result = await self._run_with_fallback(
                 lambda model: self.agent.run_plan_generation(
                     brief={**job_data.get("brief", {}), "model": model},
@@ -342,6 +414,9 @@ class AIWorker:
             await self._persist_plan_result(series_id, result)
             await self._materialize_issues_from_plan(series_id, result, job_data)
 
+        except asyncio.CancelledError:
+            logger.info("Plan generation canceled series=%s", series_id)
+            raise
         except Exception as e:
             logger.exception("Plan generation job failed series=%s", series_id)
             await self._persist_plan_result(
@@ -353,8 +428,23 @@ class AIWorker:
 
     async def _handle_generate_issue(self, job_data: dict):
         """Handle a generate-issue job using the LangGraph agent."""
+        issue_id = job_data.get("issue_id")
         token = set_generation_model(job_data.get("model"))
         try:
+            # Pre-flight: the user may have canceled while this job sat in the
+            # queue. Only proceed if the issue is still waiting on us.
+            pool = await self._pg_pool()
+            current_status = await pool.fetchval(
+                "SELECT status FROM issues WHERE id = $1::uuid",
+                issue_id,
+            )
+            if current_status != "generating":
+                logger.info(
+                    "Skipping generation for issue=%s (status is %s; likely canceled)",
+                    issue_id, current_status,
+                )
+                return
+
             result = await self._run_with_fallback(
                 lambda model: self.agent.run_issue_generation(
                     series_id=job_data.get("series_id", ""),
@@ -381,6 +471,12 @@ class AIWorker:
             )
             await self._persist_issue_result(job_data.get("issue_id"), result)
 
+        except asyncio.CancelledError:
+            # User-initiated cancellation: the cancel endpoint already restored
+            # the issue's status; nothing to persist. Re-raise so the finalize
+            # callback acks the job instead of treating it as a failure.
+            logger.info("Issue generation canceled issue=%s", job_data.get("issue_id"))
+            raise
         except Exception as e:
             logger.exception("Issue generation job failed issue=%s", job_data.get("issue_id"))
             await self._persist_issue_result(
@@ -427,20 +523,24 @@ class AIWorker:
 
         try:
             pool = await self._pg_pool()
-            await pool.execute(
+            updated = await pool.fetchval(
                 """
                 UPDATE series
                 SET plan_status = $1,
                     plan_json = $2::jsonb,
                     plan_error = $3,
                     updated_at = NOW()
-                WHERE id = $4::uuid
+                WHERE id = $4::uuid AND plan_status = 'generating'
+                RETURNING id
                 """,
                 plan_status,
                 json.dumps(plan),
                 error,
                 series_id,
             )
+            if updated is None:
+                logger.info("Skipped persist for series=%s (plan no longer generating; likely canceled)", series_id)
+                return
             logger.info("Persisted plan status=%s for series=%s", plan_status, series_id)
         except Exception as persist_error:
             logger.exception("Failed to persist plan result series=%s: %s", series_id, persist_error)
@@ -662,20 +762,26 @@ class AIWorker:
 
         try:
             pool = await self._pg_pool()
-            await pool.execute(
+            # Status guard: if the user canceled mid-run, their restored
+            # status wins and this late result is dropped.
+            updated = await pool.fetchval(
                 """
                 UPDATE issues
                 SET status = $1,
                     content_json = $2::jsonb,
                     generate_error = $3,
                     updated_at = NOW()
-                WHERE id = $4::uuid
+                WHERE id = $4::uuid AND status = 'generating'
+                RETURNING id
                 """,
                 issue_status,
                 json.dumps(content),
                 error,
                 issue_id,
             )
+            if updated is None:
+                logger.info("Skipped persist for issue=%s (no longer generating; likely canceled)", issue_id)
+                return
             logger.info("Persisted issue status=%s for issue=%s", issue_status, issue_id)
         except Exception as persist_error:
             logger.exception("Failed to persist issue result issue=%s: %s", issue_id, persist_error)
