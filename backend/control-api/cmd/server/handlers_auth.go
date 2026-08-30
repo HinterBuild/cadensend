@@ -67,8 +67,8 @@ func forgotPasswordHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFun
 				resetURL,
 			)
 			if sendErr := sendTestEmail(user.Email, "Reset your Cadensend password", html); sendErr != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": "could not send the reset email: " + sendErr.Error()})
-				return
+				service.WriteAudit(db, c.Request.Context(), user.ID, service.AuditPasswordReset, "user", user.ID,
+					map[string]interface{}{"flow": "request_send_failed", "error": sendErr.Error()}, c.ClientIP())
 			}
 			service.WriteAudit(db, c.Request.Context(), user.ID, service.AuditPasswordReset, "user", user.ID,
 				map[string]interface{}{"flow": "requested"}, c.ClientIP())

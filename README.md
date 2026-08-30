@@ -321,6 +321,7 @@ Copy from [`.env.example`](.env.example). Compose injects in-cluster hostnames (
 | `DEFAULT_MODEL` | no | `poolside/laguna-s-2.1:free` | Chat model when the user does not pick one |
 | `EMBEDDING_MODEL` | no | `nvidia/nemotron-3-embed-1b:free` | Embedding model |
 | `JWT_SECRET` | yes | `dev-secret-change-in-production` | Access token signing |
+| `INTERNAL_API_TOKEN` | yes for multi-service deploys | `dev-internal-token-change-in-production` | Service-to-service auth between the control API and AI engine |
 | `JWT_ALGORITHM` | no | `HS256` | JWT algorithm |
 | `MINIO_ENDPOINT` | yes | `localhost:9000` | Object storage |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | yes | `minioadmin` / `minioadmin123` | MinIO credentials |
@@ -329,8 +330,9 @@ Copy from [`.env.example`](.env.example). Compose injects in-cluster hostnames (
 | `BREVO_API_KEY` | no | empty | Transactional email |
 | `SMTP_FROM` | no | `no-reply@cadensend.app` | From address |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | Compose | `cadensend` | Database bootstrap |
+| `GRAFANA_ADMIN_PASSWORD` | observability only | `change-me-monitoring-admin` | Grafana admin password |
 
-Never commit `.env`. Rotate `JWT_SECRET` and provider keys if they leak.
+Never commit `.env`. Rotate `JWT_SECRET`, `INTERNAL_API_TOKEN`, and provider keys if they leak.
 
 ---
 
@@ -491,7 +493,7 @@ Useful worker lines:
 
 ### Observability
 
-Optional stack: `observability/docker-compose.monitoring.yml` (Prometheus, Grafana, tracing). Control API registers OpenTelemetry middleware when configured.
+Optional stack: `observability/docker-compose.monitoring.yml` (Prometheus, Grafana, tracing). Control API registers OpenTelemetry middleware when configured. Change `GRAFANA_ADMIN_PASSWORD` before exposing the stack beyond localhost.
 
 ### Backups
 
@@ -508,6 +510,7 @@ Optional stack: `observability/docker-compose.monitoring.yml` (Prometheus, Grafa
 - Qdrant searches must include workspace (and series when scoped) filters.
 - Do not expose MinIO, Postgres, or Redis on the public internet in production.
 - Replace default MinIO and Postgres passwords.
+- Set a dedicated `INTERNAL_API_TOKEN`; do not reuse the JWT signing secret for service-to-service auth.
 - Store `OPENROUTER_API_KEY` and `BREVO_API_KEY` in a secret manager, not in git.
 - Delivery webhooks should verify provider signatures before mutating delivery rows.
 

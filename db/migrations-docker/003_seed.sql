@@ -8,9 +8,9 @@ ON CONFLICT (name) DO NOTHING;
 INSERT INTO users (id, email, password_hash, name, timezone, status, workspace_id, created_at, updated_at, email_verified)
 VALUES (
   'b2c3d4e5-f6a7-8901-bcde-f12345678901',
-  'as1987137@gmail.com',
-  '$2b$10$acQRP4RLiP1/sO9V25/hGunZqrMo0pUERrGueoau9jhdum6QpZKjq', -- password: Sami@1234
-  'Samiha Ali',
+  'demo@example.com',
+  NULL,
+  'Demo User',
   'Asia/Karachi',
   'active',
   'a1b2c3d4-e5f6-7890-abcd-ef1234567890',

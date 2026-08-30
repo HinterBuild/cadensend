@@ -42,7 +42,8 @@ type Config struct {
 
 	FrontendOrigin string
 
-	WebhookSecret string
+	WebhookSecret    string
+	InternalAPIToken string
 
 	AIAPIURL string
 
@@ -84,6 +85,7 @@ func LoadConfig() *Config {
 		BrevoAPIURL:        getEnv("BREVO_API_URL", ""),
 		FrontendOrigin:     strings.TrimRight(getEnv("FRONTEND_ORIGIN", "http://localhost:3000"), "/"),
 		WebhookSecret:      getEnv("WEBHOOK_SECRET", ""),
+		InternalAPIToken:   getEnv("INTERNAL_API_TOKEN", ""),
 		AIAPIURL:           strings.TrimRight(getEnv("AI_API_URL", "http://localhost:8000"), "/"),
 		JWTSecret:          getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTAlgorithm:       getEnv("JWT_ALGORITHM", "HS256"),
@@ -107,6 +109,10 @@ func LoadConfig() *Config {
 		switch cfg.JWTSecret {
 		case "", "change-this-in-production", "dev-secret-change-in-production", "secret-key":
 			log.Fatal("JWT_SECRET must be set to a strong value in production")
+		}
+		switch strings.TrimSpace(cfg.InternalAPIToken) {
+		case "", "change-this-internal-token", "dev-internal-token-change-in-production", "secret-key":
+			log.Fatal("INTERNAL_API_TOKEN must be set to a strong value in production")
 		}
 	}
 	return cfg

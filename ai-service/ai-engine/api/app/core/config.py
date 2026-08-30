@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
-    INTERNAL_API_TOKEN: str = ""
+    INTERNAL_API_TOKEN: str = "dev-internal-token-change-in-production"
     
     # OpenTelemetry settings
     OTEL_ENDPOINT: Optional[str] = None

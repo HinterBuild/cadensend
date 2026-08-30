@@ -662,13 +662,28 @@ func magicLinkHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 			return
 		}
 
-		token, err := svc.GenerateMagicLink(strings.ToLower(strings.TrimSpace(req.Email)))
+		token, user, err := svc.GenerateMagicLink(strings.ToLower(strings.TrimSpace(req.Email)))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not start magic link sign-in"})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"token": token})
+		if user != nil && token != "" {
+			verifyURL := cfg.FrontendOrigin + "/magic-link?token=" + token
+			_, html := mail.RenderNotificationHTML(
+				"Your Cadensend sign-in link",
+				"Use this secure link to sign in to Cadensend. It expires after one use or when the session window closes.",
+				"Sign in to Cadensend",
+				verifyURL,
+			)
+			if sendErr := sendTestEmail(user.Email, "Your Cadensend sign-in link", html); sendErr != nil {
+				// Keep the response uniform so callers cannot probe account existence.
+				service.WriteAudit(db, c.Request.Context(), user.ID, service.AuditMagicLinkRequested, "user", user.ID,
+					map[string]interface{}{"flow": "magic_link_send_failed", "error": sendErr.Error()}, c.ClientIP())
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "if an account exists for that email, a magic link is on its way"})
 	}
 }
 
@@ -1739,7 +1754,7 @@ func aiEngineRequest(method, path string, payload map[string]interface{}) (int, 
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if token := strings.TrimSpace(cfg.JWTSecret); token != "" {
+	if token := strings.TrimSpace(cfg.InternalAPIToken); token != "" {
 		req.Header.Set("X-Internal-Token", token)
 	}
 	resp, err := http.DefaultClient.Do(req)

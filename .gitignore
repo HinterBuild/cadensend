@@ -27,6 +27,8 @@ node_modules/
 dist/
 build/
 *.bundle.js
+backend/control-api/server
+backend/control-worker/server
 
 # IDE
 *.swp

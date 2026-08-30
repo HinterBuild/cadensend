@@ -58,6 +58,7 @@ services:
       - DATABASE_URL=postgres://cadensend:cadensend@postgres:5432/cadensend?sslmode=disable
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:-dev-internal-token-change-in-production}
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin123}
@@ -118,6 +119,7 @@ services:
       - DEFAULT_MODEL=${DEFAULT_MODEL:-poolside/laguna-s-2.1:free}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:-dev-internal-token-change-in-production}
       - PYTHONPATH=/app/ai-engine/api
       - MAX_TOOL_CALLS=${MAX_TOOL_CALLS:-10}
       - MAX_REVISION_LOOPS=${MAX_REVISION_LOOPS:-2}

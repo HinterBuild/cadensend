@@ -170,11 +170,11 @@ type Recipient struct {
 
 // PasswordResetToken is a single-use token emailed for password resets.
 type PasswordResetToken struct {
-	Token     string     `gorm:"primarykey"`
-	UserID    string     `gorm:"not null"`
-	ExpiresAt time.Time  `gorm:"not null"`
+	Token     string    `gorm:"primarykey"`
+	UserID    string    `gorm:"not null"`
+	ExpiresAt time.Time `gorm:"not null"`
 	UsedAt    *time.Time
-	CreatedAt time.Time  `gorm:"not null"`
+	CreatedAt time.Time `gorm:"not null"`
 }
 
 // AuditLog records destructive or security-relevant actions.
@@ -194,21 +194,21 @@ func (AuditLog) TableName() string { return "audit_logs" }
 
 // GenerationRun tracks one LLM execution with its token usage and cost.
 type GenerationRun struct {
-	ID           string     `gorm:"primarykey"`
-	TargetID     string     `gorm:"not null"`
-	TargetType   string     `gorm:"not null"`
-	Status       string     `gorm:"not null"`
-	Model        string     `gorm:"not null"`
-	TokensIn     int64      `gorm:"not null;default:0"`
-	TokensOut    int64      `gorm:"not null;default:0"`
-	CostUSD      float64    `gorm:"column:cost_usd;not null;default:0"`
+	ID            string  `gorm:"primarykey"`
+	TargetID      string  `gorm:"not null"`
+	TargetType    string  `gorm:"not null"`
+	Status        string  `gorm:"not null"`
+	Model         string  `gorm:"not null"`
+	TokensIn      int64   `gorm:"not null;default:0"`
+	TokensOut     int64   `gorm:"not null;default:0"`
+	CostUSD       float64 `gorm:"column:cost_usd;not null;default:0"`
 	PromptVersion string
-	ErrorCode    string
-	ErrorMsg     string
-	CreatedBy    string     `gorm:"not null"`
-	CreatedAt    time.Time  `gorm:"not null"`
-	UpdatedAt    time.Time  `gorm:"not null"`
-	CompletedAt  *time.Time
+	ErrorCode     string
+	ErrorMsg      string
+	CreatedBy     string    `gorm:"not null"`
+	CreatedAt     time.Time `gorm:"not null"`
+	UpdatedAt     time.Time `gorm:"not null"`
+	CompletedAt   *time.Time
 }
 
 func (GenerationRun) TableName() string { return "generation_runs" }
@@ -315,16 +315,21 @@ func (s *UserService) AuthenticateUserByID(userID string) (*User, string, error)
 	return &user, token, nil
 }
 
-// GenerateMagicLink generates a magic link for passwordless authentication
-func (s *UserService) GenerateMagicLink(email string) (string, error) {
+// GenerateMagicLink creates a single-use magic link token for an existing
+// account. A missing account is reported as an empty result so callers can
+// respond uniformly and avoid account enumeration.
+func (s *UserService) GenerateMagicLink(email string) (string, *User, error) {
 	var user User
 	if err := s.db.Where("email = ? AND deleted_at IS NULL", email).First(&user).Error; err != nil {
-		return "", errors.New("user not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil, nil
+		}
+		return "", nil, err
 	}
 
 	token, err := auth.GenerateMagicLink()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	magicLink := &MagicLinkToken{
@@ -335,14 +340,14 @@ func (s *UserService) GenerateMagicLink(email string) (string, error) {
 	}
 
 	if err := s.db.Create(magicLink).Error; err != nil {
-		return "", fmt.Errorf("failed to store magic link: %w", err)
+		return "", nil, fmt.Errorf("failed to store magic link: %w", err)
 	}
 
 	if s.emailSvc != nil {
 		_ = s.emailSvc.SendMagicLink(email, token)
 	}
 
-	return token, nil
+	return token, &user, nil
 }
 
 // ValidateMagicLink validates a magic link token and returns the user ID

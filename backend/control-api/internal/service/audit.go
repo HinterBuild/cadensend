@@ -13,18 +13,19 @@ import (
 
 // AuditAction names the recorded operation types.
 const (
-	AuditSeriesDeleted     = "series.deleted"
-	AuditSourceDeleted     = "source.deleted"
-	AuditIssueCanceled     = "issue.send_canceled"
+	AuditSeriesDeleted      = "series.deleted"
+	AuditSourceDeleted      = "source.deleted"
+	AuditIssueCanceled      = "issue.send_canceled"
 	AuditGenerationCanceled = "issue.generation_canceled"
-	AuditIssueRescheduled  = "issue.rescheduled"
-	AuditPasswordChanged   = "user.password_changed"
-	AuditPasswordReset     = "user.password_reset"
-	AuditAccountDeleted    = "user.deleted"
-	AuditSessionsRevoked   = "user.sessions_revoked"
-	AuditRecipientAdded    = "recipient.added"
-	AuditRecipientRemoved  = "recipient.removed"
-	AuditRecipientVerified = "recipient.verified"
+	AuditIssueRescheduled   = "issue.rescheduled"
+	AuditMagicLinkRequested = "user.magic_link_requested"
+	AuditPasswordChanged    = "user.password_changed"
+	AuditPasswordReset      = "user.password_reset"
+	AuditAccountDeleted     = "user.deleted"
+	AuditSessionsRevoked    = "user.sessions_revoked"
+	AuditRecipientAdded     = "recipient.added"
+	AuditRecipientRemoved   = "recipient.removed"
+	AuditRecipientVerified  = "recipient.verified"
 )
 
 // WriteAudit persists an audit entry; failures are logged but never block

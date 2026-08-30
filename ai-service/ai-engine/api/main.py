@@ -37,6 +37,22 @@ logging.basicConfig(level=settings.LOG_LEVEL.upper())
 logger = logging.getLogger(__name__)
 
 
+def validate_security_settings() -> None:
+    if settings.ENVIRONMENT.lower() != "production":
+        return
+    weak_internal_tokens = {
+        "",
+        "secret-key",
+        "change-this-internal-token",
+        "dev-internal-token-change-in-production",
+    }
+    if settings.INTERNAL_API_TOKEN.strip() in weak_internal_tokens:
+        raise RuntimeError("INTERNAL_API_TOKEN must be set to a strong value in production")
+
+
+validate_security_settings()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle: database and service initialization."""

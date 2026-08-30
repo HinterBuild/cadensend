@@ -67,6 +67,7 @@ services:
       BREVO_API_KEY: "${BREVO_API_KEY}"
       BREVO_API_URL: "${BREVO_API_URL}"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
+      INTERNAL_API_TOKEN: "${INTERNAL_API_TOKEN:-dev-internal-token-change-in-production}"
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:3000}"
       WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
       AI_API_URL: http://ai-engine-api:8000
@@ -129,7 +130,7 @@ services:
       DEFAULT_MODEL: "${DEFAULT_MODEL:-poolside/laguna-s-2.1:free}"
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}"
       JWT_SECRET: "${JWT_SECRET:-dev-secret-change-in-production}"
-      INTERNAL_API_TOKEN: "${JWT_SECRET:-dev-secret-change-in-production}"
+      INTERNAL_API_TOKEN: "${INTERNAL_API_TOKEN:-dev-internal-token-change-in-production}"
     depends_on:
       postgres:
         condition: service_healthy
