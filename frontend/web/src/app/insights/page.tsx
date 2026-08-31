@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { analyticsApi } from '@/lib/api';
+import { analyticsApi, platformApi } from '@/lib/api';
 import { useRequireAuth } from '@/contexts/AuthContext';
-import type { AnalyticsOverview, NamedCount } from '@/types';
+import type { AnalyticsOverview, NamedCount, PlatformInsight } from '@/types';
 
 function maxCount(items: NamedCount[]) {
   return Math.max(1, ...items.map((item) => item.count));
@@ -47,6 +47,7 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
 export default function InsightsPage() {
   const { loading: authLoading } = useRequireAuth();
   const [data, setData] = useState<AnalyticsOverview | null>(null);
+  const [platformInsights, setPlatformInsights] = useState<PlatformInsight[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -78,7 +79,16 @@ export default function InsightsPage() {
         setLoading(false);
       }
     };
+    const loadInsights = async () => {
+      try {
+        const res = await platformApi.computeInsights();
+        setPlatformInsights(res.data ?? []);
+      } catch {
+        setPlatformInsights([]);
+      }
+    };
     load();
+    loadInsights();
   }, [authLoading]);
 
   if (authLoading || loading) {
@@ -139,6 +149,31 @@ export default function InsightsPage() {
         <StatCard label="Citations" value={headline.citations} />
         <StatCard label="All series" value={headline.series_total} />
       </div>
+
+      {platformInsights.length > 0 && (
+        <section className="mb-8 rounded-2xl border border-[#e7e0d6] bg-white p-6">
+          <h2 className="font-display text-xl text-stone-900">AI Insights</h2>
+          <p className="mt-1 text-sm text-stone-500">20 insight types: quality, engagement, ops, and planning signals.</p>
+          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+            {platformInsights.map((insight) => (
+              <li
+                key={insight.insight_type}
+                className={`rounded-xl px-4 py-3 ${
+                  insight.severity === 'warning' ? 'bg-amber-50 border border-amber-100' : 'bg-[#faf8f5]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-stone-900">{insight.title}</p>
+                  {insight.score != null && (
+                    <span className="text-xs tabular-nums text-stone-500">{(insight.score * 100).toFixed(0)}%</span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-stone-600">{insight.detail}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="mb-8 grid gap-5 lg:grid-cols-2">
         <section className="rounded-2xl border border-[#e7e0d6] bg-white p-6">

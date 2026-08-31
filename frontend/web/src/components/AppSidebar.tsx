@@ -2,12 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, BookOpen, Settings, BarChart3, Sparkles, Users } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Settings, BarChart3, Sparkles, Users, Wand2, Plug, GitBranch, FlaskConical } from 'lucide-react';
 import { BrandWordmark } from '@/components/BrandLogo';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Insights', href: '/insights', icon: Sparkles },
+  { name: 'Skills', href: '/skills', icon: Wand2 },
+  { name: 'Connectors', href: '/connectors', icon: Plug },
+  { name: 'Workflows', href: '/workflows', icon: GitBranch },
+  { name: 'Studio', href: '/studio', icon: FlaskConical },
   { name: 'Recipients', href: '/recipients', icon: Users },
   { name: 'Sources', href: '/sources', icon: BookOpen },
   { name: 'Run Center', href: '/runs', icon: BarChart3 },
