@@ -62,6 +62,8 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			SendDays       string `json:"send_days"`
 			ManualApproval *bool  `json:"manual_approval"`
 			Model          string `json:"model"`
+			SkillID        string `json:"skill_id"`
+			WorkflowMode   string `json:"workflow_mode"`
 			BriefJSON      string `json:"brief_json"`
 		}
 
@@ -80,60 +82,92 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			briefJSON = string(rawBody)
 		}
 
-		cadence := strings.TrimSpace(req.Cadence)
-		if cadence == "" {
-			cadence = "weekly"
-		}
-		sendTime := strings.TrimSpace(req.SendTime)
-		if sendTime == "" {
-			sendTime = "09:00"
-		}
-		manualApproval := false
-		if req.ManualApproval != nil {
-			manualApproval = *req.ManualApproval
+		series, err := buildSeriesFromReq(req, c.GetString("user_id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 
-		s := &service.Series{
-			ID:             uuid.NewString(),
-			WorkspaceID:    c.GetString("workspace_id"),
-			Slug:           req.Topic + "-" + time.Now().Format("20060102-150405"),
-			Topic:          req.Topic,
-			Goal:           req.Goal,
-			Level:          req.Level,
-			Timezone:       req.Timezone,
-			Status:         SeriesStatusActive,
-			PlanStatus:     "generating",
-			Cadence:        cadence,
-			StartDate:      strings.TrimSpace(req.StartDate),
-			SendTime:       sendTime,
-			SendDays:       strings.TrimSpace(req.SendDays),
-			ManualApproval: manualApproval,
-			CreatedBy:      c.GetString("user_id"),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
-		}
-
-		if err := db.Create(s).Error; err != nil {
+		if err := db.Create(series).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		model := req.Model
-		if err := queuePlanGeneration(s, model); err != nil {
-			_ = db.Model(s).Updates(map[string]interface{}{
+		if err := queuePlanGeneration(series, model); err != nil {
+			_ = db.Model(series).Updates(map[string]interface{}{
 				"plan_status": "failed",
 				"plan_error":  err.Error(),
 				"updated_at":  time.Now(),
 			}).Error
 			c.JSON(http.StatusCreated, gin.H{
-				"data":    s,
+				"data":    series,
 				"warning": "series created but plan generation did not start: " + err.Error(),
 			})
 			return
 		}
 
-		c.JSON(http.StatusCreated, gin.H{"data": s, "brief_json": briefJSON})
+		c.JSON(http.StatusCreated, gin.H{"data": series, "brief_json": briefJSON})
 	}
+}
+
+// buildSeriesFromReq constructs a service.Series from the HTTP request.
+// This centralizes series creation logic and ensures consistent field mapping.
+func buildSeriesFromReq(req struct {
+	Topic          string `json:"topic" binding:"required"`
+	Goal           string `json:"goal" binding:"required"`
+	Level          string `json:"level"`
+	Timezone       string `json:"timezone" binding:"required"`
+	Cadence        string `json:"cadence"`
+	StartDate      string `json:"start_date"`
+	SendTime       string `json:"send_time"`
+	SendDays       string `json:"send_days"`
+	ManualApproval *bool  `json:"manual_approval"`
+	Model          string `json:"model"`
+	SkillID        string `json:"skill_id"`
+	WorkflowMode   string `json:"workflow_mode"`
+	BriefJSON      string `json:"brief_json"`
+}, userID string) (*service.Series, error) {
+	if req.Topic == "" || req.Goal == "" || req.Timezone == "" {
+		return nil, fmt.Errorf("topic, goal, and timezone are required")
+	}
+
+	cadence := strings.TrimSpace(req.Cadence)
+	if cadence == "" {
+		cadence = "weekly"
+	}
+	sendTime := strings.TrimSpace(req.SendTime)
+	if sendTime == "" {
+		sendTime = "09:00"
+	}
+	manualApproval := false
+	if req.ManualApproval != nil {
+		manualApproval = *req.ManualApproval
+	}
+
+	s := &service.Series{
+		ID:             uuid.NewString(),
+		WorkspaceID:    userID,
+		Slug:           req.Topic + "-" + time.Now().Format("20060102-150405"),
+		Topic:          req.Topic,
+		Goal:           req.Goal,
+		Level:          req.Level,
+		Timezone:       req.Timezone,
+		Status:         SeriesStatusActive,
+		PlanStatus:     "generating",
+		Cadence:        cadence,
+		StartDate:      strings.TrimSpace(req.StartDate),
+		SendTime:       sendTime,
+		SendDays:       strings.TrimSpace(req.SendDays),
+		ManualApproval: manualApproval,
+		SkillID:        strings.TrimSpace(req.SkillID),
+		WorkflowMode:   strings.TrimSpace(req.WorkflowMode),
+		CreatedBy:      userID,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	return s, nil
 }
 
 func getSeriesHandler(db *gorm.DB) gin.HandlerFunc {
@@ -314,6 +348,8 @@ func queuePlanGeneration(series *service.Series, model string) error {
 			"level":   series.Level,
 			"cadence": series.Cadence,
 			"model":   model,
+			"skill_id":      series.SkillID,
+			"workflow_mode": series.WorkflowMode,
 		},
 	})
 	if err != nil {
@@ -957,6 +993,12 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 		"level":     series.Level,
 		"objective": issue.Objective,
 		"model":     model,
+	}
+	if series.SkillID != "" {
+		brief["skill_id"] = series.SkillID
+	}
+	if series.WorkflowMode != "" {
+		brief["workflow_mode"] = series.WorkflowMode
 	}
 	threadID := "issue-" + issue.ID
 	if refreshFromCurrent {

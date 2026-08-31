@@ -1,0 +1,11 @@
+ALTER TABLE series DROP COLUMN IF EXISTS workflow_mode;
+ALTER TABLE series DROP COLUMN IF EXISTS skill_id;
+DROP TABLE IF EXISTS plugin_packages;
+DROP TABLE IF EXISTS contributor_badges;
+DROP TABLE IF EXISTS evaluation_runs;
+DROP TABLE IF EXISTS editorial_assets;
+DROP TABLE IF EXISTS workflow_runs;
+DROP TABLE IF EXISTS insight_snapshots;
+DROP TABLE IF EXISTS connector_sync_runs;
+DROP TABLE IF EXISTS workspace_platform_config;
+DROP TABLE IF EXISTS platform_catalog;
