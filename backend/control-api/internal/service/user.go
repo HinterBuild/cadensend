@@ -74,6 +74,8 @@ type Series struct {
 	SendTime       string     `json:"send_time"`
 	SendDays       string     `json:"send_days"`
 	ManualApproval bool       `json:"manual_approval" gorm:"not null;default:false"`
+	SkillID        string     `json:"skill_id" gorm:"column:skill_id"`
+	WorkflowMode   string     `json:"workflow_mode" gorm:"column:workflow_mode"`
 	CreatedBy      string     `json:"created_by" gorm:"not null"`
 	CreatedAt      time.Time  `json:"created_at" gorm:"not null"`
 	UpdatedAt      time.Time  `json:"updated_at" gorm:"not null"`

@@ -1,0 +1,1196 @@
+[
+  {
+    "id": "daily_brief",
+    "kind": "skill",
+    "name": "Daily Brief",
+    "description": "Turn overnight sources into a short morning newsletter.",
+    "category": "briefing",
+    "metadata": {
+      "sections": [
+        "headline",
+        "top_signals",
+        "quick_takes",
+        "watchlist"
+      ],
+      "cadence": "daily",
+      "max_sections": 4,
+      "tone": "concise, morning-friendly",
+      "prompt": "Write a morning brief from sources ingested in the last 24 hours. Lead with the single most important signal. Keep total length under 600 words. Use short paragraphs and bullet clusters. End with a one-line watchlist."
+    }
+  },
+  {
+    "id": "weekly_digest",
+    "kind": "skill",
+    "name": "Weekly Digest",
+    "description": "Cluster the week's content into 5\u20137 thematic sections automatically.",
+    "category": "digest",
+    "metadata": {
+      "sections": [
+        "intro",
+        "theme_1",
+        "theme_2",
+        "theme_3",
+        "theme_4",
+        "theme_5",
+        "wrap"
+      ],
+      "cadence": "weekly",
+      "section_count": "5-7",
+      "prompt": "Cluster this week's sources into 5\u20137 thematic sections. Each section needs a sharp headline, 2\u20133 annotated bullets, and a bridging sentence to the next theme."
+    }
+  },
+  {
+    "id": "founder_letter",
+    "kind": "skill",
+    "name": "Founder Letter",
+    "description": "Rewrite raw updates into a personal, narrative-style email.",
+    "category": "narrative",
+    "metadata": {
+      "sections": [
+        "opening",
+        "story",
+        "lesson",
+        "forward_look",
+        "sign_off"
+      ],
+      "tone": "first-person, reflective",
+      "prompt": "Transform raw founder updates into a personal letter. Open with a human moment, weave wins and setbacks into narrative, extract one lesson, and close with a sincere forward look."
+    }
+  },
+  {
+    "id": "product_changelog",
+    "kind": "skill",
+    "name": "Product Changelog",
+    "description": "Convert shipped features into release-note-friendly newsletter copy.",
+    "category": "product",
+    "metadata": {
+      "sections": [
+        "summary",
+        "shipped",
+        "improved",
+        "fixed",
+        "coming_soon"
+      ],
+      "tone": "clear, user-facing",
+      "prompt": "Turn shipped work into release notes. Group by Shipped, Improved, Fixed. Each item: what changed, who benefits, and one example. Avoid internal jargon."
+    }
+  },
+  {
+    "id": "learning_course",
+    "kind": "skill",
+    "name": "Learning Course",
+    "description": "Turn one topic into a multi-issue educational series.",
+    "category": "education",
+    "metadata": {
+      "sections": [
+        "objective",
+        "concept",
+        "example",
+        "exercise",
+        "summary"
+      ],
+      "multi_issue": true,
+      "prompt": "Design a progressive lesson for this module. State the objective, teach one core concept, show a worked example, assign a short exercise, and recap with check-for-understanding questions."
+    }
+  },
+  {
+    "id": "research_roundup",
+    "kind": "skill",
+    "name": "Research Roundup",
+    "description": "Extract findings, caveats, and implications from papers.",
+    "category": "research",
+    "metadata": {
+      "sections": [
+        "finding",
+        "method",
+        "caveat",
+        "implication",
+        "further_reading"
+      ],
+      "prompt": "Summarize research papers: state the finding plainly, note methodology limits, list caveats, explain practical implications, and link further reading."
+    }
+  },
+  {
+    "id": "community_recap",
+    "kind": "skill",
+    "name": "Community Recap",
+    "description": "Summarize Discord, forum, and discussion highlights.",
+    "category": "community",
+    "metadata": {
+      "sections": [
+        "highlight_threads",
+        "top_questions",
+        "sentiment",
+        "shoutouts"
+      ],
+      "prompt": "Recap community discussions. Surface top threads, recurring questions, overall sentiment, and member shoutouts. Quote lightly and attribute."
+    }
+  },
+  {
+    "id": "customer_insight",
+    "kind": "skill",
+    "name": "Customer Insight",
+    "description": "Turn support conversations into pattern-based takeaways.",
+    "category": "support",
+    "metadata": {
+      "sections": [
+        "patterns",
+        "friction_points",
+        "feature_requests",
+        "actions"
+      ],
+      "prompt": "Analyze support themes. Group by pattern, name friction points, list feature requests with frequency, and recommend product actions."
+    }
+  },
+  {
+    "id": "sales_follow_up",
+    "kind": "skill",
+    "name": "Sales Follow-Up",
+    "description": "Turn call notes into a tailored recap email.",
+    "category": "sales",
+    "metadata": {
+      "sections": [
+        "recap",
+        "value_props",
+        "next_steps",
+        "resources"
+      ],
+      "tone": "consultative",
+      "prompt": "Draft a post-call recap. Mirror the prospect's goals, restate agreed value, list concrete next steps with owners, and attach relevant resources."
+    }
+  },
+  {
+    "id": "market_pulse",
+    "kind": "skill",
+    "name": "Market Pulse",
+    "description": "Assemble competitor moves, trends, and notable signals.",
+    "category": "market",
+    "metadata": {
+      "sections": [
+        "macro",
+        "competitor_moves",
+        "trends",
+        "signals",
+        "outlook"
+      ],
+      "prompt": "Build a market pulse issue. Cover macro context, competitor moves with sources, emerging trends, weak signals worth watching, and a short outlook."
+    }
+  },
+  {
+    "id": "podcast_to_newsletter",
+    "kind": "skill",
+    "name": "Podcast-to-Newsletter",
+    "description": "Convert transcripts into readable editorial sections.",
+    "category": "repurpose",
+    "metadata": {
+      "sections": [
+        "hook",
+        "key_moments",
+        "quotes",
+        "takeaways",
+        "listen_link"
+      ],
+      "source_type": "transcript",
+      "prompt": "Convert a podcast transcript into editorial sections. Lead with a hook, timestamp key moments, pull 2\u20133 quotable lines, list actionable takeaways, and link the episode."
+    }
+  },
+  {
+    "id": "video_to_newsletter",
+    "kind": "skill",
+    "name": "Video-to-Newsletter",
+    "description": "Turn YouTube transcripts into lesson-driven summaries.",
+    "category": "repurpose",
+    "metadata": {
+      "sections": [
+        "lesson_overview",
+        "steps",
+        "diagram",
+        "practice",
+        "watch_link"
+      ],
+      "source_type": "video_transcript",
+      "prompt": "Turn a video transcript into a lesson. Overview the goal, break into numbered steps, include a mermaid diagram when helpful, add a practice prompt, link the video."
+    }
+  },
+  {
+    "id": "event_recap",
+    "kind": "skill",
+    "name": "Event Recap",
+    "description": "Turn conference notes into a 'what mattered' issue.",
+    "category": "events",
+    "metadata": {
+      "sections": [
+        "headline",
+        "sessions",
+        "announcements",
+        "networking",
+        "resources"
+      ],
+      "prompt": "Write an event recap focused on what mattered. Headline the theme, summarize standout sessions, list announcements, note networking highlights, and collect resource links."
+    }
+  },
+  {
+    "id": "case_study",
+    "kind": "skill",
+    "name": "Case Study",
+    "description": "Transform one success story into a full persuasive newsletter.",
+    "category": "marketing",
+    "metadata": {
+      "sections": [
+        "challenge",
+        "approach",
+        "results",
+        "proof",
+        "cta"
+      ],
+      "prompt": "Expand a success story into a case study newsletter. Challenge \u2192 approach \u2192 quantified results \u2192 proof points \u2192 clear CTA."
+    }
+  },
+  {
+    "id": "opinion_essay",
+    "kind": "skill",
+    "name": "Opinion Essay",
+    "description": "Draft a strong point-of-view issue from a thesis statement.",
+    "category": "editorial",
+    "metadata": {
+      "sections": [
+        "thesis",
+        "argument",
+        "counterpoint",
+        "evidence",
+        "conclusion"
+      ],
+      "prompt": "Write a point-of-view essay from the given thesis. Build a logical argument, acknowledge a counterpoint fairly, cite evidence, and land a memorable conclusion."
+    }
+  },
+  {
+    "id": "curated_links",
+    "kind": "skill",
+    "name": "Curated Links",
+    "description": "Generate annotations for each link instead of generic summaries.",
+    "category": "curation",
+    "metadata": {
+      "sections": [
+        "intro",
+        "link_annotations",
+        "pattern_note"
+      ],
+      "prompt": "Curate links with editorial annotations\u2014not generic summaries. For each link: why it matters, who should read it, and one sharp insight."
+    }
+  },
+  {
+    "id": "internal_team_update",
+    "kind": "skill",
+    "name": "Internal Team Update",
+    "description": "Format ops, blockers, and wins for staff emails.",
+    "category": "internal",
+    "metadata": {
+      "sections": [
+        "wins",
+        "in_progress",
+        "blockers",
+        "asks",
+        "shoutouts"
+      ],
+      "prompt": "Format an internal team update. Wins first, then in-progress work, blockers with owners, explicit asks, and team shoutouts."
+    }
+  },
+  {
+    "id": "investor_update",
+    "kind": "skill",
+    "name": "Investor Update",
+    "description": "Output metrics, narrative, risks, and asks in one structure.",
+    "category": "investor",
+    "metadata": {
+      "sections": [
+        "highlights",
+        "metrics",
+        "narrative",
+        "risks",
+        "asks"
+      ],
+      "prompt": "Write an investor update: highlights, key metrics with deltas, narrative on progress, honest risks, and specific asks."
+    }
+  },
+  {
+    "id": "hiring_newsletter",
+    "kind": "skill",
+    "name": "Hiring Newsletter",
+    "description": "Package open roles, culture, and team momentum into one email.",
+    "category": "hiring",
+    "metadata": {
+      "sections": [
+        "why_join",
+        "open_roles",
+        "culture",
+        "team_wins",
+        "apply"
+      ],
+      "prompt": "Create a hiring newsletter. Why join now, open roles with requirements, culture signals, recent team wins, and a clear apply CTA."
+    }
+  },
+  {
+    "id": "re_engagement",
+    "kind": "skill",
+    "name": "Re-Engagement",
+    "description": "Rewrite old content into a fresh issue for inactive readers.",
+    "category": "retention",
+    "metadata": {
+      "sections": [
+        "hook",
+        "whats_new",
+        "refreshed_content",
+        "cta"
+      ],
+      "refresh_mode": true,
+      "prompt": "Re-engage inactive readers. Open with what's new since they left, refresh the best prior content with updated context, and end with a low-friction CTA."
+    }
+  },
+  {
+    "id": "linear",
+    "kind": "connector",
+    "name": "Linear",
+    "description": "Pull completed issues into a team newsletter.",
+    "category": "project",
+    "metadata": {
+      "auth": "oauth",
+      "scopes": [
+        "read"
+      ],
+      "sync": "issues",
+      "domain": "linear.app"
+    }
+  },
+  {
+    "id": "clickup",
+    "kind": "connector",
+    "name": "ClickUp",
+    "description": "Summarize tasks by sprint, owner, and status.",
+    "category": "project",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "tasks",
+      "domain": "clickup.com"
+    }
+  },
+  {
+    "id": "github",
+    "kind": "connector",
+    "name": "GitHub",
+    "description": "Turn PRs, releases, and discussions into issue drafts.",
+    "category": "dev",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "prs,releases,discussions",
+      "domain": "github.com"
+    }
+  },
+  {
+    "id": "jira",
+    "kind": "connector",
+    "name": "Jira",
+    "description": "Convert sprint outcomes into internal status emails.",
+    "category": "project",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "sprints",
+      "domain": "atlassian.com"
+    }
+  },
+  {
+    "id": "notion",
+    "kind": "connector",
+    "name": "Notion",
+    "description": "Ingest page databases as structured editorial inputs.",
+    "category": "docs",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "databases,pages",
+      "domain": "notion.so"
+    }
+  },
+  {
+    "id": "google_drive",
+    "kind": "connector",
+    "name": "Google Drive",
+    "description": "Watch selected folders for new source material.",
+    "category": "storage",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "folder_watch",
+      "domain": "drive.google.com"
+    }
+  },
+  {
+    "id": "dropbox",
+    "kind": "connector",
+    "name": "Dropbox",
+    "description": "Sync research documents into the source library.",
+    "category": "storage",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "files",
+      "domain": "dropbox.com"
+    }
+  },
+  {
+    "id": "airtable",
+    "kind": "connector",
+    "name": "Airtable",
+    "description": "Use editorial calendars and source tables as generation inputs.",
+    "category": "data",
+    "metadata": {
+      "auth": "api_key",
+      "sync": "tables",
+      "domain": "airtable.com"
+    }
+  },
+  {
+    "id": "gmail",
+    "kind": "connector",
+    "name": "Gmail",
+    "description": "Convert labeled threads into source packs.",
+    "category": "email",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "labeled_threads",
+      "domain": "gmail.com"
+    }
+  },
+  {
+    "id": "slack",
+    "kind": "connector",
+    "name": "Slack",
+    "description": "Summarize channel activity into recurring briefings.",
+    "category": "chat",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "channels",
+      "domain": "slack.com"
+    }
+  },
+  {
+    "id": "discord",
+    "kind": "connector",
+    "name": "Discord",
+    "description": "Extract community sentiment and top questions.",
+    "category": "chat",
+    "metadata": {
+      "auth": "bot_token",
+      "sync": "channels",
+      "domain": "discord.com"
+    }
+  },
+  {
+    "id": "trello",
+    "kind": "connector",
+    "name": "Trello",
+    "description": "Turn board movement into weekly progress updates.",
+    "category": "project",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "boards",
+      "domain": "trello.com"
+    }
+  },
+  {
+    "id": "asana",
+    "kind": "connector",
+    "name": "Asana",
+    "description": "Build project newsletters from milestone changes.",
+    "category": "project",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "projects",
+      "domain": "asana.com"
+    }
+  },
+  {
+    "id": "figma",
+    "kind": "connector",
+    "name": "Figma",
+    "description": "Turn design review notes into product-update copy.",
+    "category": "design",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "comments",
+      "domain": "figma.com"
+    }
+  },
+  {
+    "id": "google_calendar",
+    "kind": "connector",
+    "name": "Google Calendar",
+    "description": "Create event-preview or event-recap newsletters.",
+    "category": "calendar",
+    "metadata": {
+      "auth": "oauth",
+      "sync": "events",
+      "domain": "calendar.google.com"
+    }
+  },
+  {
+    "id": "crm",
+    "kind": "connector",
+    "name": "CRM",
+    "description": "Include pipeline or customer trend commentary.",
+    "category": "sales",
+    "metadata": {
+      "auth": "api_key",
+      "sync": "deals,contacts",
+      "domain": "hubspot.com"
+    }
+  },
+  {
+    "id": "analytics",
+    "kind": "connector",
+    "name": "Analytics",
+    "description": "Turn KPI deltas into narrative updates.",
+    "category": "analytics",
+    "metadata": {
+      "auth": "api_key",
+      "sync": "metrics",
+      "domain": "analytics.google.com"
+    }
+  },
+  {
+    "id": "rss_aggregator",
+    "kind": "connector",
+    "name": "RSS Aggregator",
+    "description": "Bundle multiple feeds into one digest job.",
+    "category": "feeds",
+    "metadata": {
+      "auth": "none",
+      "sync": "feeds",
+      "domain": "feedly.com"
+    }
+  },
+  {
+    "id": "cms",
+    "kind": "connector",
+    "name": "CMS",
+    "description": "Publish approved issues as blog posts automatically.",
+    "category": "publish",
+    "metadata": {
+      "auth": "api_key",
+      "sync": "publish",
+      "domain": "wordpress.com"
+    }
+  },
+  {
+    "id": "email_provider",
+    "kind": "connector",
+    "name": "Email Provider",
+    "description": "Draft, send, and measure in one workflow run.",
+    "category": "publish",
+    "metadata": {
+      "auth": "api_key",
+      "sync": "send,metrics",
+      "domain": "brevo.com"
+    }
+  },
+  {
+    "id": "topic_saturation",
+    "kind": "insight",
+    "name": "Topic Saturation",
+    "description": "Warn when the same subject appears too often.",
+    "category": "quality",
+    "metadata": {
+      "metric": "topic_frequency"
+    }
+  },
+  {
+    "id": "source_diversity",
+    "kind": "insight",
+    "name": "Source Diversity",
+    "description": "Measure whether one or many sources shaped an issue.",
+    "category": "quality",
+    "metadata": {
+      "metric": "unique_sources"
+    }
+  },
+  {
+    "id": "citation_reliability",
+    "kind": "insight",
+    "name": "Citation Reliability",
+    "description": "Score how grounded each section is.",
+    "category": "quality",
+    "metadata": {
+      "metric": "citation_ratio"
+    }
+  },
+  {
+    "id": "freshness",
+    "kind": "insight",
+    "name": "Freshness",
+    "description": "Highlight when the source set is too old.",
+    "category": "quality",
+    "metadata": {
+      "metric": "source_age_days"
+    }
+  },
+  {
+    "id": "tone_drift",
+    "kind": "insight",
+    "name": "Tone Drift",
+    "description": "Detect when recent issues no longer match brand voice.",
+    "category": "voice",
+    "metadata": {
+      "metric": "tone_similarity"
+    }
+  },
+  {
+    "id": "readability",
+    "kind": "insight",
+    "name": "Readability",
+    "description": "Estimate whether copy fits the intended audience level.",
+    "category": "quality",
+    "metadata": {
+      "metric": "flesch_kincaid"
+    }
+  },
+  {
+    "id": "novelty",
+    "kind": "insight",
+    "name": "Novelty",
+    "description": "Flag sections that repeat earlier issues too closely.",
+    "category": "quality",
+    "metadata": {
+      "metric": "text_overlap"
+    }
+  },
+  {
+    "id": "coverage_gap",
+    "kind": "insight",
+    "name": "Coverage Gap",
+    "description": "Show important subtopics not yet addressed.",
+    "category": "planning",
+    "metadata": {
+      "metric": "outline_coverage"
+    }
+  },
+  {
+    "id": "audience_fatigue",
+    "kind": "insight",
+    "name": "Audience Fatigue",
+    "description": "Spot overlong or overly frequent issues.",
+    "category": "engagement",
+    "metadata": {
+      "metric": "length_cadence"
+    }
+  },
+  {
+    "id": "cta_strength",
+    "kind": "insight",
+    "name": "CTA Strength",
+    "description": "Evaluate whether the issue has a clear next action.",
+    "category": "engagement",
+    "metadata": {
+      "metric": "cta_presence"
+    }
+  },
+  {
+    "id": "engagement_delta",
+    "kind": "insight",
+    "name": "Engagement Delta",
+    "description": "Explain what changed between high- and low-performing issues.",
+    "category": "engagement",
+    "metadata": {
+      "metric": "delivery_delta"
+    }
+  },
+  {
+    "id": "approval_bottleneck",
+    "kind": "insight",
+    "name": "Approval Bottleneck",
+    "description": "Identify where human review slows throughput.",
+    "category": "ops",
+    "metadata": {
+      "metric": "approval_latency"
+    }
+  },
+  {
+    "id": "generation_cost",
+    "kind": "insight",
+    "name": "Generation Cost",
+    "description": "Show which models or workflows are most expensive.",
+    "category": "ops",
+    "metadata": {
+      "metric": "token_cost"
+    }
+  },
+  {
+    "id": "model_quality",
+    "kind": "insight",
+    "name": "Model Quality",
+    "description": "Compare provider performance by newsletter type.",
+    "category": "ops",
+    "metadata": {
+      "metric": "success_rate"
+    }
+  },
+  {
+    "id": "cadence_health",
+    "kind": "insight",
+    "name": "Cadence Health",
+    "description": "Check whether the current schedule is realistic.",
+    "category": "planning",
+    "metadata": {
+      "metric": "schedule_slippage"
+    }
+  },
+  {
+    "id": "section_balance",
+    "kind": "insight",
+    "name": "Section Balance",
+    "description": "Spot issues with weak intros or bloated middles.",
+    "category": "structure",
+    "metadata": {
+      "metric": "section_word_ratio"
+    }
+  },
+  {
+    "id": "narrative_flow",
+    "kind": "insight",
+    "name": "Narrative Flow",
+    "description": "Check whether ideas build logically across sections.",
+    "category": "structure",
+    "metadata": {
+      "metric": "transition_score"
+    }
+  },
+  {
+    "id": "claim_risk",
+    "kind": "insight",
+    "name": "Claim Risk",
+    "description": "Flag assertions likely to need manual verification.",
+    "category": "compliance",
+    "metadata": {
+      "metric": "unsupported_claims"
+    }
+  },
+  {
+    "id": "subscriber_signal",
+    "kind": "insight",
+    "name": "Subscriber Signal",
+    "description": "Group replies, clicks, and unsubscribes into themes.",
+    "category": "engagement",
+    "metadata": {
+      "metric": "event_themes"
+    }
+  },
+  {
+    "id": "series_progress",
+    "kind": "insight",
+    "name": "Series Progress",
+    "description": "Show whether a multi-issue course advances coherently.",
+    "category": "planning",
+    "metadata": {
+      "metric": "curriculum_progress"
+    }
+  },
+  {
+    "id": "researcher_writer_editor",
+    "kind": "workflow",
+    "name": "Researcher \u2192 Writer \u2192 Editor",
+    "description": "Multi-agent pipeline instead of one generator pass.",
+    "category": "pipeline",
+    "metadata": {
+      "agents": [
+        "researcher",
+        "writer",
+        "editor"
+      ]
+    }
+  },
+  {
+    "id": "judge",
+    "kind": "workflow",
+    "name": "Judge Agent",
+    "description": "Score candidate drafts and select the strongest one.",
+    "category": "agent",
+    "metadata": {
+      "role": "judge"
+    }
+  },
+  {
+    "id": "fact_check",
+    "kind": "workflow",
+    "name": "Fact-Check Agent",
+    "description": "Verify claims against retrieved context before approval.",
+    "category": "agent",
+    "metadata": {
+      "role": "fact_check"
+    }
+  },
+  {
+    "id": "voice",
+    "kind": "workflow",
+    "name": "Voice Agent",
+    "description": "Rewrite output to match a saved brand persona.",
+    "category": "agent",
+    "metadata": {
+      "role": "voice"
+    }
+  },
+  {
+    "id": "compliance",
+    "kind": "workflow",
+    "name": "Compliance Agent",
+    "description": "Legal, medical, or finance-safe newsletter review.",
+    "category": "agent",
+    "metadata": {
+      "role": "compliance"
+    }
+  },
+  {
+    "id": "structure",
+    "kind": "workflow",
+    "name": "Structure Agent",
+    "description": "Choose the best format before drafting begins.",
+    "category": "agent",
+    "metadata": {
+      "role": "structure"
+    }
+  },
+  {
+    "id": "hook",
+    "kind": "workflow",
+    "name": "Hook Agent",
+    "description": "Specialize in subject lines and opening paragraphs.",
+    "category": "agent",
+    "metadata": {
+      "role": "hook"
+    }
+  },
+  {
+    "id": "closer",
+    "kind": "workflow",
+    "name": "Closer Agent",
+    "description": "Write stronger endings and CTA sections.",
+    "category": "agent",
+    "metadata": {
+      "role": "closer"
+    }
+  },
+  {
+    "id": "repurposing",
+    "kind": "workflow",
+    "name": "Repurposing Agent",
+    "description": "Convert one issue into blog, social, and landing-page variants.",
+    "category": "agent",
+    "metadata": {
+      "role": "repurposing"
+    }
+  },
+  {
+    "id": "critic",
+    "kind": "workflow",
+    "name": "Critic Agent",
+    "description": "Challenge weak claims, vague phrasing, and filler sentences.",
+    "category": "agent",
+    "metadata": {
+      "role": "critic"
+    }
+  },
+  {
+    "id": "planner",
+    "kind": "workflow",
+    "name": "Planner Agent",
+    "description": "Choose which sources deserve inclusion before writing starts.",
+    "category": "agent",
+    "metadata": {
+      "role": "planner"
+    }
+  },
+  {
+    "id": "memory",
+    "kind": "workflow",
+    "name": "Memory Agent",
+    "description": "Inject long-term audience and brand context into every run.",
+    "category": "agent",
+    "metadata": {
+      "role": "memory"
+    }
+  },
+  {
+    "id": "personalization",
+    "kind": "workflow",
+    "name": "Personalization Agent",
+    "description": "Swap intros or examples for audience segments.",
+    "category": "agent",
+    "metadata": {
+      "role": "personalization"
+    }
+  },
+  {
+    "id": "recovery",
+    "kind": "workflow",
+    "name": "Recovery Agent",
+    "description": "Attempt a fallback workflow when generation quality is poor.",
+    "category": "agent",
+    "metadata": {
+      "role": "recovery"
+    }
+  },
+  {
+    "id": "debate",
+    "kind": "workflow",
+    "name": "Debate Mode",
+    "description": "Two models argue over the framing before drafting.",
+    "category": "mode",
+    "metadata": {
+      "models": 2
+    }
+  },
+  {
+    "id": "comparison",
+    "kind": "workflow",
+    "name": "Comparison Mode",
+    "description": "Merge multiple model outputs into one issue.",
+    "category": "mode",
+    "metadata": {
+      "models": "multi"
+    }
+  },
+  {
+    "id": "question_driven",
+    "kind": "workflow",
+    "name": "Question-Driven Mode",
+    "description": "Write a newsletter as an answer to a reader problem.",
+    "category": "mode",
+    "metadata": {
+      "input": "reader_question"
+    }
+  },
+  {
+    "id": "source_first",
+    "kind": "workflow",
+    "name": "Source-First Mode",
+    "description": "Only allow output supported by ingested evidence.",
+    "category": "mode",
+    "metadata": {
+      "grounding": "strict"
+    }
+  },
+  {
+    "id": "angle_explorer",
+    "kind": "workflow",
+    "name": "Angle Explorer Mode",
+    "description": "Propose five editorial directions before writing.",
+    "category": "mode",
+    "metadata": {
+      "angles": 5
+    }
+  },
+  {
+    "id": "series_continuity",
+    "kind": "workflow",
+    "name": "Series Continuity Mode",
+    "description": "Ensure each issue references prior lessons intelligently.",
+    "category": "mode",
+    "metadata": {
+      "continuity": true
+    }
+  },
+  {
+    "id": "workflow_builder",
+    "kind": "editorial",
+    "name": "Visual Workflow Builder",
+    "description": "Compose newsletter pipelines without code.",
+    "category": "ux",
+    "metadata": {
+      "ui": "canvas"
+    }
+  },
+  {
+    "id": "prompt_blocks",
+    "kind": "editorial",
+    "name": "Prompt Blocks",
+    "description": "Reusable UI components for intros, transitions, and conclusions.",
+    "category": "ux",
+    "metadata": {
+      "ui": "blocks"
+    }
+  },
+  {
+    "id": "outline_board",
+    "kind": "editorial",
+    "name": "Issue Outline Board",
+    "description": "Rearrange sections before generation.",
+    "category": "ux",
+    "metadata": {
+      "ui": "kanban"
+    }
+  },
+  {
+    "id": "citation_cards",
+    "kind": "editorial",
+    "name": "Inline Citation Cards",
+    "description": "Inspect evidence without leaving the draft.",
+    "category": "ux",
+    "metadata": {
+      "ui": "inline"
+    }
+  },
+  {
+    "id": "paragraph_regen",
+    "kind": "editorial",
+    "name": "Paragraph Regeneration",
+    "description": "Regenerate only one paragraph instead of the whole issue.",
+    "category": "ux",
+    "metadata": {
+      "ui": "inline"
+    }
+  },
+  {
+    "id": "collab_comments",
+    "kind": "editorial",
+    "name": "Collaborative Comments",
+    "description": "Comment on draft sections for editors and contributors.",
+    "category": "ux",
+    "metadata": {
+      "ui": "comments"
+    }
+  },
+  {
+    "id": "approval_gates",
+    "kind": "editorial",
+    "name": "Approval Gates",
+    "description": "Role-based gates: writer, editor, publisher, owner.",
+    "category": "ux",
+    "metadata": {
+      "ui": "gates"
+    }
+  },
+  {
+    "id": "style_guide_panel",
+    "kind": "editorial",
+    "name": "Style Guide Panel",
+    "description": "Banned phrases, preferred terms, and tone rules.",
+    "category": "ux",
+    "metadata": {
+      "ui": "panel"
+    }
+  },
+  {
+    "id": "draft_diff",
+    "kind": "editorial",
+    "name": "Draft Diff Viewer",
+    "description": "Side-by-side comparison of revisions.",
+    "category": "ux",
+    "metadata": {
+      "ui": "diff"
+    }
+  },
+  {
+    "id": "prompt_history",
+    "kind": "editorial",
+    "name": "Prompt History Explorer",
+    "description": "Learn why a run produced its output.",
+    "category": "ux",
+    "metadata": {
+      "ui": "timeline"
+    }
+  },
+  {
+    "id": "run_replay",
+    "kind": "editorial",
+    "name": "Run Replay",
+    "description": "Re-execute old workflows with new models or prompts.",
+    "category": "ux",
+    "metadata": {
+      "ui": "replay"
+    }
+  },
+  {
+    "id": "demo_workspaces",
+    "kind": "editorial",
+    "name": "Synthetic Demo Workspaces",
+    "description": "Safe fake data for open-source contributors.",
+    "category": "ux",
+    "metadata": {
+      "ui": "demo"
+    }
+  },
+  {
+    "id": "template_gallery",
+    "kind": "editorial",
+    "name": "Workflow Template Gallery",
+    "description": "Fork and remix public workflow templates.",
+    "category": "ux",
+    "metadata": {
+      "ui": "gallery"
+    }
+  },
+  {
+    "id": "contributor_badges",
+    "kind": "editorial",
+    "name": "Contributor Badges",
+    "description": "Badges for published skills, connectors, and templates.",
+    "category": "ux",
+    "metadata": {
+      "ui": "badges"
+    }
+  },
+  {
+    "id": "scoring_rubric",
+    "kind": "editorial",
+    "name": "Scoring Rubric UI",
+    "description": "Rate usefulness, clarity, and originality.",
+    "category": "ux",
+    "metadata": {
+      "ui": "rubric"
+    }
+  },
+  {
+    "id": "benchmark_datasets",
+    "kind": "editorial",
+    "name": "Benchmark Datasets",
+    "description": "Compare newsletter generation changes.",
+    "category": "ux",
+    "metadata": {
+      "ui": "benchmark"
+    }
+  },
+  {
+    "id": "evaluation_harness",
+    "kind": "editorial",
+    "name": "Evaluation Harness",
+    "description": "Auto-check grounding, repetition, structure, and tone.",
+    "category": "ux",
+    "metadata": {
+      "ui": "harness"
+    }
+  },
+  {
+    "id": "newsletter_sandbox",
+    "kind": "editorial",
+    "name": "Newsletter Sandbox",
+    "description": "Test prompts and tools before real sends.",
+    "category": "ux",
+    "metadata": {
+      "ui": "sandbox"
+    }
+  },
+  {
+    "id": "local_first",
+    "kind": "editorial",
+    "name": "Local-First Mode",
+    "description": "Run with self-hosted models and connectors.",
+    "category": "ux",
+    "metadata": {
+      "ui": "local"
+    }
+  },
+  {
+    "id": "plugin_packaging",
+    "kind": "editorial",
+    "name": "Plugin Packaging Standard",
+    "description": "Installable community newsletter capability modules.",
+    "category": "ux",
+    "metadata": {
+      "ui": "plugins"
+    }
+  }
+]
