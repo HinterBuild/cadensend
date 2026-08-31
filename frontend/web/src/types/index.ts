@@ -76,6 +76,8 @@ export interface Series {
   plan_status?: string;
   plan_json?: string | Record<string, unknown> | null;
   plan_error?: string;
+  skill_id?: string;
+  workflow_mode?: string;
   cadence?: string;
   start_date?: string;
   send_time?: string;
@@ -424,4 +426,60 @@ export interface AnalyticsOverview {
   coverage: AnalyticsCoverage[];
   improvements: AnalyticsImprovement[];
   suggestions: AnalyticsSuggestion[];
+}
+
+export interface PlatformCatalogItem {
+  id: string;
+  kind: 'skill' | 'connector' | 'workflow' | 'insight' | 'editorial';
+  name: string;
+  description: string;
+  category: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlatformSkill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  sections?: string[];
+  cadence?: string;
+  multi_issue?: boolean;
+}
+
+export interface PlatformConnector {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  auth: string;
+  sync: string;
+  domain?: string;
+  logo_url?: string;
+  configured?: boolean;
+}
+
+export interface PlatformWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlatformInsight {
+  insight_type: string;
+  severity: 'info' | 'warning' | 'error';
+  title: string;
+  detail: string;
+  score: number | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface EvaluationResult {
+  passed: boolean;
+  overall_score: number;
+  scores: Record<string, number>;
+  word_count: number;
+  section_count: number;
 }

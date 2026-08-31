@@ -3,7 +3,8 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
-import { authApi, modelsApi, OpenRouterModel } from '@/lib/api';
+import { authApi, modelsApi, emailProviderApi, OpenRouterModel } from '@/lib/api';
+import type { EmailProviderConfig, EmailProviderOption } from '@/lib/api';
 import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck } from 'lucide-react';
 import { ModelSelect } from '@/components/ModelSelect';
 
@@ -27,6 +28,18 @@ export default function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [showDeleteZone, setShowDeleteZone] = useState(false);
+  const [emailProviders, setEmailProviders] = useState<EmailProviderOption[]>([]);
+  const [emailConfig, setEmailConfig] = useState<EmailProviderConfig | null>(null);
+  const [sendProvider, setSendProvider] = useState('brevo');
+  const [fromEmail, setFromEmail] = useState('');
+  const [fromName, setFromName] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -47,6 +60,57 @@ export default function SettingsPage() {
       setAvailableModels([]);
     });
   }, []);
+
+  useEffect(() => {
+    emailProviderApi.listProviders().then((r) => setEmailProviders(r.data ?? [])).catch(() => {});
+    emailProviderApi.get().then((r) => {
+      const cfg = r.data;
+      setEmailConfig(cfg);
+      if (cfg.provider) setSendProvider(cfg.provider);
+      if (cfg.from_email) setFromEmail(cfg.from_email);
+      if (cfg.from_name) setFromName(cfg.from_name);
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveEmailProvider = async (e: FormEvent) => {
+    e.preventDefault();
+    setSavingEmail(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const config: Record<string, string> = {};
+      if (sendProvider === 'brevo' || sendProvider === 'sendgrid' || sendProvider === 'mailgun') {
+        if (apiKey) config.api_key = apiKey;
+      }
+      if (sendProvider === 'smtp' || sendProvider === 'gmail') {
+        config.smtp_host = smtpHost || (sendProvider === 'gmail' ? 'smtp.gmail.com' : '');
+        config.smtp_port = smtpPort;
+        config.smtp_user = smtpUser || fromEmail;
+        if (smtpPassword) config.smtp_password = smtpPassword;
+      }
+      await emailProviderApi.update({ provider: sendProvider, from_email: fromEmail, from_name: fromName, config });
+      setSuccess('Email provider saved.');
+      const refreshed = await emailProviderApi.get();
+      setEmailConfig(refreshed.data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save email provider');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setError(null);
+    try {
+      const res = await emailProviderApi.test();
+      setSuccess(res.message || 'Test email sent.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Test email failed');
+    } finally {
+      setTestingEmail(false);
+    }
+  };
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -286,6 +350,93 @@ export default function SettingsPage() {
                 >
                   {saving ? 'Saving...' : 'Save Changes'}
                   {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Email Provider / Send Inbox */}
+          <div className="bg-white rounded-xl shadow p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Mail className="h-5 w-5 text-gray-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-gray-900">Send inbox</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Choose your email provider for newsletter delivery. Newsletters send from your configured inbox.
+            </p>
+            {emailConfig?.using_env && (
+              <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Using platform default (Brevo). Configure below to use your own provider.
+              </p>
+            )}
+            {emailConfig?.verified && !emailConfig.using_env && (
+              <p className="mb-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">Provider verified — test email succeeded.</p>
+            )}
+            <form onSubmit={handleSaveEmailProvider} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Provider</label>
+                <select
+                  value={sendProvider}
+                  onChange={(e) => setSendProvider(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm"
+                >
+                  {emailProviders.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} — {p.description}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">From email</label>
+                  <input type="email" required value={fromEmail} onChange={(e) => setFromEmail(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" placeholder="you@company.com" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">From name</label>
+                  <input type="text" value={fromName} onChange={(e) => setFromName(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" placeholder="Your Newsletter" />
+                </div>
+              </div>
+              {(sendProvider === 'brevo' || sendProvider === 'sendgrid' || sendProvider === 'mailgun') && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">API key</label>
+                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" placeholder="Leave blank to keep existing" />
+                </div>
+              )}
+              {(sendProvider === 'smtp' || sendProvider === 'gmail') && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP host</label>
+                    <input type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm"
+                      placeholder={sendProvider === 'gmail' ? 'smtp.gmail.com' : 'smtp.example.com'} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP port</label>
+                    <input type="text" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP user</label>
+                    <input type="text" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">SMTP password / app password</label>
+                    <input type="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" />
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3 justify-end">
+                <button type="button" onClick={handleTestEmail} disabled={testingEmail}
+                  className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+                  {testingEmail ? 'Sending…' : 'Send test email'}
+                </button>
+                <button type="submit" disabled={savingEmail}
+                  className="px-6 py-2.5 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-800 disabled:opacity-50">
+                  {savingEmail ? 'Saving…' : 'Save provider'}
                 </button>
               </div>
             </form>
