@@ -131,6 +131,49 @@ func EnsureAppSchema() error {
 		`ALTER TABLE recipients ADD COLUMN IF NOT EXISTS suppression_reason VARCHAR(50) NOT NULL DEFAULT ''`,
 		`ALTER TABLE recipients ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE`,
 		`ALTER TABLE generation_runs ADD COLUMN IF NOT EXISTS error_msg TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE series ADD COLUMN IF NOT EXISTS skill_id VARCHAR(64) NOT NULL DEFAULT ''`,
+		`ALTER TABLE series ADD COLUMN IF NOT EXISTS workflow_mode VARCHAR(64) NOT NULL DEFAULT 'default'`,
+		`CREATE TABLE IF NOT EXISTS workspace_email_config (
+			workspace_id UUID PRIMARY KEY,
+			provider VARCHAR(32) NOT NULL DEFAULT 'brevo',
+			from_email VARCHAR(255) NOT NULL DEFAULT '',
+			from_name VARCHAR(255) NOT NULL DEFAULT '',
+			config JSONB NOT NULL DEFAULT '{}',
+			verified BOOLEAN NOT NULL DEFAULT FALSE,
+			is_active BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_platform_config (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id UUID NOT NULL,
+			catalog_id VARCHAR(64) NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			config JSONB NOT NULL DEFAULT '{}',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (workspace_id, catalog_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS connector_sync_runs (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id UUID NOT NULL,
+			connector_id VARCHAR(64) NOT NULL,
+			status VARCHAR(32) NOT NULL DEFAULT 'pending',
+			items_fetched INTEGER NOT NULL DEFAULT 0,
+			items_ingested INTEGER NOT NULL DEFAULT 0,
+			error TEXT NOT NULL DEFAULT '',
+			started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			finished_at TIMESTAMPTZ
+		)`,
+		`CREATE TABLE IF NOT EXISTS editorial_assets (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id UUID NOT NULL,
+			asset_type VARCHAR(64) NOT NULL,
+			name VARCHAR(256) NOT NULL DEFAULT '',
+			data JSONB NOT NULL DEFAULT '{}',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
 	}
 
 	for _, stmt := range statements {
