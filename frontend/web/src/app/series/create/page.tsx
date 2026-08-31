@@ -25,6 +25,7 @@ type FormValues = {
   verifyRecipient: boolean;
   manualApproval: boolean;
   model: string;
+  skillId: string;
 };
 
 type PendingSource =
@@ -201,6 +202,7 @@ export default function CreateSeriesPage() {
     verifyRecipient: true,
     manualApproval: false,
     model: '',
+    skillId: '',
   });
 
   const updateField = <K extends keyof FormValues>(field: K, value: FormValues[K]) => {
@@ -214,7 +216,8 @@ export default function CreateSeriesPage() {
     const topic = params.get('topic');
     const goal = params.get('goal');
     const level = params.get('level');
-    if (!topic && !goal && !level) {
+    const skill = params.get('skill');
+    if (!topic && !goal && !level && !skill) {
       return;
     }
     setFormData((prev) => ({
@@ -222,6 +225,7 @@ export default function CreateSeriesPage() {
       topic: topic || prev.topic,
       goal: goal || prev.goal,
       level: level || prev.level,
+      skillId: skill || prev.skillId,
     }));
   }, []);
 
@@ -375,6 +379,7 @@ export default function CreateSeriesPage() {
         verify_recipient: formData.verifyRecipient,
         manual_approval: formData.manualApproval,
         model: formData.model || undefined,
+        skill_id: formData.skillId || undefined,
       });
       const seriesId = created.data?.id;
       if (seriesId) {

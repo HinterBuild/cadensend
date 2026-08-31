@@ -6,8 +6,14 @@
 import type {
   AnalyticsOverview,
   ExtractedBrief,
+  EvaluationResult,
   Issue,
   IssueVersion,
+  PlatformCatalogItem,
+  PlatformConnector,
+  PlatformInsight,
+  PlatformSkill,
+  PlatformWorkflow,
   Recipient,
   RetrievedChunk,
   Series,
@@ -390,4 +396,73 @@ export const runsApi = {
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return fetchApi<{ data: RunItem[]; summary: RunSummary }>(`/runs${suffix}`);
   },
+};
+
+export const platformApi = {
+  catalog: (kind?: string) => {
+    const suffix = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+    return fetchApi<{ data: PlatformCatalogItem[]; total: number }>(`/platform/catalog${suffix}`);
+  },
+  skills: () => fetchApi<{ data: PlatformSkill[] }>('/platform/skills'),
+  connectors: () => fetchApi<{ data: PlatformConnector[] }>('/platform/connectors'),
+  syncConnector: (connectorId: string, config: Record<string, unknown> = {}) =>
+    fetchApi('/platform/connectors/sync', {
+      method: 'POST',
+      body: JSON.stringify({ connector_id: connectorId, config }),
+    }),
+  workflows: () => fetchApi<{ data: PlatformWorkflow[] }>('/platform/workflows'),
+  runWorkflow: (modeId: string, brief: Record<string, unknown>, context = '') =>
+    fetchApi('/platform/workflows/run', {
+      method: 'POST',
+      body: JSON.stringify({ mode_id: modeId, brief, context }),
+    }),
+  computeInsights: () => fetchApi<{ data: PlatformInsight[]; total: number }>('/platform/insights/compute', { method: 'POST', body: '{}' }),
+  sandbox: (skillId: string, brief: Record<string, unknown>, prompt = '') =>
+    fetchApi('/platform/sandbox', {
+      method: 'POST',
+      body: JSON.stringify({ skill_id: skillId, brief, prompt }),
+    }),
+  evaluate: (issue: Record<string, unknown>, priorIssues: Record<string, unknown>[] = []) =>
+    fetchApi<{ data: EvaluationResult }>('/platform/evaluate', {
+      method: 'POST',
+      body: JSON.stringify({ issue, prior_issues: priorIssues }),
+    }),
+  updateSeriesPlatform: (seriesId: string, skillId: string, workflowMode: string) =>
+    fetchApi(`/series/${seriesId}/platform`, {
+      method: 'PATCH',
+      body: JSON.stringify({ skill_id: skillId, workflow_mode: workflowMode }),
+    }),
+  editorialAssets: (type?: string) => {
+    const suffix = type ? `?type=${encodeURIComponent(type)}` : '';
+    return fetchApi<{ data: Array<{ id: string; asset_type: string; name: string; data: Record<string, unknown> }> }>(
+      `/platform/editorial/assets${suffix}`
+    );
+  },
+  createEditorialAsset: (asset: { asset_type: string; name: string; data: Record<string, unknown>; series_id?: string; issue_id?: string }) =>
+    fetchApi('/platform/editorial/assets', { method: 'POST', body: JSON.stringify(asset) }),
+  saveConnectorConfig: (connectorId: string, config: Record<string, unknown>, enabled = true) =>
+    fetchApi(`/platform/connectors/${connectorId}/config`, {
+      method: 'PUT',
+      body: JSON.stringify({ config, enabled }),
+    }),
+};
+
+export type EmailProviderOption = { id: string; name: string; description: string };
+
+export type EmailProviderConfig = {
+  provider: string;
+  from_email: string;
+  from_name: string;
+  config?: Record<string, unknown>;
+  verified?: boolean;
+  is_active?: boolean;
+  using_env?: boolean;
+};
+
+export const emailProviderApi = {
+  listProviders: () => fetchApi<{ data: EmailProviderOption[] }>('/settings/email-providers'),
+  get: () => fetchApi<{ data: EmailProviderConfig }>('/settings/email-provider'),
+  update: (payload: { provider: string; from_email: string; from_name?: string; config?: Record<string, unknown> }) =>
+    fetchApi('/settings/email-provider', { method: 'PUT', body: JSON.stringify(payload) }),
+  test: () => fetchApi<{ message: string }>('/settings/email-provider/test', { method: 'POST', body: '{}' }),
 };
