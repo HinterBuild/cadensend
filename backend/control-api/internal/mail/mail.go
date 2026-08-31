@@ -7,6 +7,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/smtp"
 	"strings"
 	"time"
 )
@@ -75,6 +76,117 @@ func Send(cfg Config, msg Message) error {
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("email send failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return nil
+}
+
+// ProviderConfig holds credentials for workspace-selected email providers.
+type ProviderConfig struct {
+	Provider string
+	APIURL   string
+	APIKey   string
+	From     string
+	FromName string
+	SMTPHost string
+	SMTPPort string
+	SMTPUser string
+	SMTPPass string
+}
+
+// SendWithProvider dispatches email via the selected provider.
+func SendWithProvider(cfg ProviderConfig, msg Message) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	switch provider {
+	case "smtp", "gmail":
+		return sendSMTP(cfg, msg)
+	case "sendgrid":
+		return sendSendGrid(cfg, msg)
+	case "mailgun":
+		return sendMailgun(cfg, msg)
+	default:
+		return Send(Config{APIURL: cfg.APIURL, APIKey: cfg.APIKey, From: cfg.From, FromName: cfg.FromName}, msg)
+	}
+}
+
+func sendSMTP(cfg ProviderConfig, msg Message) error {
+	host := strings.TrimSpace(cfg.SMTPHost)
+	port := strings.TrimSpace(cfg.SMTPPort)
+	if port == "" {
+		port = "587"
+	}
+	user := strings.TrimSpace(cfg.SMTPUser)
+	pass := strings.TrimSpace(cfg.SMTPPass)
+	from := strings.TrimSpace(cfg.From)
+	if host == "" || from == "" {
+		return fmt.Errorf("smtp_host and from_email are required")
+	}
+	addr := host + ":" + port
+	headers := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n",
+		from, msg.To, msg.Subject)
+	body := headers + msg.HTML
+	auth := smtp.PlainAuth("", user, pass, host)
+	return smtp.SendMail(addr, auth, from, []string{msg.To}, []byte(body))
+}
+
+func sendSendGrid(cfg ProviderConfig, msg Message) error {
+	apiURL := strings.TrimSpace(cfg.APIURL)
+	if apiURL == "" {
+		apiURL = "https://api.sendgrid.com/v3/mail/send"
+	}
+	fromName := strings.TrimSpace(cfg.FromName)
+	if fromName == "" {
+		fromName = cfg.From
+	}
+	payload := map[string]any{
+		"personalizations": []map[string]any{{"to": []map[string]string{{"email": msg.To}}}},
+		"from":             map[string]string{"email": cfg.From, "name": fromName},
+		"subject":          msg.Subject,
+		"content":          []map[string]string{{"type": "text/html", "value": msg.HTML}},
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, apiURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("sendgrid failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+func sendMailgun(cfg ProviderConfig, msg Message) error {
+	apiURL := strings.TrimSpace(cfg.APIURL)
+	if apiURL == "" {
+		return fmt.Errorf("mailgun api_url or domain is required in config")
+	}
+	fromName := strings.TrimSpace(cfg.FromName)
+	if fromName == "" {
+		fromName = cfg.From
+	}
+	form := fmt.Sprintf("from=%s <%s>&to=%s&subject=%s&html=%s",
+		fromName, cfg.From, msg.To, msg.Subject, msg.HTML)
+	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(form))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth("api", strings.TrimSpace(cfg.APIKey))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("mailgun failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
 }
