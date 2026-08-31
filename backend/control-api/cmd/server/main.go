@@ -174,6 +174,7 @@ func main() {
 				series.POST("/:id/resume", resumeSeriesHandler(db))
 				series.POST("/:id/test-send", testSendSeriesHandler(db))
 				series.POST("/:id/retrieval-preview", retrievalPreviewHandler(db))
+				series.PATCH("/:id/platform", updateSeriesPlatformHandler(db))
 				series.DELETE("/:id", deleteSeriesHandler(db))
 			}
 
@@ -222,6 +223,32 @@ func main() {
 			api.GET("/models", listModelsHandler())
 			api.GET("/analytics/overview", analyticsOverviewHandler(db))
 			api.GET("/runs", listRunsHandler(db))
+
+			platform := api.Group("/platform")
+			{
+				platform.GET("/catalog", platformCatalogHandler())
+				platform.GET("/skills", platformSkillsHandler())
+				platform.GET("/connectors", platformConnectorsHandler())
+				platform.PUT("/connectors/:id/config", platformConnectorConfigHandler(db))
+				platform.POST("/connectors/sync", platformConnectorSyncHandler(db))
+				platform.GET("/workflows", platformWorkflowsHandler())
+				platform.GET("/insights/types", platformInsightTypesHandler())
+				platform.POST("/insights/compute", platformInsightsComputeHandler(db))
+				platform.POST("/sandbox", platformSandboxHandler())
+				platform.POST("/evaluate", platformEvaluateHandler())
+				platform.POST("/workflows/run", platformWorkflowRunHandler())
+				platform.POST("/plugins/validate", platformPluginValidateHandler())
+				platform.GET("/editorial/assets", editorialAssetsHandler(db))
+				platform.POST("/editorial/assets", editorialAssetsHandler(db))
+			}
+
+			settings := api.Group("/settings")
+			{
+				settings.GET("/email-providers", listEmailProvidersHandler())
+				settings.GET("/email-provider", getEmailProviderHandler(db))
+				settings.PUT("/email-provider", updateEmailProviderHandler(db))
+				settings.POST("/email-provider/test", testEmailProviderHandler(db))
+			}
 		}
 
 		// Webhook endpoints (secret-verified, no JWT)
