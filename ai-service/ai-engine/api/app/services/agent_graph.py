@@ -39,6 +39,8 @@ from app.services.graph_policy import (
     route_after_plan,
     should_revise,
 )
+from app.platform.skills.registry import get_skill_registry
+from app.platform.workflows.engine import get_workflow_engine
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -92,6 +94,8 @@ class NewsletterAgent:
         self.tools_box: NewsletterTools = get_toolbox(self.model_service)
         self._react_tools = build_react_tools(self.tools_box)
         self._tool_node = ToolNode(self._react_tools)
+        self._skill_registry = get_skill_registry()
+        self._workflow_engine = get_workflow_engine(self.model_service)
         self.graph = self._build_graph()
         self._compiled = None
 
@@ -327,10 +331,25 @@ class NewsletterAgent:
                 },
             )
 
+            issues = result.get("issues", [])
+            workflow_mode = issue_brief.get("workflow_mode") or ""
+            if workflow_mode and workflow_mode not in ("default", "") and issues:
+                context_text = json.dumps(result.get("retrieved_context") or [])[:4000]
+                processed = []
+                for issue in issues:
+                    if isinstance(issue, dict):
+                        updated = await self._workflow_engine.post_process_issue(
+                            issue, workflow_mode, issue_brief, context_text, chosen_model
+                        )
+                        processed.append(updated)
+                    else:
+                        processed.append(issue)
+                issues = processed
+
             return {
                 "thread_id": thread_id,
                 "status": result.get("status", "complete"),
-                "issues": result.get("issues", []),
+                "issues": issues,
                 "error": result.get("error"),
                 "citations": result.get("citations", []),
                 "visual_specs": result.get("visual_specs", []),
@@ -372,10 +391,26 @@ class NewsletterAgent:
             state["messages"] = self._seed_messages(state)
         return state
 
+    def _platform_overlays(self, brief: Dict[str, Any]) -> str:
+        """Inject skill and workflow-mode instructions into system prompts."""
+        parts: List[str] = []
+        skill_id = brief.get("skill_id") or ""
+        if skill_id:
+            overlay = self._skill_registry.build_prompt_overlay(skill_id, brief)
+            if overlay:
+                parts.append(overlay)
+        workflow_mode = brief.get("workflow_mode") or ""
+        if workflow_mode and workflow_mode not in ("default", ""):
+            mode_overlay = self._workflow_engine.get_mode_overlay(workflow_mode, brief)
+            if mode_overlay:
+                parts.append(mode_overlay)
+        return "\n".join(parts)
+
     def _seed_messages(self, state: NewsletterState) -> List[BaseMessage]:
         brief = state.get("brief") or {}
         memory = state.get("memory_context") or []
         publication_memory = self._publication_memory_text(memory)
+        platform_overlay = self._platform_overlays(brief)
         if state.get("workflow") == "issue":
             module = ((state.get("plan") or {}).get("modules") or [{}])[0]
             refresh_mode = brief.get("refresh_mode") == "stale_content_refresh"
@@ -409,6 +444,7 @@ When done, do not call tools. Return ONLY JSON:
 Series topic: {brief.get("topic","")} | level: {brief.get("level","")} | tone: {brief.get("tone","instructor")} | length: {brief.get("length","10 min")}
 {publication_memory}
 Include code samples and diagrams when the topic is technical.
+{platform_overlay}
 """
             refresh_context = self._refresh_source_text(brief.get("refresh_source"))
             user = f"Write the email lesson for this module:\n{json.dumps(module, indent=2)}{refresh_context}"
@@ -624,6 +660,7 @@ When done, do not call tools. Return ONLY the plan JSON.
         level = brief.get("level") or "intermediate"
         tone = brief.get("tone") or "instructor"
         length = brief.get("length") or "10 min"
+        platform_overlay = self._platform_overlays(brief)
         return f"""You are a curriculum designer for a short email course.
 
 Series topic: {topic}
@@ -647,6 +684,7 @@ Each module needs:
 
 JSON shape:
 {{"modules":[{{"title":"...","summary":"...","learning_objectives":["..."],"duration_weeks":1}}],"prerequisites":["..."],"total_weeks":4}}
+{platform_overlay}
 """
 
     @staticmethod
