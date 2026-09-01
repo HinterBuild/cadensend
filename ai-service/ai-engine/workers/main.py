@@ -31,7 +31,21 @@ from app.core.config import settings
 from app.core.database import asyncpg_dsn
 from app.services.graph_policy import is_stub_issue, pick_generated_issue
 from app.services.issue_schedule import issue_send_times
-from app.services.model_service import ModelService, openrouter_api_key, resolve_default_model
+from app.services.model_service import (
+    ModelService,
+    MultiProviderModelService,
+    openrouter_api_key,
+    resolve_default_model,
+    resolve_provider_config,
+)
+from app.platform.llms import LLMRegistry, ProviderConfig
+from pathlib import Path
+import sys
+
+_workers_dir = Path(__file__).resolve().parent
+_api_dir = _workers_dir.parent / "api"
+if str(_api_dir) not in sys.path:
+    sys.path.insert(0, str(_api_dir))
 from app.services.openrouter_limits import (
     reset_generation_model,
     set_generation_model,
@@ -64,6 +78,7 @@ class AIWorker:
 
     def __init__(self):
         self.model_service = ModelService()
+        self.multi_provider = MultiProviderModelService()
         self.agent = get_agent(self.model_service)
         self.ingestion_worker = IngestionWorker(self.model_service)
         self.running = False
@@ -364,14 +379,19 @@ class AIWorker:
         """Handle a generate-plan job using the LangGraph agent."""
         series_id = job_data.get("series_id")
         token = set_generation_model(job_data.get("model"))
+
+        request_provider = job_data.get("provider")
+        request_model = job_data.get("model")
+
         try:
-            if openrouter_api_key() == "not-configured":
+            # Check OpenRouter key for openrouter provider
+            if openrouter_api_key() == "not-configured" and (not request_provider or request_provider == "openrouter"):
                 await self._persist_plan_result(
                     series_id,
                     {
                         "status": "failed",
                         "plan": {},
-                        "error": "OPENROUTER_API_KEY is not set. Add it to .env and restart the AI worker.",
+                        "error": "OPENROUTER_API_KEY is not set. Add it to .env or switch to another provider (OpenAI, Anthropic, etc.)",
                     },
                 )
                 return
@@ -389,15 +409,24 @@ class AIWorker:
                 )
                 return
 
+            provider_config = resolve_provider_config(
+                provider=request_provider,
+                model=request_model,
+                workspace_id=job_data.get("workspace_id", ""),
+            )
+            provider = LLMRegistry.create(provider_config)
+
+            resolved_model = provider_config.model
+
             result = await self._run_with_fallback(
-                lambda model: self.agent.run_plan_generation(
-                    brief={**job_data.get("brief", {}), "model": model},
+                lambda model, prov=provider: self.agent.run_plan_generation(
+                    brief={**job_data.get("brief", {}), "model": model, "provider": prov.config.provider},
                     workspace_id=job_data.get("workspace_id", ""),
                     series_id=series_id,
                     thread_id=job_data.get("thread_id") or f"plan-{series_id}",
                     model=model,
                 ),
-                requested_model=job_data.get("model"),
+                requested_model=resolved_model,
             )
 
             logger.info("Plan generated series=%s thread=%s status=%s",
@@ -430,6 +459,10 @@ class AIWorker:
         """Handle a generate-issue job using the LangGraph agent."""
         issue_id = job_data.get("issue_id")
         token = set_generation_model(job_data.get("model"))
+
+        request_provider = job_data.get("provider")
+        request_model = job_data.get("model")
+
         try:
             # Pre-flight: the user may have canceled while this job sat in the
             # queue. Only proceed if the issue is still waiting on us.
@@ -445,17 +478,26 @@ class AIWorker:
                 )
                 return
 
+            provider_config = resolve_provider_config(
+                provider=request_provider,
+                model=request_model,
+                workspace_id=job_data.get("workspace_id", ""),
+            )
+            provider = LLMRegistry.create(provider_config)
+
+            resolved_model = provider_config.model
+
             result = await self._run_with_fallback(
-                lambda model: self.agent.run_issue_generation(
+                lambda model, prov=provider: self.agent.run_issue_generation(
                     series_id=job_data.get("series_id", ""),
-                    brief={**job_data.get("brief", {}), "model": model},
+                    brief={**job_data.get("brief", {}), "model": model, "provider": prov.config.provider},
                     workspace_id=job_data.get("workspace_id", ""),
                     issue_number=job_data.get("issue_number", 1),
                     plan_item=job_data.get("plan_item", {}),
                     thread_id=job_data.get("thread_id") or f"issue-{job_data.get('issue_id') or 'unknown'}",
                     model=model,
                 ),
-                requested_model=job_data.get("model"),
+                requested_model=resolved_model,
             )
 
             logger.info("Issue generated: thread=%s, status=%s",
