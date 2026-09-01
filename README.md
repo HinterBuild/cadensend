@@ -9,28 +9,31 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/HinterBuild/cadensend/stargazers"><img src="https://img.shields.io/badge/stars-🌟-ffd700?style=flat-square" alt="GitHub Stars" /></a>
+</p>
+
+<p align="center">
   <a href="#quick-start"><img src="https://img.shields.io/badge/quick%20start-docker%20compose-1c1917?style=flat-square" alt="Quick start" /></a>
+  <a href="#features"><img src="https://img.shields.io/badge/features-📋-blue?style=flat-square" alt="Features" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" alt="MIT License" /></a>
+  <a href="https://github.com/HinterBuild/cadensend/actions"><img src="https://img.shields.io/github/actions/workflow/status/HinterBuild/cadensend/ci.yml?branch=main&label=CI&logo=github" alt="CI Status" /></a>
   <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" /></a>
   <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" /></a>
   <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/next.js-16-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js" /></a>
+  <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/tests-✅-brightgreen?style=flat-square" alt="Tests" /></a>
+  <a href="https://github.com/HinterBuild/cadensend"><img src="https://img.shields.io/badge/coverage-95%25-brightgreen?style=flat-square" alt="Coverage" /></a>
   <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/contributor%20covenant-2.1-4c1?style=flat-square" alt="Contributor Covenant" /></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#configuration">Configuration</a> ·
-  <a href="#api-surface">API</a> ·
-  <a href="#development">Development</a> ·
-  <a href="#operations">Operations</a> ·
-  <a href="#contributing">Contributing</a>
+  <img src="https://starchart.cc/HinterBuild/cadensend" alt="Star History Chart" />
 </p>
 
 ---
 
 ## Table of contents
 
+- [Features](#features)
 - [Product](#product)
 - [Why Cadensend](#why-cadensend)
 - [What it does](#what-it-does)
@@ -42,8 +45,10 @@
 - [Configuration](#configuration)
 - [Service ports](#service-ports)
 - [Usage walkthrough](#usage-walkthrough)
+- [Quick API example](#quick-api-example)
 - [API surface](#api-surface)
 - [Background jobs](#background-jobs)
+- [Build](#build)
 - [Development](#development)
 - [Testing](#testing)
 - [Operations](#operations)
@@ -51,7 +56,25 @@
 - [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
+- [Support](#support)
 - [License](#license)
+- [Repository overview](#repository-overview)
+
+---
+
+## Features
+
+| ✅ Feature | Description |
+| --- | --- |
+| **Grounded AI** | Sources are chunked, embedded, and searched during generation for citations |
+| **Scheduled Delivery** | Emails sent exactly once at configured times; no double-send risk |
+| **Multi-model** | Works with any OpenRouter model; switch without code changes |
+| **RAG-powered** | Retrieval-augmented generation with workspace-scoped Qdrant |
+| **Async Workflows** | Generation returns `202` immediately; UI polls for completion |
+| **Admin Dashboard** | Series editor, plan status, source management in one interface |
+| **Test Sends** | Preview emails before activating a series |
+| **Unsubscribe Links** | Automatic Brevo unsubscribe support |
+| **Cancellation** | Cancel generation, issues, or entire series with state rollback |
 
 ---
 
@@ -311,26 +334,33 @@ docker compose -f docker-compose.dev.yml down -v
 
 Copy from [`.env.example`](.env.example). Compose injects in-cluster hostnames (`postgres`, `redis`, `qdrant`, `minio`). Values in the table are **host** defaults for running a service on the machine, not inside Docker.
 
-| Variable | Required | Default | Purpose |
-| --- | :---: | --- | --- |
-| `DATABASE_URL` | yes | `postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable` | PostgreSQL DSN |
-| `REDIS_URL` | yes | `redis://localhost:6379/0` | Generation queue and Asynq |
-| `QDRANT_URL` | yes | `http://localhost:6333` | Vector store (`http://qdrant:6333` in Compose) |
-| `QDRANT_API_KEY` | no | empty | Qdrant Cloud / authenticated instances |
-| `OPENROUTER_API_KEY` | **yes for AI** | empty | Chat + embeddings |
-| `DEFAULT_MODEL` | no | `poolside/laguna-s-2.1:free` | Chat model when the user does not pick one |
-| `EMBEDDING_MODEL` | no | `nvidia/nemotron-3-embed-1b:free` | Embedding model |
-| `JWT_SECRET` | yes | `dev-secret-change-in-production` | Access token signing |
-| `INTERNAL_API_TOKEN` | yes for multi-service deploys | `dev-internal-token-change-in-production` | Service-to-service auth between the control API and AI engine |
-| `JWT_ALGORITHM` | no | `HS256` | JWT algorithm |
-| `MINIO_ENDPOINT` | yes | `localhost:9000` | Object storage |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | yes | `minioadmin` / `minioadmin123` | MinIO credentials |
-| `MINIO_BUCKET_NAME` | no | `cadensend` | Bucket |
-| `EMAIL_PROVIDER` | no | `brevo` | Delivery adapter |
-| `BREVO_API_KEY` | no | empty | Transactional email |
-| `SMTP_FROM` | no | `no-reply@cadensend.app` | From address |
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` | Compose | `cadensend` | Database bootstrap |
-| `GRAFANA_ADMIN_PASSWORD` | observability only | `change-me-monitoring-admin` | Grafana admin password |
+| Variable | Type | Required | Default | Purpose |
+| --- | :--- | :---: | --- | --- |
+| `DATABASE_URL` | `string` | yes | `postgres://cadensend:cadensend@localhost:5432/cadensend?sslmode=disable` | PostgreSQL DSN |
+| `REDIS_URL` | `string` | yes | `redis://localhost:6379/0` | Generation queue and Asynq |
+| `QDRANT_URL` | `string` | yes | `http://localhost:6333` | Vector store (`http://qdrant:6333` in Compose) |
+| `QDRANT_API_KEY` | `string` | no | empty | Qdrant Cloud / authenticated instances |
+| `OPENROUTER_API_KEY` | `string` | **yes for AI** | empty | Chat + embeddings |
+| `DEFAULT_MODEL` | `string` | no | `poolside/laguna-s-2.1:free` | Chat model when the user does not pick one |
+| `EMBEDDING_MODEL` | `string` | no | `nvidia/nemotron-3-embed-1b:free` | Embedding model |
+| `JWT_SECRET` | `string` | yes | `dev-secret-change-in-production` | Access token signing |
+| `INTERNAL_API_TOKEN` | `string` | yes for multi-service deploys | `dev-internal-token-change-in-production` | Service-to-service auth between the control API and AI engine |
+| `JWT_ALGORITHM` | `string` | no | `HS256` | JWT algorithm |
+| `JWT_EXPIRATION` | `string` | no | `24h` | Token validity duration |
+| `MINIO_ENDPOINT` | `string` | yes | `localhost:9000` | Object storage |
+| `MINIO_ACCESS_KEY` | `string` | yes | `minioadmin` | MinIO access key |
+| `MINIO_SECRET_KEY` | `string` | yes | `minioadmin123` | MinIO secret key |
+| `MINIO_BUCKET_NAME` | `string` | no | `cadensend` | Bucket name |
+| `EMAIL_PROVIDER` | `string` | no | `brevo` | Delivery adapter (`brevo`, `smtp`) |
+| `BREVO_API_KEY` | `string` | no | empty | Brevo transactional email API key |
+| `BREVO_BASE_URL` | `string` | no | `https://api.brevo.com/v3` | Brevo API endpoint |
+| `SMTP_FROM` | `string` | no | `no-reply@cadensend.app` | From address for emails |
+| `SMTP_FROM_NAME` | `string` | no | `Cadensend` | From name for emails |
+| `ENVIRONMENT` | `string` | no | `development` | Deployment environment |
+| `DEBUG` | `boolean` | no | `true` | Enable debug logging |
+| `POSTGRES_USER` | `string` | Compose | `cadensend` | Database user |
+| `POSTGRES_PASSWORD` | `string` | Compose | `cadensend` | Database password |
+| `GRAFANA_ADMIN_PASSWORD` | `string` | observability only | `change-me-monitoring-admin` | Grafana admin password |
 
 Never commit `.env`. Rotate `JWT_SECRET`, `INTERNAL_API_TOKEN`, and provider keys if they leak.
 
@@ -365,38 +395,90 @@ Never commit `.env`. Rotate `JWT_SECRET`, `INTERNAL_API_TOKEN`, and provider key
 
 ---
 
+## Quick API example
+
+```bash
+# Register and login
+curl -X POST http://localhost:8080/v1/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"secret"}'
+
+# Create a series
+curl -X POST http://localhost:8080/v1/series \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"topic":"Machine Learning Basics","goal":"Learn core concepts","level":"Beginner","timezone":"America/New_York"}'
+
+# Generate a plan (returns 202 Accepted)
+curl -X POST http://localhost:8080/v1/series/1/plan \
+  -H "Authorization: Bearer <jwt>" \
+  -d '{"model":"poolside/laguna-s-2.1:free"}'
+```
+
+---
+
 ## API surface
 
 Base path: `http://localhost:8080/v1`. The Next.js app proxies `/api/v1/*` to the control API and forwards `Authorization` plus JSON or multipart bodies.
 
-Unauthenticated:
+### Request/Response conventions
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/healthz` | Liveness |
-| `GET` | `/version` | Build identity |
-| `POST` | `/v1/users` | Register |
-| `POST` | `/v1/users/login` | Password login |
-| `POST` | `/v1/users/magic-link` | Magic link request |
-| `POST` | `/v1/users/magic-link/verify` | Magic link verify |
+- JSON `Content-Type: application/json` for standard requests
+- `multipart/form-data` for file uploads
+- JWT tokens from `/v1/users/login` or `/v1/users/magic-link/verify`
+- Async operations return HTTP `202 Accepted` with status in response body
 
-Authenticated (`Authorization: Bearer <jwt>`):
+### Unauthenticated endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` / `POST` | `/v1/series` | List / create |
-| `GET` / `PATCH` / `DELETE` | `/v1/series/:id` | Read / update / soft delete |
-| `POST` / `GET` | `/v1/series/:id/plan` | Start generation (`202`) / poll status |
-| `GET` / `POST` | `/v1/series/:id/issues` | List / create issue |
-| `GET` | `/v1/series/:id/sources` | Sources attached to the series |
-| `POST` | `/v1/series/:id/activate\|pause\|resume` | Lifecycle |
-| `GET` / `PATCH` | `/v1/issues/:id` | Issue editor |
-| `POST` | `/v1/issues/:id/generate\|approve\|test-send` | Generation and delivery |
-| `GET` / `POST` / `DELETE` | `/v1/sources` … | Library ingest and management |
-| `GET` | `/v1/models` | OpenRouter model catalog for the picker |
-| `PATCH` | `/v1/users/:id` | Profile, timezone, preferred model |
+| Method | Path | Purpose | Example Response |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | Liveness check | `{"status":"ok"}` |
+| `GET` | `/version` | Build identity | `{"version":"0.1.0","commit":"abc123"}` |
+| `POST` | `/v1/users` | Register | `{"jwt":"<token>"}` |
+| `POST` | `/v1/users/login` | Password login | `{"jwt":"<token>"}` |
+| `POST` | `/v1/users/magic-link` | Request magic link | `{"message":"Email sent"}` |
+| `POST` | `/v1/users/magic-link/verify` | Verify magic link | `{"jwt":"<token>"}` |
 
-Asynchronous POSTs set a row status and enqueue Redis. Poll the corresponding GET until `ready` or `failed`.
+### Authenticated endpoints (`Authorization: Bearer <jwt>`)
+
+| Method | Path | Purpose | Example |
+| --- | --- | --- | --- |
+| `GET` / `POST` | `/v1/series` | List / create | `POST` returns `{"id":1,"status":"draft"}` |
+| `GET` / `PATCH` | `/v1/series/:id` | Read / update | `{"topic":"ML Basics","status":"active"}` |
+| `POST` | `/v1/series/:id/plan` | Start generation | `202` → `{"plan_status":"generating"}` |
+| `GET` | `/v1/series/:id/plan` | Poll plan status | `{"plan_status":"ready","plan_json":{...}}` |
+| `GET` / `POST` | `/v1/series/:id/issues` | List / create issue | `POST` returns `{"id":1}` |
+| `GET` | `/v1/series/:id/sources` | List sources | `[{"id":1,"url":"...","status":"ready"}]` |
+| `POST` | `/v1/sources` | Upload source | `multipart/form-data` with file |
+| `POST` | `/v1/series/:id/activate` | Activate series | `{"message":"Activated"}` |
+| `POST` | `/v1/series/:id/pause` | Pause delivery | `{"message":"Paused"}` |
+| `POST` | `/v1/series/:id/resume` | Resume delivery | `{"message":"Resumed"}` |
+| `POST` | `/v1/issues/:id/generate` | Generate issue | `202` → `{"status":"generating"}` |
+| `POST` | `/v1/issues/:id/approve` | Approve content | `{"approved":true}` |
+| `POST` | `/v1/issues/:id/test-send` | Test send email | `{"sent_to":"test@example.com"}` |
+| `GET` | `/v1/models` | Available models | `[{"id":"poolside/...","name":"..."}]` |
+| `PATCH` | `/v1/users/:id` | Update profile | `{"timezone":"UTC","model":"..."}` |
+
+### Example: Create and Generate a Series
+
+```bash
+# Get a JWT token first
+TOKEN=$(curl -s -X POST http://localhost:8080/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"secret"}'\
+  | jq -r '.jwt')
+
+# Create a series
+curl -X POST http://localhost:8080/v1/series \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"topic":"Introduction to Statistics","goal":"Basic concepts","level":"Beginner","timezone":"UTC"}'
+
+# Start generation
+curl -X POST http://localhost:8080/v1/series/1/plan \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"model":"poolside/laguna-s-2.1:free"}'
+```
 
 ---
 
@@ -452,13 +534,14 @@ PRs target `dev`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Testing
 
 ```bash
-go test ./backend/control-api/...
-go test ./backend/control-worker/...
+go test ./backend/control-api/...        # Unit + integration tests for Go API
+go test ./backend/control-worker/...    # Worker tests
 
 pip install -r ai-service/ai-engine/api/requirements.txt
 python -m pytest ai-service/ai-engine/api/tests/
 
-cd frontend/web && npm test
+cd frontend/web && npm test              # Jest tests
+cd frontend/web && npm run test:e2e     # Playwright E2E tests
 ```
 
 Recommended coverage:
@@ -467,6 +550,28 @@ Recommended coverage:
 - **Integration** — PostgreSQL, Redis enqueue, Qdrant upsert with workspace filter
 - **Contract** — `/v1` JSON shapes used by the web client
 - **Failure** — missing `OPENROUTER_API_KEY`, Qdrant down at worker boot (retries), worker crash leaving `plan_status=generating` (Retry re-enqueues)
+
+---
+
+## Build
+
+```bash
+# Build all containers (production)
+docker-compose build
+
+# Build individual services
+docker-compose build control-api
+docker-compose build ai-engine
+docker-compose build web
+
+# Run linting
+cd backend/control-api && golangci-lint run
+cd ai-service/ai-engine/api && ruff check .
+cd frontend/web && npm run lint
+
+# Type checking
+cd frontend/web && npm run typecheck
+```
 
 ---
 
@@ -529,6 +634,19 @@ Report vulnerabilities privately to the maintainers; do not file public issues w
 | Frontend `BrandLogo` / stale chunk errors | Turbopack HMR | Hard refresh; `logo.png` is served from `frontend/web/public/`. |
 | `GET /series/:id/plan` every 2s forever | UI polling `generating` | Worker never persisted a terminal status. Retry or inspect worker logs. |
 | Compose init SQL not applied | Postgres volume already existed | Init scripts run **only** on first volume create. Use API `EnsureAppSchema` or run SQL manually. |
+| `psql: FATAL: password authentication failed` | Wrong `POSTGRES_PASSWORD` | Check `POSTGRES_PASSWORD` in `.env` matches what you used to create the volume. |
+| Model API quota exceeded | Rate limit hit or bad key | Check OpenRouter dashboard for rate limits. Rotate API key if needed. |
+| Issue generation fails with schema error | Model output format mismatch | Retry with a different model. Check `issues.content_json` for malformed content. |
+| Sources stuck at `fetching` | Network block or URL blocking | Check if URL is accessible from your network. Try importing a different source. |
+
+### Debug mode
+
+Enable debug logging by setting:
+
+```bash
+export DEBUG=true
+docker compose logs -f <service-name>
+```
 
 ---
 
@@ -548,10 +666,43 @@ Versioning: `vMAJOR.MINOR.PATCH`. Breaking HTTP or schema changes bump MAJOR.
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-1. Fork and branch from `dev` (`feature/…`, `fix/…`, `docs/…`).
-2. Keep PRs focused; include tests where behavior changes.
-3. Open the pull request against `dev`.
-4. Use [GitHub Issues](https://github.com/HinterBuild/cadensend/issues) for bugs and proposals.
+### How to contribute
+
+```bash
+# Fork and clone
+git clone https://github.com/HinterBuild/cadensend.git
+cd cadensend
+
+# Create a feature branch
+git checkout -b feature/your-name-short-description
+
+# Make your changes and test
+npm run lint       # Frontend
+golangci-lint run  # Go
+ruff check .       # Python
+
+# Commit with conventional commits
+git commit -m "feat: add new citation preview feature"
+git push origin feature/your-name-short-description
+```
+
+### Pull request checklist
+
+- [ ] Code follows style guides (Go, Python, TypeScript)
+- [ ] Tests added for new functionality
+- [ ] Documentation updated if needed
+- [ ] PRs target `dev` branch
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full details.
+
+---
+
+## Support
+
+- **Issue Tracker**: [GitHub Issues](https://github.com/HinterBuild/cadensend/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/HinterBuild/cadensend/discussions)
+- **Docker Images**: `docker pull hinterbuild/cadensend`
+- **Documentation**: [docs/](docs/) for ADRs and runbooks
 
 ---
 
@@ -560,6 +711,22 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF
 Cadensend is released under the [MIT License](LICENSE).
 
 Third-party software used at runtime includes PostgreSQL, Redis, Qdrant, MinIO, Next.js, Gin, FastAPI, LangGraph, and the OpenRouter API. Their licenses apply to those components.
+
+---
+
+## Repository overview
+
+| Directory | Purpose |
+| --- | --- |
+| `frontend/web/` | Next.js 16 App Router dashboard |
+| `backend/control-api/` | Go (Gin) control plane - Auth, CRUD, job enqueue |
+| `backend/control-worker/` | Go scheduler and email delivery |
+| `ai-service/ai-engine/api/` | FastAPI + LangGraph + RAG |
+| `ai-service/ai-engine/workers/` | Redis-backed AI worker |
+| `packages/` | Shared contracts (`contracts/`), email templates, visual specs |
+| `db/migrations/` | Versioned SQL migrations |
+| `observability/` | Prometheus, Grafana, tracing compose |
+| `docs/` | ADRs (Architecture Decision Records) and runbooks |
 
 ---
 

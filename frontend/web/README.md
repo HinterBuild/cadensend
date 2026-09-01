@@ -1,4 +1,6 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is the **Cadensend** web frontend (Next.js 16 App Router).
+
+For project-wide information, see the [**main README**](..%2F..%2F..%2FREADME.md).
 
 ## Getting Started
 

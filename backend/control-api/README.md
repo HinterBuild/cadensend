@@ -1,5 +1,7 @@
 # Control API Service - Go
 
+See the [**main project README**](..%2F..%2F..%2FREADME.md) for project overview, architecture, and contribution guide.
+
 This service provides the control plane for Cadensend, handling:
 - User authentication and tenancy
 - Series management (brief creation, planning, editing)
