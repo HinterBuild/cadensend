@@ -353,9 +353,46 @@ export type OpenRouterModel = {
   is_default?: boolean;
 };
 
+export type LLMProvider = {
+  id: string;
+  name: string;
+  description: string;
+  supports_chat: boolean;
+  supports_embed: boolean;
+};
+
+export type LLMProviderConfig = {
+  provider: string;
+  default_model: string;
+  embedding_model: string;
+  configs: Record<string, unknown>;
+};
+
 export const modelsApi = {
   list: () =>
     fetchApi<{ default_model: string; models: OpenRouterModel[] }>('/models'),
+
+  listProviders: () =>
+    fetchApi<{ data: LLMProvider[] }>('/llm-providers'),
+
+  getProviderConfig: () =>
+    fetchApi<{ data: LLMProviderConfig }>('/llm-providers/config'),
+
+  updateProviderConfig: (payload: {
+    provider: string;
+    default_model?: string;
+    embedding_model?: string;
+    configs?: Record<string, unknown>;
+  }) =>
+    fetchApi<{ message: string }>('/llm-providers/config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  listModels: (provider: string) =>
+    fetchApi<{ data: Array<{ id: string; name: string; description?: string }> }>(
+      `/llm-providers/${encodeURIComponent(provider)}/models`
+    ),
 };
 
 export const analyticsApi = {

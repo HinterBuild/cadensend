@@ -66,6 +66,7 @@
 
 | ✅ Feature | Description |
 | --- | --- |
+| **Multi-Provider LLM** | Switch between OpenRouter, OpenAI, Anthropic, Gemini, xAI, Qwen, and local LLMs |
 | **Grounded AI** | Sources are chunked, embedded, and searched during generation for citations |
 | **Scheduled Delivery** | Emails sent exactly once at configured times; no double-send risk |
 | **Multi-model** | Works with any OpenRouter model; switch without code changes |
@@ -264,7 +265,7 @@ SQL lives in `db/migrations/`. Compose first-boot uses `db/migrations-docker/`. 
 | --- | --- |
 | Docker Engine + Compose v2 | Current stable |
 | Git | 2.40+ |
-| OpenRouter account | Required for generation and embeddings |
+| OpenRouter account | Required for generation and embeddings (or OpenAI/Anthropic/Gemini API key) |
 | Node.js | 18+ (frontend only if running outside Compose) |
 | Go | 1.22+ (API only if running outside Compose) |
 | Python | 3.11+ (AI only if running outside Compose) |
@@ -363,6 +364,20 @@ Copy from [`.env.example`](.env.example). Compose injects in-cluster hostnames (
 | `GRAFANA_ADMIN_PASSWORD` | `string` | observability only | `change-me-monitoring-admin` | Grafana admin password |
 
 Never commit `.env`. Rotate `JWT_SECRET`, `INTERNAL_API_TOKEN`, and provider keys if they leak.
+
+### Multi-LLM Provider Configuration
+
+| Provider | Environment Variables | Default Model | Embedding |
+| --- | --- | --- | --- |
+| **OpenRouter** | `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | `poolside/laguna-s-2.1:free` | Yes |
+| **OpenAI** | `OPENAI_API_KEY`, `OPENAI_MODEL` | `gpt-4o-mini` | Yes |
+| **Anthropic** | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | `claude-3-5-sonnet-20241022` | No |
+| **Google Gemini** | `GOOGLE_API_KEY`, `GEMINI_MODEL` | `gemini-2.0-flash` | Yes |
+| **xAI Grok** | `XAI_API_KEY`, `XAI_MODEL` | `grok-2-128k` | No |
+| **Qwen** | `QWEN_API_KEY`, `QWEN_MODEL` | `qwen-turbo` | Yes |
+| **Local LLM** | `LOCAL_BASE_URL`, `LOCAL_MODEL` | `llama3` | Yes (model-dependent) |
+
+Select a provider via `DEFAULT_PROVIDER` env var or per-workspace in the dashboard settings.
 
 ---
 
