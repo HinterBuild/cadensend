@@ -14,6 +14,7 @@ from langchain_openai import ChatOpenAI
 from openai import OpenAI
 
 from app.core.config import settings
+from app.platform.llms import LLMRegistry, ProviderConfig, LLMMessage, register_all_providers
 from app.services.openrouter_limits import (
     call_with_429_retry,
     is_rate_limit_error,
@@ -25,6 +26,8 @@ from app.services.openrouter_limits import (
 logger = logging.getLogger(__name__)
 _EMBED_CACHE: OrderedDict[str, List[float]] = OrderedDict()
 _EMBED_CACHE_MAX = 512
+
+register_all_providers()
 
 
 class GatedChatOpenAI(ChatOpenAI):
@@ -69,6 +72,34 @@ def resolve_default_model(model: str | None = None) -> str:
     """Explicit model when provided (and configured), otherwise the default."""
     chosen = (model or "").strip()
     return chosen or settings.DEFAULT_MODEL
+
+
+def resolve_provider_config(
+    provider: Optional[str],
+    model: Optional[str],
+    workspace_id: Optional[str] = None,
+) -> ProviderConfig:
+    """Resolve provider config based on provider, model, and workspace settings."""
+    if provider is None:
+        provider = settings.DEFAULT_PROVIDER or "openrouter"
+
+    # Try to get workspace-specific config
+    if workspace_id:
+        try:
+            from app.services.model_catalog import ModelCatalogService
+            catalog = ModelCatalogService()
+            preferred = catalog.get_workspace_preferred_models(workspace_id)
+            if preferred and provider:
+                return ProviderConfig(
+                    provider=provider,
+                    model=model or settings.DEFAULT_MODEL,
+                    api_key=None,
+                    base_url=None,
+                )
+        except Exception:
+            pass
+
+    return LLMRegistry._build_config_from_env(provider, model or settings.DEFAULT_MODEL)
 
 
 class ModelService:
@@ -286,3 +317,80 @@ class ModelService:
             "embedding_model": self.embedding_model_name,
             "models": models,
         }
+
+
+class MultiProviderModelService:
+    """LLM service supporting multiple providers: OpenRouter, OpenAI, Anthropic, Gemini, Local, xAI, Qwen."""
+
+    def __init__(self, config: Optional[ProviderConfig] = None):
+        self.config = config or self._resolve_config()
+        self._provider: Optional[LLMRegistry] = None
+
+    def _resolve_config(self) -> ProviderConfig:
+        provider = settings.DEFAULT_PROVIDER or "openrouter"
+        model = settings.DEFAULT_MODEL
+        api_key = settings.OPENROUTER_API_KEY
+        base_url = settings.OPENROUTER_BASE_URL
+
+        if provider == "openai" or "openai" in (api_key or "").lower():
+            api_key = settings.OPENAI_API_KEY or api_key
+            base_url = settings.OPENAI_BASE_URL or None
+        elif provider == "anthropic":
+            api_key = settings.ANTHROPIC_API_KEY or api_key
+        elif provider == "gemini":
+            api_key = settings.GOOGLE_API_KEY or api_key
+        elif provider == "xai":
+            api_key = settings.XAI_API_KEY or api_key
+        elif provider == "qwen":
+            api_key = settings.QWEN_API_KEY or api_key
+        elif provider == "local":
+            base_url = settings.LOCAL_BASE_URL or "http://localhost:11434"
+
+        return ProviderConfig(
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            timeout=settings.OPENROUTER_TIMEOUT_SECONDS,
+        )
+
+    @property
+    def provider(self) -> Any:
+        if self._provider is None:
+            self._provider = LLMRegistry.create(self.config)
+        return self._provider
+
+    def with_provider(self, provider: str, model: Optional[str] = None, api_key: Optional[str] = None) -> "MultiProviderModelService":
+        new_config = ProviderConfig(
+            provider=provider,
+            api_key=api_key or self.config.api_key,
+            base_url=self.config.base_url,
+            model=model or self.config.model,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+            timeout=self.config.timeout,
+        )
+        return MultiProviderModelService(new_config)
+
+    async def generate(
+        self,
+        messages: List[LLMMessage],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        response = await self.provider.generate(messages, temperature=temperature, max_tokens=max_tokens)
+        logger.info("Generated response with %s model %s", self.config.provider, self.config.model)
+        return response.content
+
+    async def embed(self, text: str) -> List[float]:
+        response = await self.provider.embed(text)
+        return response.embedding
+
+    def get_model_info(self) -> Dict[str, Any]:
+        return self.provider.get_model_info()
+
+    def list_providers(self) -> List[str]:
+        return LLMRegistry.list_providers()
+
+    def get_provider_info(self, provider_name: str) -> Dict[str, Any]:
+        return LLMRegistry.get_model_info(provider_name)
