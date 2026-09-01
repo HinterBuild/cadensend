@@ -1,6 +1,7 @@
 """Core configuration for AI Engine"""
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional, List
 import os
 
@@ -29,6 +30,37 @@ class Settings(BaseSettings):
     # OpenRouter settings — the only LLM provider
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    
+    # Multi-LLM Provider settings
+    DEFAULT_PROVIDER: str = "openrouter"
+    DEFAULT_TEMPERATURE: float = 0.7
+    DEFAULT_MAX_TOKENS: int = 4000
+    
+    # OpenAI settings
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    
+    # Anthropic settings
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+    
+    # Google Gemini settings
+    GOOGLE_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    
+    # xAI Grok settings
+    XAI_API_KEY: str = ""
+    XAI_MODEL: str = "grok-2-128k"
+    
+    # Qwen settings
+    QWEN_API_KEY: str = ""
+    QWEN_MODEL: str = "qwen-turbo"
+    
+    # Local LLM settings
+    LOCAL_BASE_URL: str = "http://localhost:11434"
+    LOCAL_MODEL: str = "llama3"
+    
     DEFAULT_MODEL: str = "poolside/laguna-s-2.1:free"
     EMBEDDING_MODEL: str = "nvidia/nemotron-3-embed-1b:free"
     
@@ -74,15 +106,23 @@ class Settings(BaseSettings):
     
     # Environment
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     INTERNAL_API_TOKEN: str = "dev-internal-token-change-in-production"
-    
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, v):
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "debug")
+        return bool(v)
+
     # OpenTelemetry settings
     OTEL_ENDPOINT: Optional[str] = None
     OTEL_SERVICE_NAME: str = "cadensend-ai-engine"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True,
+    }
 
 settings = Settings()

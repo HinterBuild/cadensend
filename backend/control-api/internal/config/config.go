@@ -62,6 +62,9 @@ type Config struct {
 
 	// OpenRouter
 	DefaultModel string
+	// Multi-LLM Provider settings
+	DefaultProvider   string
+	EmbeddingModel    string
 }
 
 // LoadConfig loads configuration from environment variables
@@ -95,6 +98,8 @@ func LoadConfig() *Config {
 		EnableMagicLink:    getEnvBool("ENABLE_MAGIC_LINK", true),
 		RequireEmailVerify: getEnvBool("REQUIRE_EMAIL_VERIFY", false),
 		DefaultModel:       getEnv("DEFAULT_MODEL", "poolside/laguna-s-2.1:free"),
+		DefaultProvider:    getEnv("DEFAULT_PROVIDER", "openrouter"),
+		EmbeddingModel:    getEnv("EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b:free"),
 	}
 
 	// Parse JWT expiry override

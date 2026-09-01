@@ -215,6 +215,33 @@ type GenerationRun struct {
 
 func (GenerationRun) TableName() string { return "generation_runs" }
 
+// WorkspaceLLMConfig stores workspace-level LLM provider preferences
+type WorkspaceLLMConfig struct {
+	WorkspaceID     string    `json:"workspace_id" gorm:"primarykey"`
+	DefaultProvider string    `json:"default_provider" gorm:"not null;default:'openrouter'"`
+	DefaultModel    string    `json:"default_model" gorm:"not null"`
+	EmbeddingModel  string    `json:"embedding_model"`
+	Configs         []byte    `json:"configs" gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt       time.Time `json:"created_at" gorm:"not null"`
+	UpdatedAt       time.Time `json:"updated_at" gorm:"not null"`
+}
+
+func (WorkspaceLLMConfig) TableName() string { return "workspace_llm_config" }
+
+// LLMUsage tracks token consumption and costs per provider/model
+type LLMUsage struct {
+	ID           string    `json:"id" gorm:"primarykey"`
+	WorkspaceID  string    `json:"workspace_id" gorm:"not null"`
+	Provider     string    `json:"provider" gorm:"not null"`
+	Model        string    `json:"model" gorm:"not null"`
+	InputTokens  int       `json:"input_tokens" gorm:"not null;default:0"`
+	OutputTokens int       `json:"output_tokens" gorm:"not null;default:0"`
+	CostEstimate float64   `json:"cost_estimate" gorm:"column:cost_estimate;not null;default:0"`
+	CreatedAt    time.Time `json:"created_at" gorm:"not null"`
+}
+
+func (LLMUsage) TableName() string { return "llm_usage" }
+
 // UserService provides user business logic
 type UserService struct {
 	db        *gorm.DB
