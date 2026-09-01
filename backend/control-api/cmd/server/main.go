@@ -38,22 +38,20 @@ var (
 )
 
 func init() {
-	// Load configuration
 	cfg = config.LoadConfig()
 
-	// Initialize logger
 	log.SetFlags(0)
 	applogger.SetLogger(&applogger.Config{
 		Level: cfg.LogLevel,
 		UTC:   true,
 	})
 	log.Println("Starting control API", "env", cfg.Env)
+}
 
-	// Initialize database
+func setupDatabase() {
 	database.Init(cfg.DatabaseURL)
 	db = database.Get()
 
-	// Auto-migrate models
 	if err := database.AutoMigrate(
 		&service.User{},
 		&service.MagicLinkToken{},
@@ -67,6 +65,8 @@ func init() {
 		&service.Recipient{},
 		&service.AuditLog{},
 		&service.GenerationRun{},
+		&service.WorkspaceLLMConfig{},
+		&service.LLMUsage{},
 	); err != nil {
 		log.Println("AutoMigrate warning:", err)
 	}
@@ -80,6 +80,9 @@ func init() {
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
+
+	setupDatabase()
+
 	r := gin.New()
 
 	// Add middleware
@@ -213,6 +216,13 @@ func main() {
 			api.DELETE("/recipients/:id", recipients.remove)
 			api.POST("/recipients/:id/resend-verification", recipients.resendVerification)
 			api.PATCH("/recipients/:id/suppression", recipients.setSuppressed)
+
+			api.GET("/llm-providers", listLLMProvidersHandler(db))
+			api.GET("/llm-providers/:id/models", getLLMProviderModelsHandler(db))
+			api.GET("/llm-providers/config", getLLMProviderConfigHandler(db))
+			api.PUT("/llm-providers/config", updateLLMProviderConfigHandler(db))
+			api.POST("/llm-providers/:provider/validate", validateLLMProviderHandler(db))
+			api.GET("/llm-usage", getLLMUsageHandler(db))
 
 			// Operation monitoring
 			operations := api.Group("/operations")
