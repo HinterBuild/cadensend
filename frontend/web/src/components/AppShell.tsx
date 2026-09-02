@@ -1,11 +1,13 @@
 "use client";
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
 import { BrandWordmark } from '@/components/BrandLogo';
+
+const SIDEBAR_COLLAPSED_KEY = 'cadensend.sidebar.collapsed';
 
 const MOBILE_NAV = [
   { name: 'Dashboard', href: '/dashboard' },
@@ -18,14 +20,38 @@ const MOBILE_NAV = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const pathname = usePathname();
+
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
 
   const close = () => setMobileNavOpen(false);
 
   return (
-    <div className="flex min-h-screen bg-[#f6f3ee]">
+    <div
+      className="flex min-h-screen bg-[#f6f3ee]"
+      style={{ '--sidebar-width': sidebarCollapsed ? '4.5rem' : '16rem' } as CSSProperties}
+    >
       {/* Mobile top bar with nav drawer */}
-      <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b border-[#e7e0d6] bg-[#faf8f5] px-4 py-3 md:hidden">
+      <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b border-[#e7e0d6] bg-[#faf8f5] px-4 py-3 sm:hidden">
         <BrandWordmark />
         <button
           type="button"
@@ -42,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav
           id="mobile-nav"
           aria-label="Primary"
-          className="fixed inset-x-0 top-[52px] z-40 border-b border-[#e7e0d6] bg-[#faf8f5] px-4 pb-4 pt-2 shadow-lg md:hidden"
+          className="fixed inset-x-0 top-[52px] z-40 border-b border-[#e7e0d6] bg-[#faf8f5] px-4 pb-4 pt-2 shadow-lg sm:hidden"
         >
           <ul className="space-y-1">
             {MOBILE_NAV.map((item) => {
@@ -69,8 +95,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       )}
 
-      <AppSidebar />
-      <main id="main-content" className="flex-1 overflow-y-auto pt-[52px] md:pt-0">
+      <AppSidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+      <main id="main-content" className="relative min-w-0 flex-1 overflow-y-auto pt-[52px] sm:pt-0">
         {children}
       </main>
     </div>

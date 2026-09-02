@@ -139,6 +139,14 @@ export interface IssuePresentation {
   border_color: string;
 }
 
+export interface ContentCheck {
+  id: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  suggestion?: string;
+  block_index?: number;
+}
+
 export interface IssueContent {
   subject: string;
   preheader: string;
@@ -482,4 +490,41 @@ export interface EvaluationResult {
   scores: Record<string, number>;
   word_count: number;
   section_count: number;
+}
+
+export interface StudioOutlineSection {
+  id: string;
+  title: string;
+  order: number;
+  text?: string;
+}
+
+export interface StudioComposeResult {
+  issue: {
+    subject: string;
+    preheader: string;
+    markdown: string;
+    content_blocks: Array<{ id: string; title: string; type: string; text: string }>;
+  };
+  subject_variants: Array<{ id: string; label: string; text: string }>;
+  preheader: { text: string; length: number };
+  hook: { text: string; panel: string };
+  closer: { text: string; panel: string };
+  model_comparisons: Array<{ model: string; draft: string }>;
+  prompt_blocks: Record<string, Array<{ id: string; label: string; template: string }>>;
+  analysis: {
+    banned_phrases: string[];
+    terminology_suggestions: Array<{ from: string; to: string }>;
+    reading_level: { grade: number; label: string; words: number; sentences: number };
+  };
+  html: string;
+  plain_text: string;
+  system_overlay?: string;
+}
+
+export interface StudioMeta {
+  prompt_blocks: Record<string, Array<{ id: string; label: string; template: string }>>;
+  personas: Array<{ id: string; label: string; hint: string }>;
+  brand_voices: Array<{ id: string; label: string; overlay: string }>;
+  emoji_presets: string[];
 }
