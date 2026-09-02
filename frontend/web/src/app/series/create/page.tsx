@@ -26,6 +26,7 @@ type FormValues = {
   manualApproval: boolean;
   model: string;
   skillId: string;
+  workflowMode: string;
 };
 
 type PendingSource =
@@ -203,6 +204,7 @@ export default function CreateSeriesPage() {
     manualApproval: false,
     model: '',
     skillId: '',
+    workflowMode: '',
   });
 
   const updateField = <K extends keyof FormValues>(field: K, value: FormValues[K]) => {
@@ -217,7 +219,8 @@ export default function CreateSeriesPage() {
     const goal = params.get('goal');
     const level = params.get('level');
     const skill = params.get('skill');
-    if (!topic && !goal && !level && !skill) {
+    const workflow = params.get('workflow');
+    if (!topic && !goal && !level && !skill && !workflow) {
       return;
     }
     setFormData((prev) => ({
@@ -226,6 +229,7 @@ export default function CreateSeriesPage() {
       goal: goal || prev.goal,
       level: level || prev.level,
       skillId: skill || prev.skillId,
+      workflowMode: workflow || prev.workflowMode,
     }));
   }, []);
 
@@ -380,6 +384,7 @@ export default function CreateSeriesPage() {
         manual_approval: formData.manualApproval,
         model: formData.model || undefined,
         skill_id: formData.skillId || undefined,
+        workflow_mode: formData.workflowMode || undefined,
       });
       const seriesId = created.data?.id;
       if (seriesId) {
@@ -417,15 +422,13 @@ export default function CreateSeriesPage() {
     <div className="min-h-full py-12">
       <div className="max-w-2xl mx-auto px-4">
         <div className="mb-6">
-          <Link href="/dashboard">
-            <button
-              type="button"
-              aria-label="Back to Dashboard"
-              className="flex items-center text-gray-600 hover:text-gray-900 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
-              Back to Dashboard
-            </button>
+          <Link
+            href="/dashboard"
+            aria-label="Back to Dashboard"
+            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
+            Back to Dashboard
           </Link>
         </div>
 

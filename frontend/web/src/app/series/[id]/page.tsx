@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef, use } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Send, RefreshCw, Trash2, Pause, Play, Settings2 } from 'lucide-react';
+import { ArrowLeft, Plus, Send, RefreshCw, Trash2, Pause, Play, Settings2, X } from 'lucide-react';
 import { seriesApi, sourceApi, issueApi, modelsApi, OpenRouterModel } from '@/lib/api';
+import { contentStructureFromIssue } from '@/lib/contentStructure';
+import { ContentStructurePanel } from '@/components/issues/ContentStructurePanel';
 import { Series, Issue, Source, RetrievedChunk } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
@@ -126,6 +129,20 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [contextError, setContextError] = useState('');
 
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    if (!showEditDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowEditDialog(false);
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showEditDialog]);
 
   useEffect(() => {
     if (id) {
@@ -495,16 +512,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center space-x-4 min-w-0">
-              <button
-                type="button"
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <Link
+                href="/dashboard"
                 aria-label="Back to Dashboard"
-                onClick={() => router.push('/dashboard')}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
+                className="relative z-10 shrink-0 rounded p-1 text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <h1 className="text-2xl font-bold text-gray-900 truncate text-wrap:balance">{series?.topic}</h1>
+              </Link>
+              <h1 className="min-w-0 flex-1 truncate text-2xl font-bold text-gray-900">{series?.topic}</h1>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {nextIssue && (
@@ -709,6 +725,14 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                             ? `${formatInZone(issue.scheduled_at, series?.timezone)} (${series?.timezone || 'UTC'})`
                             : 'Not scheduled'}
                         </p>
+                        {issue.content_json ? (
+                          <div className="mt-2">
+                            <ContentStructurePanel
+                              compact
+                              content={contentStructureFromIssue(issue.content_json)}
+                            />
+                          </div>
+                        ) : null}
                         {issue.status === 'failed' && issue.generate_error && (
                           <p className="mt-1 text-sm text-red-600">{issue.generate_error}</p>
                         )}
@@ -1068,116 +1092,140 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       </div>
 
       {showEditDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div
+          className="fixed inset-y-0 right-0 left-0 top-[52px] z-50 flex sm:top-0 sm:left-[var(--sidebar-width,16rem)]"
+          role="presentation"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close series settings"
+            onClick={() => setShowEditDialog(false)}
+          />
           <form
             onSubmit={handleSaveSettings}
-            className="bg-white rounded-lg p-8 w-full max-w-md max-h-[90vh] overflow-y-auto"
+            className="relative ml-auto flex h-full w-full max-w-lg flex-col border-l border-stone-200 bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-series-title"
           >
-            <h3 id="edit-series-title" className="text-lg font-semibold mb-4">Series settings</h3>
-            {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
-
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-topic">Topic</label>
-            <input
-              id="edit-topic" type="text" value={editTopic}
-              onChange={(e) => setEditTopic(e.target.value)} required
-              className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-            />
-
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-goal">Goal</label>
-            <textarea
-              id="edit-goal" value={editGoal} rows={3}
-              onChange={(e) => setEditGoal(e.target.value)} required
-              className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-            />
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-level">Level</label>
-                <select
-                  id="edit-level" value={editLevel}
-                  onChange={(e) => setEditLevel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-                >
-                  <option value="">Unspecified</option>
-                  <option value="beginner">Beginner</option>
-                  <option value="intermediate">Intermediate</option>
-                  <option value="advanced">Advanced</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-cadence">Cadence</label>
-                <select
-                  id="edit-cadence" value={editCadence}
-                  onChange={(e) => setEditCadence(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Bi-weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </div>
+            <div className="flex shrink-0 items-center justify-between border-b border-stone-200 px-5 py-4">
+              <h3 id="edit-series-title" className="text-lg font-semibold text-stone-900">
+                Series settings
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEditDialog(false)}
+                aria-label="Close"
+                className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-start-date">Start date</label>
-                <input
-                  id="edit-start-date" type="date" value={editStartDate}
-                  onChange={(e) => setEditStartDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-send-time">Send time</label>
-                <input
-                  id="edit-send-time" type="time" value={editSendTime}
-                  onChange={(e) => setEditSendTime(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-                />
-              </div>
-            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
 
-            <fieldset className="mb-4">
-              <legend className="block text-sm font-medium text-gray-700 mb-2">Send days (weekly cadence)</legend>
-              <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {WEEKDAYS.map((day) => (
-                  <label key={day} className="flex items-center gap-1.5 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={editSendDays.includes(day)}
-                      onChange={(e) =>
-                        setEditSendDays((current) =>
-                          e.target.checked ? [...current, day] : current.filter((d) => d !== day),
-                        )
-                      }
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    {day.slice(0, 3)}
-                  </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-topic">Topic</label>
+              <input
+                id="edit-topic" type="text" value={editTopic}
+                onChange={(e) => setEditTopic(e.target.value)} required
+                className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+              />
+
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-goal">Goal</label>
+              <textarea
+                id="edit-goal" value={editGoal} rows={3}
+                onChange={(e) => setEditGoal(e.target.value)} required
+                className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+              />
+
+              <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-level">Level</label>
+                  <select
+                    id="edit-level" value={editLevel}
+                    onChange={(e) => setEditLevel(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                  >
+                    <option value="">Unspecified</option>
+                    <option value="beginner">Beginner</option>
+                    <option value="intermediate">Intermediate</option>
+                    <option value="advanced">Advanced</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-cadence">Cadence</label>
+                  <select
+                    id="edit-cadence" value={editCadence}
+                    onChange={(e) => setEditCadence(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Bi-weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-start-date">Start date</label>
+                  <input
+                    id="edit-start-date" type="date" value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-send-time">Send time</label>
+                  <input
+                    id="edit-send-time" type="time" value={editSendTime}
+                    onChange={(e) => setEditSendTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+                  />
+                </div>
+              </div>
+
+              <fieldset className="mb-4">
+                <legend className="block text-sm font-medium text-gray-700 mb-2">Send days (weekly cadence)</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {WEEKDAYS.map((day) => (
+                    <label key={day} className="flex items-center gap-1.5 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={editSendDays.includes(day)}
+                        onChange={(e) =>
+                          setEditSendDays((current) =>
+                            e.target.checked ? [...current, day] : current.filter((d) => d !== day),
+                          )
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {day.slice(0, 3)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-timezone">Timezone</label>
+              <select
+                id="edit-timezone" value={editTimezone}
+                onChange={(e) => setTimezoneEdit(e.target.value)}
+                className="w-full mb-4 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
+              >
+                {['UTC', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney'].map((tz) => (
+                  <option key={tz} value={tz}>{tz}</option>
                 ))}
-              </div>
-            </fieldset>
+              </select>
 
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-timezone">Timezone</label>
-            <select
-              id="edit-timezone" value={editTimezone}
-              onChange={(e) => setTimezoneEdit(e.target.value)}
-              className="w-full mb-6 px-3 py-2 border border-gray-300 rounded-lg text-stone-900 bg-white"
-            >
-              {['UTC', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney'].map((tz) => (
-                <option key={tz} value={tz}>{tz}</option>
-              ))}
-            </select>
+              <p className="text-xs text-gray-500">
+                Changes apply to future scheduling; already-scheduled sends keep their times unless you reschedule them.
+              </p>
+            </div>
 
-            <p className="mb-4 text-xs text-gray-500">
-              Changes apply to future scheduling; already-scheduled sends keep their times unless you reschedule them.
-            </p>
-
-            <div className="flex justify-end space-x-3">
+            <div className="flex shrink-0 justify-end gap-3 border-t border-stone-200 px-5 py-4">
               <button
                 type="button"
                 onClick={() => setShowEditDialog(false)}
@@ -1198,10 +1246,16 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       )}
 
       {showIssueDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-y-0 right-0 left-0 top-[52px] z-50 flex items-center justify-center p-4 sm:top-0 sm:left-[var(--sidebar-width,16rem)]">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close add issue dialog"
+            onClick={() => setShowIssueDialog(false)}
+          />
           <form
             onSubmit={handleCreateIssue}
-            className="bg-white rounded-lg p-8 w-full max-w-md"
+            className="relative w-full max-w-md rounded-lg bg-white p-8 shadow-xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-issue-title"
@@ -1251,10 +1305,16 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       )}
 
       {showSourceDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-y-0 right-0 left-0 top-[52px] z-50 flex items-center justify-center p-4 sm:top-0 sm:left-[var(--sidebar-width,16rem)]">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close add source dialog"
+            onClick={() => setShowSourceDialog(false)}
+          />
           <form
             onSubmit={handleAddSource}
-            className="bg-white rounded-lg p-8 w-full max-w-md"
+            className="relative w-full max-w-md rounded-lg bg-white p-8 shadow-xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-source-title"

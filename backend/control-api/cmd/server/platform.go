@@ -121,6 +121,33 @@ func platformPluginValidateHandler() gin.HandlerFunc {
 	return platformProxyPOST("/v1/platform/plugins/validate")
 }
 
+func platformStudioMetaHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		status, body, err := aiEngineRequest(http.MethodGet, "/v1/platform/studio/meta", nil)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ai engine unreachable: " + err.Error()})
+			return
+		}
+		c.Data(status, "application/json", body)
+	}
+}
+
+func platformStudioComposeHandler() gin.HandlerFunc {
+	return platformProxyPOST("/v1/platform/studio/compose")
+}
+
+func platformStudioSectionHandler() gin.HandlerFunc {
+	return platformProxyPOST("/v1/platform/studio/section")
+}
+
+func platformStudioAnalyzeHandler() gin.HandlerFunc {
+	return platformProxyPOST("/v1/platform/studio/analyze")
+}
+
+func platformStudioLinesHandler() gin.HandlerFunc {
+	return platformProxyPOST("/v1/platform/studio/lines")
+}
+
 func loadConnectorConfigs(db *gorm.DB, workspaceID string) map[string]map[string]interface{} {
 	type row struct {
 		CatalogID string
