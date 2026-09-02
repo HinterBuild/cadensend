@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 import { User } from '@/types';
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadSession();
   }, [loadSession]);
 
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
     try {
       const response = await authApi.login(email, password);
@@ -48,30 +48,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setUser(null);
     await fetch('/api/v1/users/me').catch(() => null);
     router.push('/login');
-  };
+  }, [router]);
 
-  const sendMagicLink = async (email: string) => {
+  const sendMagicLink = useCallback(async (email: string) => {
     await authApi.loginWithMagicLink(email);
-  };
+  }, []);
 
-  const verifyMagicLink = async (token: string) => {
+  const verifyMagicLink = useCallback(async (token: string) => {
     const response = await authApi.verifyMagicLink(token);
     setUser(response.user);
     router.push('/dashboard');
-  };
+  }, [router]);
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     await loadSession();
-  };
+  }, [loadSession]);
+
+  const value = useMemo(
+    () => ({ user, loading, login, logout, sendMagicLink, verifyMagicLink, refreshUser }),
+    [user, loading, login, logout, sendMagicLink, verifyMagicLink, refreshUser],
+  );
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, sendMagicLink, verifyMagicLink, refreshUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

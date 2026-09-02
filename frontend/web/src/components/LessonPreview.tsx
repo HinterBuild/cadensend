@@ -35,6 +35,128 @@ function inlineFormat(text: string) {
   return html;
 }
 
+function codeBlockLabel(lang: string | undefined, body: string): string | null {
+  const l = (lang || "").toLowerCase();
+  if (["shell", "sh", "zsh", "console"].includes(l)) return "bash";
+  if (l && !["code", "text", "plaintext", ""].includes(l)) return l;
+  if (/^subject:/im.test(body) || /^hi[\s,]/im.test(body)) return "template";
+  return null;
+}
+
+function isTableRow(line: string) {
+  const t = line.trim();
+  return t.startsWith("|") && t.includes("|", 1);
+}
+
+function isTableSeparator(line: string) {
+  const t = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  if (!t.includes("|")) return false;
+  return t.split("|").every((cell) => /^[\s:-]+$/.test(cell.trim()) || cell.trim() === "");
+}
+
+function parseTableCells(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+}
+
+function looksLikeDiagramSource(kind: string | undefined, source: string) {
+  const text = source.trim();
+  if (!text) return false;
+  if (kind === "d2") return text.includes("->") || text.includes(":");
+  return /^(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|mindmap|timeline|gitGraph)/i.test(text)
+    || /-->|---/.test(text);
+}
+
+function MarkdownBlock({
+  text,
+  presentation,
+}: {
+  text: string;
+  presentation: IssuePresentation;
+}) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    if (!lines[i].trim()) {
+      i++;
+      continue;
+    }
+    if (isTableRow(lines[i])) {
+      const chunk: string[] = [];
+      while (i < lines.length && (isTableRow(lines[i]) || isTableSeparator(lines[i]))) {
+        chunk.push(lines[i]);
+        i++;
+      }
+      const rows = chunk.filter((line) => !isTableSeparator(line)).map(parseTableCells).filter((r) => r.length);
+      if (rows.length) {
+        const [header, ...body] = rows;
+        nodes.push(
+          <div key={key++} className="overflow-x-auto rounded-lg border" style={{ borderColor: presentation.border_color }}>
+            <table className="min-w-full border-collapse text-sm">
+              <thead style={{ backgroundColor: presentation.surface_color }}>
+                <tr>
+                  {header.map((cell, idx) => (
+                    <th key={idx} className="border px-3 py-2 text-left font-semibold" style={{ borderColor: presentation.border_color, color: presentation.text_color }}>
+                      <span dangerouslySetInnerHTML={{ __html: inlineFormat(cell) }} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {body.map((row, ridx) => (
+                  <tr key={ridx}>
+                    {header.map((_, cidx) => (
+                      <td key={cidx} className="border px-3 py-2 align-top" style={{ borderColor: presentation.border_color, color: presentation.text_color }}>
+                        <span dangerouslySetInnerHTML={{ __html: inlineFormat(row[cidx] || "") }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+      }
+      continue;
+    }
+    const para: string[] = [];
+    while (i < lines.length && lines[i].trim() && !isTableRow(lines[i])) {
+      para.push(lines[i]);
+      i++;
+    }
+    const block = para.join("\n").trim();
+    if (!block) continue;
+    const listLines = block.split("\n");
+    const listed = listLines.every((line) => /^[-*] |\d+\. /.test(line.trim()));
+    if (listed) {
+      nodes.push(
+        <ul key={key++} className="list-disc space-y-1 pl-5">
+          {listLines.map((line, k) => (
+            <li key={k} dangerouslySetInnerHTML={{ __html: inlineFormat(line.replace(/^[-*] |\d+\. /, "")) }} />
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    block.split("\n\n").forEach((segment) => {
+      const trimmed = segment.trim();
+      if (!trimmed) return;
+      nodes.push(
+        <p key={key++} dangerouslySetInnerHTML={{ __html: inlineFormat(trimmed.replace(/\n/g, " ")) }} />,
+      );
+    });
+  }
+
+  return <div className="space-y-3">{nodes}</div>;
+}
+
 function diagramFrameStyle(presentation: IssuePresentation): CSSProperties {
   const base: CSSProperties = {
     borderRadius: presentation.diagram_style === "shadow" ? "16px" : "12px",
@@ -117,14 +239,26 @@ function DiagramPreview({
   altText?: string;
   presentation: IssuePresentation;
 }) {
-  const label = altText || (kind === "d2" ? "D2 diagram" : "Diagram");
+  const trimmed = source.trim();
+  const caption = altText || (kind === "d2" ? "D2 diagram" : "Diagram");
+  if (!looksLikeDiagramSource(kind, trimmed)) {
+    const text = trimmed || altText || "Diagram description unavailable.";
+    return (
+      <figure className="p-3" style={diagramFrameStyle(presentation)}>
+        <figcaption className="mb-2 text-[11px] uppercase tracking-wider" style={{ color: presentation.muted_color }}>
+          Diagram
+        </figcaption>
+        <p className="text-sm leading-relaxed" style={{ color: presentation.text_color }}>{text}</p>
+      </figure>
+    );
+  }
   return (
     <figure className="p-3" style={diagramFrameStyle(presentation)}>
       <figcaption
         className="mb-2 text-[11px] uppercase tracking-wider"
         style={{ color: presentation.muted_color }}
       >
-        {label}
+        {caption}
       </figcaption>
       {kind === "d2" ? (
         <pre className="overflow-x-auto rounded-lg bg-stone-900 px-3 py-3 font-mono text-[13px] text-stone-100 whitespace-pre-wrap">
@@ -169,12 +303,14 @@ export function LessonPreview({
     <div className="space-y-3 text-sm leading-relaxed" style={{ color: presentation.text_color }}>
       {parts.map((part, i) => {
         if (part.type === "code") {
-          const label = ["shell", "sh", "zsh", "console"].includes(part.lang || "") ? "bash" : part.lang;
+          const label = codeBlockLabel(part.lang, part.body);
           return (
             <div key={i} className="overflow-hidden rounded-lg border border-stone-800">
-              <div className="bg-stone-800 px-3 py-1 text-[11px] uppercase tracking-wider text-stone-400">
-                {label}
-              </div>
+              {label ? (
+                <div className="bg-stone-800 px-3 py-1 text-[11px] uppercase tracking-wider text-stone-400">
+                  {label}
+                </div>
+              ) : null}
               <pre className="overflow-x-auto bg-stone-900 px-3 py-3 font-mono text-[13px] leading-relaxed text-stone-100 whitespace-pre-wrap">
                 {part.body}
               </pre>
@@ -191,22 +327,7 @@ export function LessonPreview({
             />
           );
         }
-        return part.body.trim().split("\n\n").map((para, j) => {
-          const lines = para.trim().split("\n");
-          const listed = lines.every((line) => /^[-*] |\d+\. /.test(line.trim()));
-          if (listed) {
-            return (
-              <ul key={`${i}-${j}`} className="list-disc space-y-1 pl-5">
-                {lines.map((line, k) => (
-                  <li key={k} dangerouslySetInnerHTML={{ __html: inlineFormat(line.replace(/^[-*] |\d+\. /, "")) }} />
-                ))}
-              </ul>
-            );
-          }
-          return (
-            <p key={`${i}-${j}`} dangerouslySetInnerHTML={{ __html: inlineFormat(lines.join(" ")) }} />
-          );
-        });
+        return <MarkdownBlock key={i} text={part.body} presentation={presentation} />;
       })}
     </div>
   );
