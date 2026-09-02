@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.platform.catalog import ALL_CATALOG, catalog_to_dict, list_by_kind
 from app.platform.connectors.service import get_connector_service
+from app.platform.editorial.studio import get_studio_engine
 from app.platform.editorial.tools import (
     get_evaluation_harness,
     get_plugin_packaging,
@@ -52,6 +53,50 @@ class EvaluateRequest(BaseModel):
 
 class PluginValidateRequest(BaseModel):
     manifest: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StudioComposeRequest(BaseModel):
+    skill_id: str = "daily_brief"
+    topic: str = ""
+    goal: str = ""
+    tone: float = 0.5
+    persona: str = "practitioner"
+    brand_voice: str = "default"
+    emoji_preset: str = "minimal"
+    word_target_per_section: int = 120
+    outline: List[Dict[str, Any]] = Field(default_factory=list)
+    banned_phrases: List[str] = Field(default_factory=list)
+    preferred_terms: Dict[str, str] = Field(default_factory=dict)
+    compare_models: List[str] = Field(default_factory=list)
+    use_llm: bool = True
+
+
+class StudioSectionRequest(BaseModel):
+    section_id: str
+    title: str = ""
+    topic: str = ""
+    goal: str = ""
+    tone: float = 0.5
+    persona: str = "practitioner"
+    word_target: int = 120
+    prompt_block_id: Optional[str] = None
+    prompt_block_type: str = "intro"
+    use_llm: bool = True
+
+
+class StudioAnalyzeRequest(BaseModel):
+    text: str = ""
+    banned_phrases: List[str] = Field(default_factory=list)
+    preferred_terms: Dict[str, str] = Field(default_factory=dict)
+
+
+class StudioLinesRequest(BaseModel):
+    topic: str = ""
+    goal: str = ""
+    subject: str = ""
+    tone: float = 0.5
+    emoji_preset: str = "minimal"
+    use_llm: bool = True
 
 
 @router.get("/platform/catalog")
@@ -146,3 +191,41 @@ async def evaluate_issue(req: EvaluateRequest):
 @router.post("/platform/plugins/validate")
 async def validate_plugin(req: PluginValidateRequest):
     return get_plugin_packaging().validate_manifest(req.manifest)
+
+
+@router.get("/platform/studio/meta")
+async def studio_meta():
+    engine = get_studio_engine()
+    return {
+        "data": {
+            "prompt_blocks": engine.list_prompt_blocks(),
+            "personas": engine.list_personas(),
+            "brand_voices": engine.list_brand_voices(),
+            "emoji_presets": ["none", "minimal", "friendly", "expressive"],
+        }
+    }
+
+
+@router.post("/platform/studio/compose")
+async def studio_compose(req: StudioComposeRequest):
+    return {"data": await get_studio_engine().compose(req.model_dump())}
+
+
+@router.post("/platform/studio/section")
+async def studio_section(req: StudioSectionRequest):
+    return {"data": await get_studio_engine().generate_section(req.model_dump())}
+
+
+@router.post("/platform/studio/analyze")
+async def studio_analyze(req: StudioAnalyzeRequest):
+    return {"data": get_studio_engine().analyze(req.model_dump())}
+
+
+@router.post("/platform/studio/lines")
+async def studio_lines(req: StudioLinesRequest):
+    engine = get_studio_engine()
+    subjects = await engine.subject_lines(req.model_dump())
+    preheader = await engine.preheader({**req.model_dump(), "subject": subjects["variants"][0]["text"]})
+    hook = await engine.hook_panel(req.model_dump())
+    closer = await engine.closer_panel(req.model_dump())
+    return {"data": {**subjects, "preheader": preheader, "hook": hook, "closer": closer}}

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -110,7 +111,8 @@ func snapshotIssueVersion(db *gorm.DB, issue *service.Issue, createdBy string, a
 func listIssueVersionsHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		if _, _, ok := loadWorkspaceIssue(db, c, id); !ok {
+		issue, _, ok := loadWorkspaceIssue(db, c, id)
+		if !ok {
 			return
 		}
 		var rows []issueVersionRow
@@ -120,29 +122,101 @@ func listIssueVersionsHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		type versionItem struct {
-			Version   int    `json:"version"`
-			Subject   string `json:"subject"`
-			Preheader string `json:"preheader"`
-			Checksum  string `json:"checksum,omitempty"`
-			CreatedBy string `json:"created_by"`
-			CreatedAt string `json:"created_at"`
+			Version    int    `json:"version"`
+			Subject    string `json:"subject"`
+			Preheader  string `json:"preheader"`
+			Checksum   string `json:"checksum,omitempty"`
+			BlockCount int    `json:"block_count"`
+			WordCount  int    `json:"word_count"`
+			IsCurrent  bool   `json:"is_current"`
+			CreatedBy  string `json:"created_by"`
+			CreatedAt  string `json:"created_at"`
+		}
+		currentChecksum := ""
+		if issue.ContentJSON != nil {
+			if encoded, err := json.Marshal(parseJSONMap(issue.ContentJSON)); err == nil {
+				currentChecksum = checksumPrefix + shortChecksum(encoded)
+			}
 		}
 		out := make([]versionItem, 0, len(rows))
 		for _, r := range rows {
+			blockCount, wordCount := versionContentStats(r.Content)
 			out = append(out, versionItem{
-				Version:   r.Version,
-				Subject:   r.Subject,
-				Preheader: r.Preheader,
-				Checksum:  r.Checksum,
-				CreatedBy: r.CreatedBy,
-				CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
+				Version:    r.Version,
+				Subject:    r.Subject,
+				Preheader:  r.Preheader,
+				Checksum:   r.Checksum,
+				BlockCount: blockCount,
+				WordCount:  wordCount,
+				IsCurrent:  currentChecksum != "" && r.Checksum == currentChecksum,
+				CreatedBy:  r.CreatedBy,
+				CreatedAt:  r.CreatedAt.UTC().Format(time.RFC3339),
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{"data": out})
 	}
 }
 
-// getIssueVersionHandler returns one full version payload.
+func versionContentStats(raw json.RawMessage) (blockCount int, wordCount int) {
+	var content map[string]any
+	if err := json.Unmarshal(raw, &content); err != nil {
+		return 0, 0
+	}
+	blocks, ok := content["content_blocks"].([]any)
+	if !ok {
+		return 0, 0
+	}
+	blockCount = len(blocks)
+	for _, rawBlock := range blocks {
+		block, ok := rawBlock.(map[string]any)
+		if !ok {
+			continue
+		}
+		text, _ := block["text"].(string)
+		if text == "" {
+			continue
+		}
+		wordCount += len(strings.Fields(text))
+	}
+	return blockCount, wordCount
+}
+
+// getIssueVersionHandler returns one full saved version payload.
+func getIssueVersionHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		version, err := strconv.Atoi(c.Param("version"))
+		if err != nil || version < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid version"})
+			return
+		}
+		if _, _, ok := loadWorkspaceIssue(db, c, id); !ok {
+			return
+		}
+		var row issueVersionRow
+		if err := db.Where("issue_id = ? AND version = ?", id, version).
+			First(&row).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "version not found"})
+			return
+		}
+		blockCount, wordCount := versionContentStats(row.Content)
+		c.JSON(http.StatusOK, gin.H{
+			"data": gin.H{
+				"version":       row.Version,
+				"subject":       row.Subject,
+				"preheader":     row.Preheader,
+				"content_json":  json.RawMessage(row.Content),
+				"checksum":      row.Checksum,
+				"block_count":   blockCount,
+				"word_count":    wordCount,
+				"created_by":    row.CreatedBy,
+				"created_at":    row.CreatedAt.UTC().Format(time.RFC3339),
+			},
+		})
+	}
+}
+
+// restoreIssueVersionHandler rolls the live issue back to a saved version.
 func restoreIssueVersionHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")

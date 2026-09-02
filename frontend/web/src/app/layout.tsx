@@ -16,6 +16,13 @@ const newsreader = Newsreader({
 export const metadata = {
   title: 'Cadensend - AI Newsletter Series Platform',
   description: 'Turn learning goals into grounded, scheduled email courses — delivered exactly once.',
+  icons: {
+    icon: [
+      { url: '/logo.svg', type: 'image/svg+xml' },
+      { url: '/logo.png', type: 'image/png' },
+    ],
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({

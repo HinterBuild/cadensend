@@ -4,53 +4,36 @@ import { useCallback, useEffect, useRef, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, Save, Send, RefreshCw, Plus, Trash2, ArrowUp, ArrowDown,
-  Bold, Code, List, Braces, History, X, CalendarClock, Ban,
+  Bold, Code, List, Braces, History, CalendarClock, Ban,
+  Clock, FileText, Layers, Palette, Sparkles, Truck,
 } from 'lucide-react';
 import { issueApi } from '@/lib/api';
 import { defaultIssuePresentation, normalizeIssuePresentation, presentationPreset } from '@/lib/emailPresentation';
 import {
-  DiagramStyle,
-  DiagramTheme,
-  EmailStylePreset,
-  FontPair,
   Issue,
   IssuePresentation,
   IssueVersionSummary,
   ContentBlock,
   VisualSpec,
+  EmailStylePreset,
 } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { EmailPreview } from '@/components/LessonPreview';
+import { IssueDeliveryChecklist } from '@/components/issues/IssueDeliveryChecklist';
+import { ContentStructurePanel } from '@/components/issues/ContentStructurePanel';
+import { IssueEditorPreview, type PreviewTab } from '@/components/issues/IssueEditorPreview';
+import { IssueStylePanel } from '@/components/issues/IssueStylePanel';
+import { IssueVersionPanel } from '@/components/issues/IssueVersionPanel';
+import { analyzeContentStructure } from '@/lib/contentStructure';
 
 type BlockCitation = { source_id?: string; chunk_id?: string; text?: string };
 type EditorBlock = { id: string; type: string; title?: string; text: string; citations?: BlockCitation[] };
 type EditorVisual = { id: string; type?: string; content?: string; alt_text?: string };
-type PreviewTab = 'styled' | 'rendered' | 'html';
+type EditorTab = 'content' | 'design' | 'delivery';
 
-const EMAIL_STYLE_OPTIONS: Array<{ value: EmailStylePreset; label: string }> = [
-  { value: 'classic', label: 'Classic' },
-  { value: 'editorial', label: 'Editorial' },
-  { value: 'digest', label: 'Digest' },
-  { value: 'minimal', label: 'Minimal' },
-];
-
-const FONT_PAIR_OPTIONS: Array<{ value: FontPair; label: string }> = [
-  { value: 'classic', label: 'Classic serif' },
-  { value: 'modern', label: 'Modern sans' },
-  { value: 'newsroom', label: 'Newsroom' },
-  { value: 'technical', label: 'Technical' },
-];
-
-const DIAGRAM_THEME_OPTIONS: Array<{ value: DiagramTheme; label: string }> = [
-  { value: 'neutral', label: 'Neutral' },
-  { value: 'forest', label: 'Forest' },
-  { value: 'dark', label: 'Dark' },
-];
-
-const DIAGRAM_STYLE_OPTIONS: Array<{ value: DiagramStyle; label: string }> = [
-  { value: 'card', label: 'Card' },
-  { value: 'outline', label: 'Outline' },
-  { value: 'shadow', label: 'Shadow' },
+const EDITOR_TABS: Array<{ id: EditorTab; label: string; icon: typeof FileText }> = [
+  { id: 'content', label: 'Content', icon: FileText },
+  { id: 'design', label: 'Design', icon: Palette },
+  { id: 'delivery', label: 'Delivery', icon: Truck },
 ];
 
 function newVisual(): EditorVisual {
@@ -139,7 +122,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const [versions, setVersions] = useState<IssueVersionSummary[]>([]);
   const [showVersions, setShowVersions] = useState(false);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
-  const [previewTab, setPreviewTab] = useState<PreviewTab>('styled');
+  const [editorTab, setEditorTab] = useState<EditorTab>('content');
+  const [previewTab, setPreviewTab] = useState<PreviewTab>('inbox');
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewHtmlLoading, setPreviewHtmlLoading] = useState(false);
   const [previewHtmlError, setPreviewHtmlError] = useState<string | null>(null);
@@ -368,6 +352,16 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       setError('Set a send time before approving.');
       return;
     }
+    const structureErrors = analyzeContentStructure({
+      content_blocks: content.blocks,
+      visual_specs: content.visuals,
+    }).filter((check) => check.severity === 'error');
+    if (structureErrors.length > 0) {
+      const proceed = window.confirm(
+        `This issue has ${structureErrors.length} content-flow issue${structureErrors.length === 1 ? '' : 's'} (diagram/code order). Approve anyway?`,
+      );
+      if (!proceed) return;
+    }
     try {
       await issueApi.approve(id, { scheduled_at: new Date(scheduledAt).toISOString() });
       if (issue) {
@@ -411,6 +405,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       if (dirty) await saveIssue(true);
       await issueApi.restoreVersion(id, version);
       await loadIssue();
+      setShowVersions(false);
     } catch (err: any) {
       setError(err.message || 'Failed to restore version');
     } finally {
@@ -547,7 +542,17 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   );
   const readMinutes = Math.max(1, Math.round(totalWords / 200));
   const subjectLength = content.subject.length;
-  const renderPreviewMuted = dirty ? 'Rendered email updates after save/autosave.' : 'Rendered email matches the server HTML preview.';
+  const subjectOk = subjectLength > 0 && subjectLength <= 60;
+  const diagramCount =
+    content.blocks.filter((block) => /```(mermaid|d2)\b/i.test(block.text)).length +
+    content.visuals.filter((visual) => (visual.content || '').trim()).length;
+  const citationCount = content.blocks.reduce(
+    (sum, block) => sum + (block.citations?.length ?? 0),
+    0,
+  );
+  const renderPreviewMuted = dirty
+    ? 'Server-rendered views update after save or autosave.'
+    : 'Preview matches what recipients will receive.';
   const hasRefreshableContent = content.blocks.some((block) => block.text.trim()) || content.visuals.some((visual) => (visual.content || '').trim());
 
   if (loading) {
@@ -580,54 +585,160 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const canReschedule = issue?.status === 'approved' && scheduledAt && new Date(scheduledAt).getTime() > Date.now();
 
   return (
-    <div className="min-h-full">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 min-w-0">
+    <div className="flex min-h-full flex-col bg-[#f6f3ee]">
+      <header className="sticky top-0 z-30 border-b border-[#e7e0d6] bg-[#faf8f5]/95 backdrop-blur supports-[backdrop-filter]:bg-[#faf8f5]/80">
+        <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <button
                 type="button"
                 aria-label="Back to series"
                 onClick={() => issue && navigateAway(`/series/${issue.series_id}`)}
-                className="text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800 rounded"
+                className="relative z-10 shrink-0 rounded-lg p-2 text-stone-600 hover:bg-stone-200/70 hover:text-stone-900"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </button>
-              <h1 className="text-2xl font-bold text-gray-900 truncate">
-                #{issue?.sequence_no} {content.subject || 'Untitled'}
-              </h1>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                  Issue #{issue?.sequence_no} · Editor
+                </p>
+                <h1 className="truncate font-display text-lg font-semibold text-stone-900 sm:text-xl">
+                  {content.subject || 'Untitled issue'}
+                </h1>
+              </div>
             </div>
-            <div className="flex items-center space-x-4">
-              {dirty && (
-                <span className="text-xs text-amber-700" role="status">Unsaved changes…</span>
-              )}
-              {!dirty && lastSavedAt && (
-                <span className="text-xs text-gray-500" tabular-nums>Saved {lastSavedAt}</span>
-              )}
+            <div className="flex flex-wrap items-center gap-2">
+              {dirty ? (
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800" role="status">
+                  Unsaved changes
+                </span>
+              ) : lastSavedAt ? (
+                <span className="text-xs text-stone-500 tabular-nums">Saved {lastSavedAt}</span>
+              ) : null}
               <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  issue?.status === 'approved'
-                    ? 'bg-green-100 text-green-800'
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  issue?.status === 'approved' || issue?.status === 'ready'
+                    ? 'bg-emerald-100 text-emerald-900'
                     : issue?.status === 'sent'
-                    ? 'bg-purple-100 text-purple-800'
-                    : issue?.status === 'ready'
-                    ? 'bg-green-100 text-green-800'
+                    ? 'bg-violet-100 text-violet-900'
                     : issue?.status === 'failed'
-                    ? 'bg-red-100 text-red-800'
+                    ? 'bg-red-100 text-red-900'
                     : issue?.status === 'generating' || issue?.status === 'pending'
-                    ? 'bg-yellow-100 text-yellow-800'
-                    : 'bg-gray-100 text-gray-800'
+                    ? 'bg-amber-100 text-amber-900'
+                    : 'bg-stone-100 text-stone-700'
                 }`}
-                aria-label={`Issue status: ${issue?.status}`}
               >
                 {issue?.status === 'generating' ? 'Generating' : issue?.status}
               </span>
             </div>
           </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-t border-[#e7e0d6] py-2.5">
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => saveIssue()}
+                disabled={saving || !editable}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+              >
+                <Save className="h-4 w-4" aria-hidden="true" />
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !showVersions;
+                  setShowVersions(next);
+                  if (next) loadVersions();
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                  showVersions
+                    ? 'border-stone-900 bg-stone-900 text-white'
+                    : 'border-[#e7e0d6] bg-white text-stone-800 hover:bg-stone-50'
+                }`}
+              >
+                <History className="h-4 w-4" aria-hidden="true" />
+                Versions{versions.length ? ` (${versions.length})` : ''}
+              </button>
+            </div>
+            <div className="hidden h-6 w-px bg-[#e7e0d6] sm:block" aria-hidden="true" />
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => generateIssue(false)}
+                disabled={generating || issue?.status === 'generating' || !editable}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+              >
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                {(generating || issue?.status === 'generating')
+                  ? 'Generating…'
+                  : issue?.status === 'ready' || issue?.status === 'failed'
+                  ? 'Regenerate'
+                  : 'Generate'}
+              </button>
+              <button
+                type="button"
+                onClick={() => generateIssue(true)}
+                disabled={generating || issue?.status === 'generating' || !editable || !hasRefreshableContent}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                Refresh draft
+              </button>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={sendTestEmail}
+                disabled={sendingTest || generating || issue?.status === 'generating'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" aria-hidden="true" />
+                {sendingTest ? 'Sending…' : 'Test send'}
+              </button>
+              <input
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="test@you.com"
+                aria-label="Custom test email address"
+                className="hidden w-40 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 lg:block"
+              />
+              {issue?.status !== 'approved' && issue?.status !== 'sent' && (
+                <button
+                  type="button"
+                  onClick={approveIssue}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                >
+                  Approve & schedule
+                </button>
+              )}
+              {canReschedule && (
+                <>
+                  <button
+                    type="button"
+                    onClick={rescheduleIssue}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm text-stone-800 hover:bg-stone-50"
+                  >
+                    <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                    Reschedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelSend}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+                  >
+                    <Ban className="h-4 w-4" aria-hidden="true" />
+                    Cancel send
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {(issue?.status === 'generating' || generating) && (
           <div className="mb-6 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
             <div className="flex items-center gap-3">
@@ -663,322 +774,154 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
             <p className="text-sm text-green-800">{testNotice}</p>
           </div>
         )}
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">Issue Editor</h2>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              aria-label="Save draft"
-              onClick={() => saveIssue()}
-              disabled={saving || !editable}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
-            >
-              {saving ? 'Saving...' : 'Save Draft'}
-              {!saving && <Save className="h-4 w-4" aria-hidden="true" />}
-            </button>
-            <button
-              type="button"
-              aria-label="Version history"
-              onClick={() => {
-                setShowVersions((v) => !v);
-                if (!showVersions) loadVersions();
-              }}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 text-gray-700"
-            >
-              <History className="h-4 w-4" aria-hidden="true" />
-              Versions{versions.length ? ` (${versions.length})` : ''}
-            </button>
-            <button
-              type="button"
-              aria-label="Generate with AI"
-              onClick={() => generateIssue(false)}
-              disabled={generating || issue?.status === 'generating' || !editable}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-purple-500"
-            >
-              {(generating || issue?.status === 'generating') ? 'Generating...' : (issue?.status === 'ready' || issue?.status === 'failed' ? 'Regenerate with AI' : 'Generate with AI')}
-              {!(generating || issue?.status === 'generating') && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-            </button>
-            <button
-              type="button"
-              aria-label="Refresh stale draft"
-              onClick={() => generateIssue(true)}
-              disabled={generating || issue?.status === 'generating' || !editable || !hasRefreshableContent}
-              className="px-4 py-2 border border-amber-300 bg-amber-50 text-amber-900 rounded-lg hover:bg-amber-100 flex items-center gap-2 disabled:opacity-50"
-            >
-              Refresh stale draft
-            </button>
-            <button
-              type="button"
-              onClick={sendTestEmail}
-              disabled={sendingTest || generating || issue?.status === 'generating'}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 text-gray-700"
-            >
-              {sendingTest ? 'Sending…' : 'Send test email'}
-              {!sendingTest && <Send className="h-4 w-4" aria-hidden="true" />}
-            </button>
-            <input
-              type="email"
-              value={testEmail}
-              onChange={(e) => setTestEmail(e.target.value)}
-              placeholder="test@you.com (optional)"
-              aria-label="Custom test email address"
-              className="w-44 rounded-lg border border-gray-300 px-3 py-2 text-sm text-stone-900 bg-white placeholder:text-stone-400"
-            />
-            {issue?.status !== 'approved' && issue?.status !== 'sent' && (
-              <button
-                type="button"
-                aria-label="Approve and schedule"
-                onClick={approveIssue}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500"
-              >
-                Approve & Schedule
-              </button>
-            )}
-            {canReschedule && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Update send time"
-                  onClick={rescheduleIssue}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 text-gray-700"
-                >
-                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                  Update send time
-                </button>
-                <button
-                  type="button"
-                  aria-label="Cancel scheduled send"
-                  onClick={cancelSend}
-                  className="px-4 py-2 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 flex items-center gap-2"
-                >
-                  <Ban className="h-4 w-4" aria-hidden="true" />
-                  Cancel send
-                </button>
-              </>
-            )}
-          </div>
+
+        <IssueVersionPanel
+          issueId={id}
+          open={showVersions}
+          versions={versions}
+          currentSubject={content.subject}
+          currentPreheader={content.preheader}
+          currentBlockCount={content.blocks.length}
+          currentWordCount={totalWords}
+          editable={editable}
+          restoringVersion={restoringVersion}
+          onClose={() => setShowVersions(false)}
+          onRestore={restoreVersion}
+        />
+
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: 'Words', value: totalWords.toLocaleString(), icon: FileText },
+            { label: 'Read time', value: `~${readMinutes} min`, icon: Clock },
+            { label: 'Blocks', value: String(content.blocks.length), icon: Layers },
+            { label: 'Diagrams', value: String(diagramCount), icon: Sparkles },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-2xl border border-[#e7e0d6] bg-white px-4 py-3">
+              <div className="flex items-center gap-2 text-stone-500">
+                <stat.icon className="h-4 w-4" aria-hidden="true" />
+                <span className="text-xs font-medium uppercase tracking-wide">{stat.label}</span>
+              </div>
+              <p className="mt-1 font-display text-xl font-semibold text-stone-900">{stat.value}</p>
+            </div>
+          ))}
         </div>
 
-        {showVersions && (
-          <div className="mb-6 rounded-lg border border-gray-200 bg-white shadow p-5" role="region" aria-label="Version history">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-medium text-gray-900">Version history</h3>
-              <button
-                type="button"
-                onClick={() => setShowVersions(false)}
-                aria-label="Close version history"
-                className="rounded p-1 text-gray-400 hover:text-gray-700"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-            {versions.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                No saved versions yet. Every manual save and AI regeneration snapshots the previous draft here.
-              </p>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {versions.map((version) => (
-                  <li key={version.version} className="flex items-center gap-3 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900">
-                        v{version.version} · {version.subject || 'Untitled'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {new Date(version.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => restoreVersion(version.version)}
-                      disabled={restoringVersion !== null || !editable}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      {restoringVersion === version.version ? 'Restoring…' : 'Restore'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="bg-white rounded-lg shadow p-6 space-y-6">
-            <div>
-              <label htmlFor="send-at" className="block text-sm font-medium text-gray-700 mb-2">
-                Send at
-              </label>
-              <input
-                id="send-at"
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => {
-                  setScheduledAt(e.target.value);
-                  setDirty(true);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Approve schedules a real send at this time. Approved issues can be rescheduled or canceled until they go out.
-              </p>
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+          <div className="min-w-0 flex-1 space-y-4">
+            <div className="flex gap-1 rounded-xl border border-[#e7e0d6] bg-white p-1">
+              {EDITOR_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setEditorTab(tab.id)}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    editorTab === tab.id
+                      ? 'bg-stone-900 text-white shadow-sm'
+                      : 'text-stone-600 hover:bg-[#faf8f5] hover:text-stone-900'
+                  }`}
+                >
+                  <tab.icon className="h-4 w-4" aria-hidden="true" />
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            <div>
-              <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-2">
-                Subject{' '}
-                <span className={`ml-1 font-normal text-xs ${subjectLength > 60 ? 'text-amber-700' : 'text-gray-400'}`}>
-                  {subjectLength}/60 {subjectLength > 60 ? '(long subjects get cut off in inboxes)' : ''}
-                </span>
-              </label>
-              <input
-                id="subject"
-                type="text"
-                value={content.subject}
-                onChange={(e) => updateContent((c) => ({ ...c, subject: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-                placeholder="Enter issue subject"
-                aria-label="Subject"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="preheader" className="block text-sm font-medium text-gray-700 mb-2">
-                Preheader
-              </label>
-              <textarea
-                id="preheader"
-                value={content.preheader}
-                onChange={(e) => updateContent((c) => ({ ...c, preheader: e.target.value }))}
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus-visible:ring-2 focus-visible:ring-stone-800 text-gray-900 bg-white"
-                placeholder="Brief summary shown in email previews"
-                aria-label="Preheader text"
-              />
-            </div>
-
-            <section className="rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-stone-900">Presentation</h3>
-                  <p className="text-xs text-stone-500">Pick an email style, tune colors, and change diagram framing.</p>
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500">Email style</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {EMAIL_STYLE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => applyStylePreset(option.value)}
-                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-                        content.presentation.style_preset === option.value
-                          ? 'border-stone-900 bg-stone-900 text-white'
-                          : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-100'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label htmlFor="font-pair" className="mb-1 block text-sm font-medium text-gray-700">
-                    Font pair
-                  </label>
-                  <select
-                    id="font-pair"
-                    value={content.presentation.font_pair}
-                    onChange={(e) => updatePresentation({ font_pair: e.target.value as FontPair })}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
-                  >
-                    {FONT_PAIR_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="diagram-theme" className="mb-1 block text-sm font-medium text-gray-700">
-                    Diagram theme
-                  </label>
-                  <select
-                    id="diagram-theme"
-                    value={content.presentation.diagram_theme}
-                    onChange={(e) => updatePresentation({ diagram_theme: e.target.value as DiagramTheme })}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
-                  >
-                    {DIAGRAM_THEME_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="diagram-style" className="mb-1 block text-sm font-medium text-gray-700">
-                    Diagram frame
-                  </label>
-                  <select
-                    id="diagram-style"
-                    value={content.presentation.diagram_style}
-                    onChange={(e) => updatePresentation({ diagram_style: e.target.value as DiagramStyle })}
-                    className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus-visible:ring-2 focus-visible:ring-stone-800"
-                  >
-                    {DIAGRAM_STYLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { key: 'accent_color', label: 'Accent' },
-                  { key: 'background_color', label: 'Background' },
-                  { key: 'surface_color', label: 'Surface' },
-                  { key: 'text_color', label: 'Text' },
-                  { key: 'muted_color', label: 'Muted text' },
-                  { key: 'border_color', label: 'Borders' },
-                ].map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2">
+            {editorTab === 'delivery' && (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[#e7e0d6] bg-white p-5 space-y-5">
+                  <div>
+                    <label htmlFor="send-at" className="mb-1.5 block text-sm font-medium text-stone-700">
+                      Send at
+                    </label>
                     <input
-                      type="color"
-                      value={content.presentation[key as keyof IssuePresentation] as string}
-                      onChange={(e) => updatePresentation({ [key]: e.target.value } as Partial<IssuePresentation>)}
-                      className="h-9 w-10 rounded border border-stone-200 bg-transparent"
+                      id="send-at"
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => {
+                        setScheduledAt(e.target.value);
+                        setDirty(true);
+                      }}
+                      className="w-full rounded-xl border border-[#e7e0d6] px-3 py-2 text-stone-900 bg-white"
                     />
-                    <span className="flex-1">
-                      <span className="block text-sm font-medium text-stone-800">{label}</span>
-                      <span className="block text-xs text-stone-500">{content.presentation[key as keyof IssuePresentation]}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </section>
+                    <p className="mt-1.5 text-xs text-stone-500">
+                      Approve schedules a real send at this time. Approved issues can be rescheduled until they go out.
+                    </p>
+                  </div>
 
-            <div>
+                  <div>
+                    <label htmlFor="subject" className="mb-1.5 block text-sm font-medium text-stone-700">
+                      Subject{' '}
+                      <span className={`font-normal text-xs ${subjectLength > 60 ? 'text-amber-700' : 'text-stone-400'}`}>
+                        {subjectLength}/60
+                      </span>
+                    </label>
+                    <input
+                      id="subject"
+                      type="text"
+                      value={content.subject}
+                      onChange={(e) => updateContent((c) => ({ ...c, subject: e.target.value }))}
+                      className="w-full rounded-xl border border-[#e7e0d6] px-3 py-2 text-stone-900 bg-white"
+                      placeholder="Enter issue subject"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="preheader" className="mb-1.5 block text-sm font-medium text-stone-700">
+                      Preheader
+                    </label>
+                    <textarea
+                      id="preheader"
+                      value={content.preheader}
+                      onChange={(e) => updateContent((c) => ({ ...c, preheader: e.target.value }))}
+                      rows={2}
+                      className="w-full rounded-xl border border-[#e7e0d6] px-3 py-2 text-stone-900 bg-white"
+                      placeholder="Brief summary shown in inbox previews"
+                    />
+                  </div>
+                </div>
+
+                <IssueDeliveryChecklist
+                  subjectLength={subjectLength}
+                  hasPreheader={!!content.preheader.trim()}
+                  hasBlocks={content.blocks.length > 0}
+                  hasSchedule={!!scheduledAt}
+                  subjectOk={subjectOk}
+                />
+
+                {citationCount > 0 && (
+                  <p className="text-xs text-stone-500">
+                    {citationCount} grounded source citation{citationCount === 1 ? '' : 's'} across content blocks.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {editorTab === 'design' && (
+              <IssueStylePanel
+                presentation={content.presentation}
+                onApplyPreset={applyStylePreset}
+                onUpdate={updatePresentation}
+              />
+            )}
+
+            {editorTab === 'content' && (
+              <div className="space-y-4">
+              <ContentStructurePanel
+                content={{ content_blocks: content.blocks, visual_specs: content.visuals }}
+              />
+              <div className="rounded-2xl border border-[#e7e0d6] bg-white p-5 space-y-6">
               <div className="mb-4 flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">
-                  Content Blocks
+                <label className="block text-sm font-semibold text-stone-900">
+                  Content blocks
                 </label>
-                <span className="text-xs text-gray-500 tabular-nums">
+                <span className="text-xs text-stone-500 tabular-nums">
                   {totalWords} words · ~{readMinutes} min read
                 </span>
               </div>
               <div className="space-y-4">
                 {content.blocks.length === 0 ? (
-                  <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                    <p className="text-gray-500 mb-3">No content blocks yet.</p>
+                  <div className="rounded-xl border-2 border-dashed border-[#e7e0d6] py-10 text-center">
+                    <p className="mb-3 text-stone-500">No content blocks yet.</p>
                     <button
                       type="button"
                       onClick={addBlock}
@@ -990,9 +933,9 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                   </div>
                 ) : (
                   content.blocks.map((block, idx) => (
-                    <div key={block.id} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-gray-700">Block {idx + 1}</span>
+                    <div key={block.id} className="rounded-xl border border-[#e7e0d6] p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-stone-800">Block {idx + 1}</span>
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
@@ -1125,13 +1068,12 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                   </button>
                 )}
               </div>
-            </div>
 
-            <section className="space-y-4">
+            <section className="space-y-4 border-t border-[#e7e0d6] pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700">Detached visuals</h3>
-                  <p className="text-xs text-gray-500">Useful when a diagram should render after the lesson body instead of inline markdown.</p>
+                  <h3 className="text-sm font-semibold text-stone-900">Detached visuals</h3>
+                  <p className="text-xs text-stone-500">Diagrams that render after the lesson body instead of inline.</p>
                 </div>
                 <button
                   type="button"
@@ -1200,81 +1142,28 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 </div>
               )}
             </section>
+              </div>
+              </div>
+            )}
           </div>
-          <div className="lg:sticky lg:top-6 lg:self-start">
-            <div className="rounded-xl border border-stone-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 px-4 py-3">
-                {[
-                  { value: 'styled', label: 'Styled preview' },
-                  { value: 'rendered', label: 'Rendered email' },
-                  { value: 'html', label: 'HTML source' },
-                ].map((tab) => (
-                  <button
-                    key={tab.value}
-                    type="button"
-                    onClick={() => setPreviewTab(tab.value as PreviewTab)}
-                    className={`rounded-full px-3 py-1.5 text-sm ${
-                      previewTab === tab.value
-                        ? 'bg-stone-900 text-white'
-                        : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-                <p className="ml-auto text-xs text-stone-500">{renderPreviewMuted}</p>
-              </div>
 
-              <div className="p-4" style={{ backgroundColor: content.presentation.background_color }}>
-                {previewTab === 'styled' ? (
-                  <EmailPreview
-                    subject={content.subject}
-                    preheader={content.preheader}
-                    blocks={content.blocks}
-                    visuals={content.visuals}
-                    presentation={content.presentation}
-                  />
-                ) : null}
-
-                {previewTab === 'rendered' ? (
-                  <div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-                    {previewHtmlLoading ? (
-                      <div className="px-4 py-10 text-center text-sm text-stone-500">Loading rendered HTML…</div>
-                    ) : previewHtmlError ? (
-                      <div className="px-4 py-10 text-center text-sm text-red-600">{previewHtmlError}</div>
-                    ) : (
-                      <iframe
-                        title="Rendered email HTML"
-                        srcDoc={previewHtml}
-                        className="h-[900px] w-full bg-white"
-                      />
-                    )}
-                  </div>
-                ) : null}
-
-                {previewTab === 'html' ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-wide text-stone-500">Server HTML</p>
-                      <button
-                        type="button"
-                        onClick={loadPreviewHtml}
-                        className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50"
-                      >
-                        Refresh
-                      </button>
-                    </div>
-                    <textarea
-                      readOnly
-                      value={previewHtml}
-                      className="h-[900px] w-full rounded-xl border border-stone-200 bg-stone-950 px-4 py-3 font-mono text-xs leading-relaxed text-stone-100"
-                    />
-                    {previewHtmlError ? (
-                      <p className="text-sm text-red-600">{previewHtmlError}</p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+          <div className="xl:sticky xl:top-36 xl:w-[min(520px,42%)] xl:shrink-0 xl:self-start">
+            <div className="h-[min(900px,calc(100vh-10rem))]">
+              <IssueEditorPreview
+                subject={content.subject}
+                preheader={content.preheader}
+                blocks={content.blocks}
+                visuals={content.visuals}
+                presentation={content.presentation}
+                previewTab={previewTab}
+                onPreviewTabChange={setPreviewTab}
+                previewHtml={previewHtml}
+                previewHtmlLoading={previewHtmlLoading}
+                previewHtmlError={previewHtmlError}
+                onRefreshHtml={loadPreviewHtml}
+                renderPreviewMuted={renderPreviewMuted}
+                dirty={dirty}
+              />
             </div>
           </div>
         </div>
