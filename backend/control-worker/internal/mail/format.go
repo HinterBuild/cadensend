@@ -68,6 +68,14 @@ func markdownToHTML(b *strings.Builder, raw string, theme presentationTheme) {
 			i++
 			continue
 		}
+		if isTableRow(lines[i]) {
+			start := i
+			for i < len(lines) && (isTableRow(lines[i]) || isTableSeparator(lines[i])) {
+				i++
+			}
+			writeTable(b, lines[start:i], theme)
+			continue
+		}
 		if listItem(lines[i]) != "" {
 			start := i
 			for i < len(lines) && listItem(lines[i]) != "" {
@@ -88,7 +96,7 @@ func markdownToHTML(b *strings.Builder, raw string, theme presentationTheme) {
 			continue
 		}
 		start := i
-		for i < len(lines) && strings.TrimSpace(lines[i]) != "" && listItem(lines[i]) == "" && !looksLikeCode(lines[i]) && !isIndented(lines[i]) {
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "" && listItem(lines[i]) == "" && !looksLikeCode(lines[i]) && !isIndented(lines[i]) && !isTableRow(lines[i]) {
 			if _, ok := headingText(lines[i]); ok {
 				break
 			}
@@ -262,6 +270,83 @@ func writeList(b *strings.Builder, lines []string, theme presentationTheme) {
 	b.WriteString(`</ul>`)
 }
 
+func isTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "|") && strings.Count(trimmed, "|") >= 2
+}
+
+func isTableSeparator(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.Contains(trimmed, "|") {
+		return false
+	}
+	trimmed = strings.Trim(trimmed, "|")
+	for _, cell := range strings.Split(trimmed, "|") {
+		cell = strings.TrimSpace(cell)
+		if cell == "" {
+			continue
+		}
+		for _, r := range cell {
+			if r != '-' && r != ':' && r != ' ' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func parseTableCells(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	parts := strings.Split(trimmed, "|")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, strings.TrimSpace(part))
+	}
+	return out
+}
+
+func writeTable(b *strings.Builder, lines []string, theme presentationTheme) {
+	rows := make([][]string, 0, len(lines))
+	for _, line := range lines {
+		if isTableSeparator(line) {
+			continue
+		}
+		if cells := parseTableCells(line); len(cells) > 0 {
+			rows = append(rows, cells)
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	header := rows[0]
+	body := rows[1:]
+	fmt.Fprintf(
+		b,
+		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:collapse;border:1px solid %s;font-family:%s;font-size:14px;">`,
+		theme.Border,
+		theme.bodyFont(),
+	)
+	fmt.Fprintf(b, `<thead><tr style="background:%s;">`, theme.Surface)
+	for _, cell := range header {
+		fmt.Fprintf(b, `<th style="border:1px solid %s;padding:8px 10px;text-align:left;color:%s;font-weight:600;">%s</th>`, theme.Border, theme.Text, inlineHTML(cell))
+	}
+	b.WriteString(`</tr></thead><tbody>`)
+	for _, row := range body {
+		b.WriteString(`<tr>`)
+		for col := 0; col < len(header); col++ {
+			val := ""
+			if col < len(row) {
+				val = row[col]
+			}
+			fmt.Fprintf(b, `<td style="border:1px solid %s;padding:8px 10px;color:%s;vertical-align:top;">%s</td>`, theme.Border, theme.Text, inlineHTML(val))
+		}
+		b.WriteString(`</tr>`)
+	}
+	b.WriteString(`</tbody></table>`)
+}
+
 func inlineHTML(s string) string {
 	s = backtickRe.ReplaceAllString(s, "\x00$1\x00")
 	escaped := html.EscapeString(s)
@@ -302,26 +387,110 @@ func insideCode(s string, idx int) bool {
 	return close < open
 }
 
+func codeBlockLabel(lang, code string) string {
+	label := strings.ToLower(strings.TrimSpace(lang))
+	switch label {
+	case "shell", "sh", "console", "zsh":
+		return "bash"
+	case "code", "text", "plaintext", "":
+		label = guessLang(code)
+		if label == "code" {
+			lower := strings.ToLower(code)
+			if strings.Contains(lower, "subject:") || strings.HasPrefix(strings.TrimSpace(lower), "hi ") {
+				return "template"
+			}
+			return ""
+		}
+		return label
+	default:
+		return label
+	}
+}
+
 func codeBlockHTML(lang, code string, theme presentationTheme) string {
-	label := lang
-	if label == "shell" || label == "sh" || label == "console" || label == "zsh" {
-		label = "bash"
+	label := codeBlockLabel(lang, code)
+	pre := fmt.Sprintf(
+		`<pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#fafaf9;white-space:pre-wrap;word-break:break-word;">%s</pre>`,
+		esc(code),
+	)
+	if label == "" {
+		return fmt.Sprintf(
+			`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid %s;border-radius:8px;overflow:hidden;">`+
+				`<tr><td style="background:#1c1917;padding:14px 16px;">%s</td></tr>`+
+				`</table>`,
+			theme.Border,
+			pre,
+		)
 	}
 	return fmt.Sprintf(
 		`<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:12px 0 16px;border-collapse:separate;border:1px solid %s;border-radius:8px;overflow:hidden;">`+
 			`<tr><td style="background:#0c0a09;color:#a8a29e;font-family:%s;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:8px 12px;">%s</td></tr>`+
-			`<tr><td style="background:#1c1917;padding:14px 16px;"><pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;color:#fafaf9;white-space:pre-wrap;word-break:break-word;">%s</pre></td></tr>`+
+			`<tr><td style="background:#1c1917;padding:14px 16px;">%s</td></tr>`+
 			`</table>`,
 		theme.Border,
 		theme.bodyFont(),
 		esc(label),
-		esc(code),
+		pre,
+	)
+}
+
+func looksLikeDiagramSource(kind, source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	if kind == "d2" {
+		return strings.Contains(source, "->") || strings.Contains(source, ":")
+	}
+	lower := strings.ToLower(source)
+	prefixes := []string{
+		"flowchart", "graph ", "graph\n", "graph\t", "graph{", "graph;",
+		"sequencediagram", "classdiagram", "statediagram", "erdiagram",
+		"gantt", "pie ", "mindmap", "timeline", "gitgraph", "c4context",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return strings.Contains(source, "-->") || strings.Contains(source, "---")
+}
+
+func diagramDescriptionHTML(text string, theme presentationTheme) string {
+	return fmt.Sprintf(
+		`<div style="%s">`+
+			`<p style="margin:0 0 6px;font-family:%s;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:%s;">Diagram</p>`+
+			`<p style="margin:0;font-family:%s;font-size:14px;line-height:1.55;color:%s;">%s</p>`+
+			`</div>`,
+		theme.diagramContainerStyle(),
+		theme.bodyFont(),
+		theme.Muted,
+		theme.bodyFont(),
+		theme.Text,
+		inlineHTML(strings.TrimSpace(text)),
 	)
 }
 
 func diagramHTML(kind, source, alt string, theme presentationTheme) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		if strings.TrimSpace(alt) != "" {
+			return diagramDescriptionHTML(alt, theme)
+		}
+		return ""
+	}
+	if !looksLikeDiagramSource(kind, source) {
+		text := source
+		if strings.TrimSpace(alt) != "" && !strings.Contains(strings.ToLower(source), strings.ToLower(alt)) {
+			text = alt
+		}
+		return diagramDescriptionHTML(text, theme)
+	}
 	src := krokiImageURL(kind, themedDiagramSource(kind, source, theme))
 	if src == "" {
+		if strings.TrimSpace(alt) != "" {
+			return diagramDescriptionHTML(alt+"\n\n"+source, theme)
+		}
 		return codeBlockHTML(kind, source, theme)
 	}
 	if strings.TrimSpace(alt) == "" {

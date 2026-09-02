@@ -46,6 +46,28 @@ func TestFormatLessonHTMLUnfencedCodeAndCalls(t *testing.T) {
 		t.Fatalf("expected unfenced class as code block, got %s", html)
 	}
 }
+
+func TestFormatLessonHTMLRendersMarkdownTable(t *testing.T) {
+	src := "| Name | Tier |\n| --- | --- |\n| Ada | 1 |\n| Bob | 2 |\n"
+	html := formatLessonHTML(src, defaultPresentationTheme())
+	if !strings.Contains(html, "<table") || !strings.Contains(html, "<th") || !strings.Contains(html, "<td") {
+		t.Fatalf("expected html table, got %s", html)
+	}
+	if !strings.Contains(html, "Ada") || !strings.Contains(html, "Bob") {
+		t.Fatalf("expected table cells, got %s", html)
+	}
+}
+
+func TestFormatLessonHTMLTemplateCodeBlockLabel(t *testing.T) {
+	src := "```code\nSubject: Hello\n\nHi there,\n```\n"
+	html := formatLessonHTML(src, defaultPresentationTheme())
+	if strings.Contains(html, ">code<") {
+		t.Fatalf("expected generic code label to be hidden or template, got %s", html)
+	}
+	if !strings.Contains(html, "Subject: Hello") {
+		t.Fatalf("expected template body, got %s", html)
+	}
+}
 func TestRenderIssueHTMLIncludesVisualSpecs(t *testing.T) {
 	_, body := RenderIssueHTML("Kubernetes", "learn deploys", map[string]any{
 		"subject":   "Deployments",
