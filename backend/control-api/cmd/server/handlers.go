@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"backend/control-api/internal/contentstructure"
 	"backend/control-api/internal/mail"
 	"backend/control-api/internal/service"
 	"backend/control-api/internal/urlcheck"
@@ -82,7 +83,7 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 			briefJSON = string(rawBody)
 		}
 
-		series, err := buildSeriesFromReq(req, c.GetString("user_id"))
+		series, err := buildSeriesFromReq(req, c.GetString("workspace_id"), c.GetString("user_id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -127,9 +128,12 @@ func buildSeriesFromReq(req struct {
 	SkillID        string `json:"skill_id"`
 	WorkflowMode   string `json:"workflow_mode"`
 	BriefJSON      string `json:"brief_json"`
-}, userID string) (*service.Series, error) {
+}, workspaceID, userID string) (*service.Series, error) {
 	if req.Topic == "" || req.Goal == "" || req.Timezone == "" {
 		return nil, fmt.Errorf("topic, goal, and timezone are required")
+	}
+	if workspaceID == "" {
+		return nil, fmt.Errorf("workspace_id is required")
 	}
 
 	cadence := strings.TrimSpace(req.Cadence)
@@ -147,7 +151,7 @@ func buildSeriesFromReq(req struct {
 
 	s := &service.Series{
 		ID:             uuid.NewString(),
-		WorkspaceID:    userID,
+		WorkspaceID:    workspaceID,
 		Slug:           req.Topic + "-" + time.Now().Format("20060102-150405"),
 		Topic:          req.Topic,
 		Goal:           req.Goal,
@@ -830,7 +834,15 @@ func getIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"data": issue})
+		c.JSON(http.StatusOK, issuePayload(issue))
+	}
+}
+
+func issuePayload(issue *service.Issue) gin.H {
+	content := parseJSONMap(issue.ContentJSON)
+	return gin.H{
+		"data":           issue,
+		"content_checks": contentstructure.Analyze(content),
 	}
 }
 
@@ -888,6 +900,7 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			}
 			content["presentation"] = presentation
 		}
+		content = contentstructure.NormalizeContent(content)
 		encoded, err := json.Marshal(content)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -923,7 +936,7 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": issue})
+		c.JSON(http.StatusOK, issuePayload(&issue))
 	}
 }
 
@@ -1089,9 +1102,13 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		content := parseJSONMap(issue.ContentJSON)
+		structureChecks := contentstructure.Analyze(content)
+
 		c.JSON(http.StatusOK, gin.H{
-			"message":      "issue approved and scheduled",
-			"scheduled_at": issue.ScheduledAt,
+			"message":         "issue approved and scheduled",
+			"scheduled_at":    issue.ScheduledAt,
+			"content_checks":  structureChecks,
 		})
 	}
 }
