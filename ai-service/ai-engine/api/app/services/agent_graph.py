@@ -28,6 +28,12 @@ from app.services.agent_tools import NewsletterTools, get_toolbox
 from app.services.model_service import ModelService
 from app.services.memory_store import LongTermMemoryStore
 from app.services.react_tools import build_react_tools
+from app.services.content_structure import (
+    analyze_content_structure,
+    normalize_issue_content_order,
+    structure_feedback,
+    structure_issue_errors,
+)
 from app.services.graph_policy import (
     collect_retrieval_hits,
     filter_citations,
@@ -437,6 +443,8 @@ Guardrails:
 - Put every command, YAML, JSON, class, or snippet in a fenced block with a language tag (```java, ```python, ```yaml, ```bash).
 - Wrap method names and expressions in backticks, e.g. `getBalance()`, `balance >= 0`.
 - Include at least one ```mermaid diagram when teaching a relationship or flow.
+- Order content for readability: intro prose before diagrams/code, never stack diagrams back-to-back, and end with a takeaway after technical sections.
+- Prefer inline diagrams near the explanation they support; use visual_specs only for summary figures at the end.
 Never describe runnable code only as prose.
 {refresh_instructions}
 When done, do not call tools. Return ONLY JSON:
@@ -1000,6 +1008,7 @@ JSON shape:
             if not isinstance(issue, dict):
                 continue
             issue = filter_citations(issue, allowed)
+            issue = normalize_issue_content_order(issue)
             if not issue.get("visual_specs"):
                 issue["visual_specs"] = state.get("visual_specs") or []
             cleaned.append(issue)
@@ -1012,8 +1021,20 @@ JSON shape:
         issues = state.get("issues", [])
         context = state.get("retrieved_context") or []
         needs = quality_needs_revision(issues, context)
+        structure_messages = []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            errors = structure_issue_errors(analyze_content_structure(issue))
+            if errors:
+                needs = True
+                structure_messages.append(structure_feedback(errors))
         state["needs_revision"] = needs
-        if needs:
+        if needs and structure_messages:
+            state["messages"] = list(state.get("messages") or []) + [
+                AIMessage(content="Quality: " + " ".join(structure_messages[:2]))
+            ]
+        elif needs:
             state["messages"] = list(state.get("messages") or []) + [
                 AIMessage(content="Quality: retrieved sources exist but the issue has no valid citations.")
             ]
@@ -1067,7 +1088,9 @@ JSON shape:
                 {
                     "role": "user",
                     "content": (
-                        "Revise this issue so claims are grounded and citations use retrieved sources.\n"
+                        "Revise this issue so claims are grounded and citations use retrieved sources. "
+                        "Also fix content flow: add intro prose before diagrams/code, avoid back-to-back diagrams, "
+                        "and close with a takeaway after technical sections.\n"
                         f"Issue:\n{json.dumps(issue, indent=2)}\n"
                         f"Module:\n{json.dumps(module_obj, indent=2)}\n"
                         f"Context:\n{json.dumps([{k: v for k, v in c.items() if k != 'related_objective'} for c in context[:6]], indent=2)}"
