@@ -256,8 +256,15 @@ export interface IssueVersionSummary {
   subject: string;
   preheader: string;
   checksum?: string;
+  block_count?: number;
+  word_count?: number;
+  is_current?: boolean;
   created_by: string;
   created_at: string;
+}
+
+export interface IssueVersionDetail extends IssueVersionSummary {
+  content_json?: string | Record<string, unknown> | null;
 }
 
 export type IssueVersion = IssueVersionSummary;
