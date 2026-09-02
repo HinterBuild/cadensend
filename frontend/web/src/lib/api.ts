@@ -9,11 +9,14 @@ import type {
   EvaluationResult,
   Issue,
   IssueVersion,
+  IssueVersionDetail,
   PlatformCatalogItem,
   PlatformConnector,
   PlatformInsight,
   PlatformSkill,
   PlatformWorkflow,
+  StudioComposeResult,
+  StudioMeta,
   Recipient,
   RetrievedChunk,
   Series,
@@ -252,6 +255,9 @@ export const issueApi = {
   versions: (id: string) =>
     fetchApi<{ data: IssueVersion[] }>(`/issues/${id}/versions`),
 
+  getVersion: (id: string, version: number) =>
+    fetchApi<{ data: IssueVersionDetail }>(`/issues/${id}/versions/${version}`),
+
   restoreVersion: (id: string, version: number) =>
     fetchApi<{ data: Issue }>(`/issues/${id}/versions/${version}/restore`, {
       method: 'POST',
@@ -464,10 +470,34 @@ export const platformApi = {
       method: 'POST',
       body: JSON.stringify({ issue, prior_issues: priorIssues }),
     }),
-  updateSeriesPlatform: (seriesId: string, skillId: string, workflowMode: string) =>
+  studioMeta: () => fetchApi<{ data: StudioMeta }>('/platform/studio/meta'),
+  studioCompose: (payload: Record<string, unknown>) =>
+    fetchApi<{ data: StudioComposeResult }>('/platform/studio/compose', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  studioSection: (payload: Record<string, unknown>) =>
+    fetchApi<{ data: { section_id: string; title: string; text: string } }>('/platform/studio/section', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  studioAnalyze: (payload: Record<string, unknown>) =>
+    fetchApi<{ data: StudioComposeResult['analysis'] }>('/platform/studio/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  studioLines: (payload: Record<string, unknown>) =>
+    fetchApi<{ data: Record<string, unknown> }>('/platform/studio/lines', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateSeriesPlatform: (seriesId: string, workflowMode: string, skillId?: string) =>
     fetchApi(`/series/${seriesId}/platform`, {
       method: 'PATCH',
-      body: JSON.stringify({ skill_id: skillId, workflow_mode: workflowMode }),
+      body: JSON.stringify({
+        ...(skillId ? { skill_id: skillId } : {}),
+        workflow_mode: workflowMode,
+      }),
     }),
   editorialAssets: (type?: string) => {
     const suffix = type ? `?type=${encodeURIComponent(type)}` : '';

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { platformApi } from '@/lib/api';
 import { useRequireAuth } from '@/contexts/AuthContext';
@@ -29,30 +29,69 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function SkillsPage() {
-  const { loading: authLoading } = useRequireAuth();
+  const { user, loading: authLoading } = useRequireAuth();
+  const userId = user?.id;
   const [skills, setSkills] = useState<PlatformSkill[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadedForUser = useRef<string | null>(null);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || !userId) return;
+    if (loadedForUser.current === userId) return;
+
+    let cancelled = false;
+    loadedForUser.current = userId;
+    setLoading(true);
+    setError(null);
+
     platformApi.skills()
-      .then((r) => setSkills(r.data ?? []))
+      .then((r) => {
+        if (cancelled) return;
+        setSkills(Array.isArray(r.data) ? r.data : []);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Failed to load skills');
+        setSkills([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, userId]);
+
+  const filtered = skills.filter((s) => {
+    if (!filter) return true;
+    const q = filter.toLowerCase();
+    return (
+      (s.name ?? '').toLowerCase().includes(q) ||
+      (s.category ?? '').toLowerCase().includes(q) ||
+      (s.description ?? '').toLowerCase().includes(q)
+    );
+  });
+
+  const reloadSkills = () => {
+    if (!userId) return;
+    loadedForUser.current = null;
+    setLoading(true);
+    setError(null);
+    platformApi.skills()
+      .then((r) => setSkills(Array.isArray(r.data) ? r.data : []))
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load skills'))
       .finally(() => setLoading(false));
-  }, [authLoading]);
-
-  const filtered = skills.filter(
-    (s) =>
-      !filter ||
-      s.name.toLowerCase().includes(filter.toLowerCase()) ||
-      s.category.toLowerCase().includes(filter.toLowerCase()) ||
-      s.description.toLowerCase().includes(filter.toLowerCase())
-  );
+  };
 
   if (authLoading || loading) {
     return <div className="p-8 text-stone-500">Loading skills…</div>;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (
@@ -64,7 +103,18 @@ export default function SkillsPage() {
         </p>
       </header>
 
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+          <button type="button" onClick={reloadSkills} className="ml-3 underline">
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!error && filtered.length === 0 && (
+        <p className="mb-4 text-sm text-stone-500">No skills match your filter.</p>
+      )}
 
       <input
         type="search"
@@ -87,7 +137,7 @@ export default function SkillsPage() {
               </span>
             </div>
             <p className="text-sm text-stone-600">{skill.description}</p>
-            {skill.sections && skill.sections.length > 0 && (
+            {Array.isArray(skill.sections) && skill.sections.length > 0 && (
               <ul className="mt-3 flex flex-wrap gap-1">
                 {skill.sections.slice(0, 4).map((sec) => (
                   <li key={sec} className="rounded-md bg-[#faf8f5] px-2 py-0.5 text-xs text-stone-500">
