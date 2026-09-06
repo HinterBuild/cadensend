@@ -67,6 +67,8 @@ func setupDatabase() {
 		&service.GenerationRun{},
 		&service.WorkspaceLLMConfig{},
 		&service.LLMUsage{},
+		&service.AssistantThread{},
+		&service.AssistantMessage{},
 	); err != nil {
 		log.Println("AutoMigrate warning:", err)
 	}
@@ -235,6 +237,18 @@ func main() {
 			api.GET("/analytics/overview", analyticsOverviewHandler(db))
 			api.GET("/runs", listRunsHandler(db))
 
+			assistant := api.Group("/assistant")
+			{
+				assistant.POST("/chat", assistantChatHandler())
+				assistant.GET("/agents", assistantAgentsHandler())
+				assistant.GET("/threads", listAssistantThreadsHandler(db))
+				assistant.POST("/threads", createAssistantThreadHandler(db))
+				assistant.GET("/threads/:id", getAssistantThreadHandler(db))
+				assistant.PATCH("/threads/:id", updateAssistantThreadHandler(db))
+				assistant.DELETE("/threads/:id", deleteAssistantThreadHandler(db))
+				assistant.PUT("/threads/:id/messages", syncAssistantMessagesHandler(db))
+			}
+
 			platform := api.Group("/platform")
 			{
 				platform.GET("/catalog", platformCatalogHandler())
@@ -282,7 +296,7 @@ func main() {
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 

@@ -174,6 +174,37 @@ func EnsureAppSchema() error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS assistant_threads (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id UUID NOT NULL,
+			user_id UUID NOT NULL,
+			title VARCHAR(255) NOT NULL DEFAULT 'New conversation',
+			agent VARCHAR(32) NOT NULL DEFAULT 'operator',
+			model VARCHAR(255) NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_assistant_threads_workspace_user ON assistant_threads(workspace_id, user_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS assistant_messages (
+			id VARCHAR(64) PRIMARY KEY,
+			thread_id UUID NOT NULL REFERENCES assistant_threads(id) ON DELETE CASCADE,
+			role VARCHAR(16) NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			metadata JSONB NOT NULL DEFAULT '{}',
+			sequence INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_assistant_messages_thread_seq ON assistant_messages(thread_id, sequence)`,
+		`CREATE TABLE IF NOT EXISTS workspace_llm_config (
+			workspace_id UUID PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+			default_provider VARCHAR(32) NOT NULL DEFAULT 'openrouter',
+			default_model VARCHAR(255) NOT NULL DEFAULT '',
+			embedding_model VARCHAR(255) NOT NULL DEFAULT '',
+			configs JSONB NOT NULL DEFAULT '{}',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_workspace_llm_default ON workspace_llm_config(default_provider)`,
 	}
 
 	for _, stmt := range statements {
@@ -181,5 +212,16 @@ func EnsureAppSchema() error {
 			return fmt.Errorf("%s: %w", stmt, err)
 		}
 	}
+
+	renameStatements := []string{
+		`ALTER TABLE IF EXISTS copilot_threads RENAME TO assistant_threads`,
+		`ALTER TABLE IF EXISTS copilot_messages RENAME TO assistant_messages`,
+		`ALTER INDEX IF EXISTS idx_copilot_threads_workspace_user RENAME TO idx_assistant_threads_workspace_user`,
+		`ALTER INDEX IF EXISTS idx_copilot_messages_thread_seq RENAME TO idx_assistant_messages_thread_seq`,
+	}
+	for _, stmt := range renameStatements {
+		_ = dbInstance.Exec(stmt).Error
+	}
+
 	return nil
 }
