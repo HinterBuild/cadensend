@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:15
     container_name: cadensend-postgres
+    command: ["postgres", "-c", "max_connections=500"]
     environment:
       POSTGRES_DB: cadensend
       POSTGRES_USER: cadensend
@@ -32,6 +33,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: cadensend-redis
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "6379:6379"
 
@@ -50,12 +52,14 @@ services:
 
   backend-api:
     build: ./backend/control-api
-    container_name: cadensend-backend-api
     ports:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable
       REDIS_URL: redis://redis:6379/0
+      DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
+      DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-40}"
+      DB_CONN_MAX_LIFETIME_MINUTES: "${DB_CONN_MAX_LIFETIME_MINUTES:-30}"
       QDRANT_URL: http://qdrant:6333
       OBJECT_STORAGE_URL: http://minio:9000
       MINIO_ENDPOINT: minio:9000
@@ -85,10 +89,14 @@ services:
 
   backend-worker:
     build: ./backend/control-worker
-    container_name: cadensend-backend-worker
     environment:
       DATABASE_URL: postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable
       REDIS_URL: redis://redis:6379/0
+      DB_MAX_IDLE_CONNS: "${WORKER_DB_MAX_IDLE_CONNS:-5}"
+      DB_MAX_OPEN_CONNS: "${WORKER_DB_MAX_OPEN_CONNS:-20}"
+      DB_CONN_MAX_LIFETIME_MINUTES: "${DB_CONN_MAX_LIFETIME_MINUTES:-30}"
+      ASYNQ_CONCURRENCY: "${ASYNQ_CONCURRENCY:-10}"
+      SCHEDULER_SEM_LIMIT: "${SCHEDULER_SEM_LIMIT:-10}"
       QDRANT_URL: http://qdrant:6333
       OBJECT_STORAGE_URL: http://minio:9000
       MINIO_ENDPOINT: minio:9000
@@ -115,12 +123,15 @@ services:
 
   ai-engine-api:
     build: ./ai-service/ai-engine/api
-    container_name: cadensend-ai-engine-api
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend
       REDIS_URL: redis://redis:6379/0
+      DB_POOL_SIZE: "${AI_DB_POOL_SIZE:-20}"
+      DB_MAX_OVERFLOW: "${AI_DB_MAX_OVERFLOW:-10}"
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      OPENROUTER_REDIS_PACING: "${OPENROUTER_REDIS_PACING:-true}"
       QDRANT_URL: http://qdrant:6333
       OBJECT_STORAGE_URL: http://minio:9000
       MINIO_ENDPOINT: minio:9000
@@ -148,11 +159,11 @@ services:
     build:
       context: ./ai-service/ai-engine
       dockerfile: workers/Dockerfile
-    container_name: cadensend-ai-engine-worker
     environment:
       PYTHONPATH: /app/api
       DATABASE_URL: postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend
       REDIS_URL: redis://redis:6379/0
+      OPENROUTER_REDIS_PACING: "${OPENROUTER_REDIS_PACING:-true}"
       QDRANT_URL: http://qdrant:6333
       OBJECT_STORAGE_URL: http://minio:9000
       MINIO_ENDPOINT: minio:9000
