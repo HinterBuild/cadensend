@@ -30,6 +30,7 @@ from app.api.routes import (
     health_routes,
     models_routes,
     platform_routes,
+    assistant_routes,
 )
 
 import logging
@@ -124,3 +125,4 @@ app.include_router(issue_routes.router, prefix="/v1")
 app.include_router(source_routes.router, prefix="/v1")
 app.include_router(retrieval_routes.router, prefix="/v1")
 app.include_router(platform_routes.router, prefix="/v1")
+app.include_router(assistant_routes.router, prefix="/v1")
