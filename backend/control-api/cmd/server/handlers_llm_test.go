@@ -121,8 +121,8 @@ func TestGetProviderModelsHandler(t *testing.T) {
 
 		var resp map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		models := resp["models"].([]interface{})
-		assert.GreaterOrEqual(t, len(models), 1)
+		data := resp["data"].([]interface{})
+		assert.GreaterOrEqual(t, len(data), 1)
 	})
 
 	t.Run("returns fallback models for openai", func(t *testing.T) {
@@ -140,8 +140,8 @@ func TestGetProviderModelsHandler(t *testing.T) {
 
 		var resp map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &resp)
-		models := resp["models"].([]interface{})
-		assert.GreaterOrEqual(t, len(models), 1)
+		data := resp["data"].([]interface{})
+		assert.GreaterOrEqual(t, len(data), 1)
 	})
 
 	t.Run("returns 400 for unknown provider", func(t *testing.T) {

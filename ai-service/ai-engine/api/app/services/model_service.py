@@ -79,27 +79,91 @@ def resolve_provider_config(
     model: Optional[str],
     workspace_id: Optional[str] = None,
 ) -> ProviderConfig:
-    """Resolve provider config based on provider, model, and workspace settings."""
+    """Resolve provider config from workspace settings, falling back to environment."""
+    from app.services.workspace_llm import get_workspace_llm_config
+
+    ws = get_workspace_llm_config(workspace_id or "") if workspace_id else None
+    if ws:
+        provider = (provider or ws.get("provider") or settings.DEFAULT_PROVIDER or "openrouter").strip()
+        resolved_model = (model or ws.get("default_model") or settings.DEFAULT_MODEL).strip()
+        api_key = (ws.get("api_key") or "").strip() or None
+        base_url = (ws.get("base_url") or "").strip() or None
+        if api_key or base_url:
+            return ProviderConfig(
+                provider=provider,
+                model=resolved_model,
+                api_key=api_key,
+                base_url=base_url,
+                workspace_id=workspace_id,
+            )
+
     if provider is None:
         provider = settings.DEFAULT_PROVIDER or "openrouter"
 
-    # Try to get workspace-specific config
-    if workspace_id:
-        try:
-            from app.services.model_catalog import ModelCatalogService
-            catalog = ModelCatalogService()
-            preferred = catalog.get_workspace_preferred_models(workspace_id)
-            if preferred and provider:
-                return ProviderConfig(
-                    provider=provider,
-                    model=model or settings.DEFAULT_MODEL,
-                    api_key=None,
-                    base_url=None,
-                )
-        except Exception:
-            pass
-
     return LLMRegistry._build_config_from_env(provider, model or settings.DEFAULT_MODEL)
+
+
+def get_chat_model_from_config(
+    config: ProviderConfig,
+    temperature: float = 0.7,
+    max_tokens: int = 4000,
+) -> ChatOpenAI:
+    """LangChain chat model for OpenAI-compatible providers."""
+    base_url = config.base_url
+    api_key = config.api_key
+
+    if config.provider == "openrouter":
+        base_url = base_url or settings.OPENROUTER_BASE_URL
+        api_key = api_key or openrouter_api_key()
+        return GatedChatOpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            model=config.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
+            max_retries=2,
+        )
+
+    if config.provider in {"openai", "local", "xai", "qwen"}:
+        defaults = {
+            "openai": settings.OPENAI_BASE_URL or "https://api.openai.com/v1",
+            "local": settings.LOCAL_BASE_URL or "http://localhost:11434/v1",
+            "xai": "https://api.x.ai/v1",
+            "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        }
+        env_config = LLMRegistry._build_config_from_env(config.provider, config.model)
+        return ChatOpenAI(
+            base_url=base_url or defaults.get(config.provider),
+            api_key=api_key or env_config.api_key or "not-configured",
+            model=config.model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
+            max_retries=2,
+        )
+
+    env_config = LLMRegistry._build_config_from_env(config.provider, config.model)
+    return GatedChatOpenAI(
+        base_url=settings.OPENROUTER_BASE_URL,
+        api_key=env_config.api_key or openrouter_api_key(),
+        model=config.model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
+        max_retries=2,
+    )
+
+
+def get_chat_model_for_workspace(
+    workspace_id: str,
+    model: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 4000,
+) -> ChatOpenAI:
+    """Chat model using the workspace's configured LLM provider."""
+    config = resolve_provider_config(provider=None, model=model, workspace_id=workspace_id)
+    return get_chat_model_from_config(config, temperature=temperature, max_tokens=max_tokens)
 
 
 class ModelService:

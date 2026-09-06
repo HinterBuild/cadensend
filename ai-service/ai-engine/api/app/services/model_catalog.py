@@ -173,25 +173,25 @@ class ModelCatalogService:
         return fallback.get(provider, [])
 
     def get_workspace_preferred_models(self, workspace_id: str) -> List[Dict[str, Any]]:
-        """Get models preferred by workspace owner."""
-        from app.db import get_session
-        from app.models.workspace import WorkspaceLLMConfig
+        """Get models preferred by workspace configuration."""
+        from app.services.workspace_llm import get_workspace_llm_config
 
-        with get_session() as session:
-            config = session.get(WorkspaceLLMConfig, workspace_id)
-            if not config:
-                return [{"id": settings.DEFAULT_MODEL, "name": f"Default ({settings.DEFAULT_MODEL})"}]
+        config = get_workspace_llm_config(workspace_id)
+        if not config:
+            return [{"id": settings.DEFAULT_MODEL, "name": f"Default ({settings.DEFAULT_MODEL})"}]
 
-            default_provider = config.default_provider
-            preferred_models = config.configs.get("preferred_models", [])
+        default_provider = config.get("provider") or settings.DEFAULT_PROVIDER
+        default_model = config.get("default_model") or settings.DEFAULT_MODEL
+        configs = config.get("configs") or {}
+        preferred_models = configs.get("preferred_models", [])
 
-            if not preferred_models:
-                return [{"id": config.default_model or settings.DEFAULT_MODEL, "name": default_provider}]
+        if not preferred_models:
+            return [{"id": default_model, "provider": default_provider, "name": default_model}]
 
-            return [
-                {"id": m, "provider": default_provider, "name": m}
-                for m in preferred_models
-            ]
+        return [
+            {"id": m, "provider": default_provider, "name": m}
+            for m in preferred_models
+        ]
 
     def validate_model_access(self, config: ProviderConfig) -> bool:
         """Check if API key can access this provider."""

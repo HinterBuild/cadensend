@@ -1,5 +1,5 @@
 export { ProviderSelector } from "./ProviderSelector";
 export { ModelPicker } from "./ModelPicker";
-export { ApiKeyInput } from "./ApiKeyInput";
+export { ProviderCredentials } from "./ProviderCredentials";
 export { ProviderConfigForm } from "./ProviderConfigForm";
 export { ModelCapabilities } from "./ModelCapabilities";

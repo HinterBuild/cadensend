@@ -3,10 +3,11 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
-import { authApi, modelsApi, emailProviderApi, OpenRouterModel } from '@/lib/api';
+import { authApi, modelsApi, emailProviderApi } from '@/lib/api';
 import type { EmailProviderConfig, EmailProviderOption } from '@/lib/api';
-import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck } from 'lucide-react';
-import { ModelSelect } from '@/components/ModelSelect';
+import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck, Sparkles } from 'lucide-react';
+import { ProviderConfigForm } from '@/components/llm-provider';
+import { ModelPicker } from '@/components/llm-provider/ModelPicker';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -15,8 +16,8 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('');
   const [timezone, setTimezone] = useState('');
   const [preferredModel, setPreferredModel] = useState('');
-  const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
-  const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
+  const [llmProvider, setLlmProvider] = useState('openrouter');
+  const [workspaceDefaultModel, setWorkspaceDefaultModel] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -51,14 +52,11 @@ export default function SettingsPage() {
   }, [user]);
 
   useEffect(() => {
-    modelsApi.list().then((res) => {
-      setAvailableModels(res.models || []);
-      if (res.default_model) {
-        setDefaultModel(res.default_model);
-      }
-    }).catch(() => {
-      setAvailableModels([]);
-    });
+    modelsApi.getProviderConfig().then((res) => {
+      const cfg = res.data;
+      if (cfg?.provider) setLlmProvider(cfg.provider);
+      if (cfg?.default_model) setWorkspaceDefaultModel(cfg.default_model);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -327,18 +325,16 @@ export default function SettingsPage() {
 
               <div>
                 <label htmlFor="ai-model" className="block text-sm font-medium text-gray-700 mb-2">
-                  AI model
+                  Personal model override
                 </label>
-                <ModelSelect
-                    id="ai-model"
-                    value={preferredModel === defaultModel ? '' : preferredModel}
-                    onChange={setPreferredModel}
-                    models={availableModels}
-                    defaultModel={defaultModel}
-                    className="w-full"
-                  />
+                <ModelPicker
+                  provider={llmProvider}
+                  value={preferredModel}
+                  onChange={setPreferredModel}
+                />
                 <p className="mt-1 text-xs text-gray-500">
-                  Used for curriculum planning, series, issues, and visuals via OpenRouter. Leave as default to use {defaultModel}.
+                  Optional override for plan and issue generation. Leave empty to use the workspace default
+                  {workspaceDefaultModel ? ` (${workspaceDefaultModel})` : ''}.
                 </p>
               </div>
 
@@ -353,6 +349,26 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* AI Provider */}
+          <div className="bg-white rounded-xl shadow p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Sparkles className="h-5 w-5 text-gray-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-gray-900">AI provider</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-6">
+              Choose your LLM provider and API key for this workspace. Generation jobs and Cadensend AI use these settings.
+            </p>
+            <ProviderConfigForm
+              onUpdate={() => {
+                modelsApi.getProviderConfig().then((res) => {
+                  const cfg = res.data;
+                  if (cfg?.provider) setLlmProvider(cfg.provider);
+                  if (cfg?.default_model) setWorkspaceDefaultModel(cfg.default_model);
+                }).catch(() => {});
+              }}
+            />
           </div>
 
           {/* Email Provider / Send Inbox */}

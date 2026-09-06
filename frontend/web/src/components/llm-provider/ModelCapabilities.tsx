@@ -19,7 +19,7 @@ const CAPABILITIES: Record<string, Capability[]> = {
     { name: "Text Embeddings", supported: true },
     { name: "Function Calling", supported: true },
     { name: "Structured Output", supported: true },
-    { name: "Image Input", supported: "image" in "image" },
+    { name: "Image Input", supported: true },
     { name: "Token Counting", supported: true },
   ],
   openai: [

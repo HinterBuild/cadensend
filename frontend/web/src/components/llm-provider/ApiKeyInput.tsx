@@ -6,10 +6,11 @@ import { modelsApi } from "@/lib/api";
 
 type ApiKeyInputProps = {
   provider: string;
+  hasExistingKey?: boolean;
   onSaved?: () => void;
 };
 
-export function ApiKeyInput({ provider, onSaved }: ApiKeyInputProps) {
+export function ApiKeyInput({ provider, hasExistingKey, onSaved }: ApiKeyInputProps) {
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -44,7 +45,7 @@ export function ApiKeyInput({ provider, onSaved }: ApiKeyInputProps) {
           type={showKey ? "text" : "password"}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-..."
+          placeholder={hasExistingKey ? "Enter a new key to replace the saved one" : "sk-..."}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-stone-800"
         />
         <button
@@ -64,7 +65,7 @@ export function ApiKeyInput({ provider, onSaved }: ApiKeyInputProps) {
         disabled={!apiKey || saving}
         className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50"
       >
-        {saving ? "Saving..." : "Save API Key"}
+        {saving ? "Saving…" : hasExistingKey ? "Update API key" : "Save API key"}
       </button>
     </div>
   );
