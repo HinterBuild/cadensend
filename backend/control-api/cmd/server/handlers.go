@@ -95,7 +95,7 @@ func createSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		model := req.Model
-		if err := queuePlanGeneration(series, model); err != nil {
+		if err := queuePlanGeneration(db, series, model); err != nil {
 			_ = db.Model(series).Updates(map[string]interface{}{
 				"plan_status": "failed",
 				"plan_error":  err.Error(),
@@ -308,7 +308,7 @@ func generatePlanHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		model := req.Model
-		if err := queuePlanGeneration(series, model); err != nil {
+		if err := queuePlanGeneration(db, series, model); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue plan generation"})
 			return
 		}
@@ -338,20 +338,23 @@ func seriesModel(series *service.Series, requested string) string {
 	return cfg.DefaultModel
 }
 
-func queuePlanGeneration(series *service.Series, model string) error {
+func queuePlanGeneration(db *gorm.DB, series *service.Series, model string) error {
 	model = seriesModel(series, model)
+	provider, resolvedModel := resolveWorkspaceLLM(db, series.WorkspaceID, model)
 	job, err := json.Marshal(map[string]interface{}{
 		"task":         "generate_plan",
 		"series_id":    series.ID,
 		"workspace_id": series.WorkspaceID,
-		"model":        model,
+		"provider":     provider,
+		"model":        resolvedModel,
 		"thread_id":    "plan-" + series.ID,
 		"brief": map[string]interface{}{
-			"topic":   series.Topic,
-			"goal":    series.Goal,
-			"level":   series.Level,
-			"cadence": series.Cadence,
-			"model":   model,
+			"topic":         series.Topic,
+			"goal":          series.Goal,
+			"level":         series.Level,
+			"cadence":       series.Cadence,
+			"model":         resolvedModel,
+			"provider":      provider,
 			"skill_id":      series.SkillID,
 			"workflow_mode": series.WorkflowMode,
 		},
@@ -495,7 +498,7 @@ func createIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := queueIssueGeneration(&series, issue, req.Model, false); err != nil {
+		if err := queueIssueGeneration(db, &series, issue, req.Model, false); err != nil {
 			db.Model(issue).Updates(map[string]interface{}{
 				"status":         IssueStatusFailed,
 				"generate_error": err.Error(),
@@ -978,7 +981,7 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			"updated_at":     time.Now(),
 		})
 
-		if err := queueIssueGeneration(series, issue, req.Model, req.RefreshFromCurrent); err != nil {
+		if err := queueIssueGeneration(db, series, issue, req.Model, req.RefreshFromCurrent); err != nil {
 			db.Model(issue).Updates(map[string]interface{}{
 				"status":         IssueStatusFailed,
 				"generate_error": err.Error(),
@@ -996,16 +999,15 @@ func generateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func queueIssueGeneration(series *service.Series, issue *service.Issue, model string, refreshFromCurrent bool) error {
-	if model == "" {
-		model = cfg.DefaultModel
-	}
+func queueIssueGeneration(db *gorm.DB, series *service.Series, issue *service.Issue, model string, refreshFromCurrent bool) error {
+	provider, resolvedModel := resolveWorkspaceLLM(db, series.WorkspaceID, model)
 	brief := map[string]interface{}{
 		"topic":     series.Topic,
 		"goal":      series.Goal,
 		"level":     series.Level,
 		"objective": issue.Objective,
-		"model":     model,
+		"model":     resolvedModel,
+		"provider":  provider,
 	}
 	if series.SkillID != "" {
 		brief["skill_id"] = series.SkillID
@@ -1024,8 +1026,9 @@ func queueIssueGeneration(series *service.Series, issue *service.Issue, model st
 		"issue_id":     issue.ID,
 		"series_id":    series.ID,
 		"workspace_id": series.WorkspaceID,
+		"provider":     provider,
 		"issue_number": issue.SequenceNo,
-		"model":        model,
+		"model":        resolvedModel,
 		"brief":        brief,
 		"thread_id":    threadID,
 		"plan_item":    planItemForIssue(series, issue),
@@ -1085,6 +1088,15 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "set a send time before approving"})
 			return
 		}
+		if issue.Status != IssueStatusReady && issue.Status != IssueStatusApproved {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue must be ready before approval"})
+			return
+		}
+		content := parseJSONMap(issue.ContentJSON)
+		if len(content) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "issue has no generated content; wait for generation or regenerate"})
+			return
+		}
 
 		now := time.Now().UTC()
 		updates := map[string]interface{}{
@@ -1102,7 +1114,6 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		content := parseJSONMap(issue.ContentJSON)
 		structureChecks := contentstructure.Analyze(content)
 
 		c.JSON(http.StatusOK, gin.H{
@@ -1114,6 +1125,11 @@ func approveIssueHandler(db *gorm.DB) gin.HandlerFunc {
 }
 
 func upsertDeliverySchedule(db *gorm.DB, issue *service.Issue, createdBy string) error {
+	content := parseJSONMap(issue.ContentJSON)
+	if len(content) == 0 {
+		return fmt.Errorf("issue has no generated content")
+	}
+
 	var existing service.Schedule
 	err := db.Where("issue_id = ? AND job_type = ? AND status IN ?", issue.ID, "delivery", []string{"pending", "claimed"}).
 		First(&existing).Error
@@ -1121,6 +1137,7 @@ func upsertDeliverySchedule(db *gorm.DB, issue *service.Issue, createdBy string)
 		return db.Model(&existing).Updates(map[string]interface{}{
 			"run_at":     *issue.ScheduledAt,
 			"status":     "pending",
+			"attempts":   0,
 			"error_msg":  "",
 			"updated_at": time.Now().UTC(),
 		}).Error

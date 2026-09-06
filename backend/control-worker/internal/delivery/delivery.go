@@ -107,6 +107,33 @@ func StartDeliveryWorker(cfg *config.Config) *DeliveryWorker {
 }
 
 func (dw *DeliveryWorker) DeliverScheduled(ctx context.Context, issueID, scheduleID string) error {
+	deferrable, terminal, checkErr := dw.preflightIssue(ctx, issueID)
+	if checkErr != nil {
+		return checkErr
+	}
+	if deferrable {
+		if scheduleID != "" {
+			dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
+				"status":     "pending",
+				"error_msg":  "waiting for issue generation",
+				"updated_at": time.Now().UTC(),
+			})
+		}
+		return nil
+	}
+	if terminal {
+		err := fmt.Errorf("issue generation failed; regenerate content before sending")
+		if scheduleID != "" {
+			dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
+				"status":     "failed",
+				"error_msg":  truncate(err.Error(), 500),
+				"updated_at": time.Now().UTC(),
+			})
+			dw.alertOwnerOfFailure(ctx, issueID, &scheduleRow{Attempts: 1, MaxAttempts: 1}, err)
+		}
+		return err
+	}
+
 	now := time.Now().UTC()
 	if scheduleID != "" {
 		dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
@@ -150,7 +177,14 @@ func (dw *DeliveryWorker) deliverIssue(ctx context.Context, issueID string) erro
 	}
 	content := parseJSONMap(issue.ContentJSON)
 	if len(content) == 0 {
-		return fmt.Errorf("issue has no generated content")
+		switch issue.Status {
+		case "generating":
+			return fmt.Errorf("issue content not ready yet")
+		case "failed":
+			return fmt.Errorf("issue generation failed; regenerate content before sending")
+		default:
+			return fmt.Errorf("issue has no generated content")
+		}
 	}
 
 	var series seriesRow
@@ -374,6 +408,26 @@ func (dw *DeliveryWorker) sourceRefsForContent(ctx context.Context, workspaceID 
 		refs[id] = mail.SourceRef{Label: label, URL: src.URL}
 	}
 	return refs
+}
+
+// preflightIssue checks whether delivery should proceed, defer, or stop.
+func (dw *DeliveryWorker) preflightIssue(ctx context.Context, issueID string) (deferrable bool, terminal bool, err error) {
+	var issue issueRow
+	if err := dw.db.WithContext(ctx).Where("id = ?", issueID).First(&issue).Error; err != nil {
+		return false, false, fmt.Errorf("issue not found: %w", err)
+	}
+	content := parseJSONMap(issue.ContentJSON)
+	if len(content) > 0 {
+		return false, false, nil
+	}
+	switch issue.Status {
+	case "generating":
+		return true, false, nil
+	case "failed":
+		return false, true, nil
+	default:
+		return false, false, nil
+	}
 }
 
 func parseJSONMap(raw *string) map[string]any {

@@ -16,6 +16,7 @@ import json
 import signal
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 import warnings
 import base64
 
@@ -707,23 +708,6 @@ class AIWorker:
                             send_at,
                             created_by,
                         )
-                        if auto_send:
-                            await conn.execute(
-                                """
-                                INSERT INTO schedules (
-                                    id, issue_id, job_type, run_at, status,
-                                    attempts, max_attempts, created_by, created_at, updated_at
-                                )
-                                VALUES (
-                                    $1::uuid, $2::uuid, 'delivery', $3, 'pending',
-                                    0, 5, $4::uuid, NOW(), NOW()
-                                )
-                                """,
-                                str(uuid.uuid4()),
-                                issue_id,
-                                send_at,
-                                created_by,
-                            )
                         jobs.append(
                             {
                                 "task": "generate_issue",
@@ -757,33 +741,6 @@ class AIWorker:
             )
         except Exception:
             logger.exception("Failed to reconcile issues from plan series=%s", series_id)
-
-    async def _handle_generate_issue(self, job_data: dict):
-        """Handle a generate-issue job using the LangGraph agent."""
-        token = set_generation_model(job_data.get("model"))
-        try:
-            result = await self.agent.run_issue_generation(
-                series_id=job_data.get("series_id", ""),
-                brief=job_data.get("brief", {}),
-                workspace_id=job_data.get("workspace_id", ""),
-                issue_number=job_data.get("issue_number", 1),
-                plan_item=job_data.get("plan_item", {}),
-                thread_id=job_data.get("thread_id") or f"issue-{job_data.get('issue_id') or 'unknown'}",
-                model=job_data.get("model"),
-            )
-
-            logger.info("Issue generated: thread=%s, status=%s",
-                        result.get("thread_id"), result.get("status"))
-            await self._persist_issue_result(job_data.get("issue_id"), result)
-
-        except Exception as e:
-            logger.exception("Issue generation job failed issue=%s", job_data.get("issue_id"))
-            await self._persist_issue_result(
-                job_data.get("issue_id"),
-                {"status": "failed", "issues": [], "error": str(e)},
-            )
-        finally:
-            reset_generation_model(token)
 
     async def _persist_issue_result(self, issue_id: str | None, result: dict):
         """Write issue generation status back so the UI can poll it."""
@@ -825,8 +782,99 @@ class AIWorker:
                 logger.info("Skipped persist for issue=%s (no longer generating; likely canceled)", issue_id)
                 return
             logger.info("Persisted issue status=%s for issue=%s", issue_status, issue_id)
+            if issue_status == "ready":
+                await self._auto_schedule_delivery(pool, issue_id)
+            elif issue_status == "failed":
+                await pool.execute(
+                    """
+                    UPDATE schedules
+                    SET status = 'failed',
+                        error_msg = 'issue generation failed',
+                        updated_at = NOW()
+                    WHERE issue_id = $1::uuid
+                      AND job_type = 'delivery'
+                      AND status IN ('pending', 'claimed')
+                    """,
+                    issue_id,
+                )
         except Exception as persist_error:
             logger.exception("Failed to persist issue result issue=%s: %s", issue_id, persist_error)
+
+    async def _auto_schedule_delivery(self, pool: asyncpg.Pool, issue_id: str):
+        """Auto-approve and schedule delivery once content is ready (no manual approval)."""
+        row = await pool.fetchrow(
+            """
+            SELECT i.scheduled_at, i.created_by, s.manual_approval
+            FROM issues i
+            JOIN series s ON s.id = i.series_id
+            WHERE i.id = $1::uuid AND i.deleted_at IS NULL
+            """,
+            issue_id,
+        )
+        if row is None or bool(row["manual_approval"]):
+            return
+        scheduled_at = row["scheduled_at"]
+        if scheduled_at is None:
+            return
+
+        run_at = scheduled_at
+        now = datetime.now(timezone.utc)
+        if run_at <= now:
+            run_at = now + timedelta(minutes=1)
+
+        await pool.execute(
+            """
+            UPDATE issues
+            SET status = 'approved', updated_at = NOW()
+            WHERE id = $1::uuid AND status = 'ready'
+            """,
+            issue_id,
+        )
+
+        existing = await pool.fetchrow(
+            """
+            SELECT id FROM schedules
+            WHERE issue_id = $1::uuid
+              AND job_type = 'delivery'
+              AND status IN ('pending', 'claimed', 'failed')
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            issue_id,
+        )
+        if existing is not None:
+            await pool.execute(
+                """
+                UPDATE schedules
+                SET run_at = $2,
+                    status = 'pending',
+                    attempts = 0,
+                    error_msg = '',
+                    updated_at = NOW()
+                WHERE id = $1::uuid
+                """,
+                str(existing["id"]),
+                run_at,
+            )
+            return
+
+        await pool.execute(
+            """
+            INSERT INTO schedules (
+                id, issue_id, job_type, run_at, status,
+                attempts, max_attempts, created_by, created_at, updated_at
+            )
+            VALUES (
+                $1::uuid, $2::uuid, 'delivery', $3, 'pending',
+                0, 5, $4::uuid, NOW(), NOW()
+            )
+            """,
+            str(uuid.uuid4()),
+            issue_id,
+            run_at,
+            str(row["created_by"]),
+        )
+        logger.info("Auto-scheduled delivery for issue=%s at %s", issue_id, run_at.isoformat())
 
     async def _record_generation_usage(
         self,
