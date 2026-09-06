@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     INTERNAL_API_TOKEN: str = "dev-internal-token-change-in-production"
+    CONTROL_API_URL: str = "http://localhost:8080"
 
     @field_validator("DEBUG", mode="before")
     @classmethod

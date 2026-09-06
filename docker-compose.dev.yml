@@ -120,6 +120,7 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b:free}
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
       - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN:-dev-internal-token-change-in-production}
+      - CONTROL_API_URL=http://control-api:8080
       - PYTHONPATH=/app/ai-engine/api
       - MAX_TOOL_CALLS=${MAX_TOOL_CALLS:-10}
       - MAX_REVISION_LOOPS=${MAX_REVISION_LOOPS:-2}
