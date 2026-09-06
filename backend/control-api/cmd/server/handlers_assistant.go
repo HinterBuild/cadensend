@@ -29,11 +29,12 @@ func assistantChatHandler() gin.HandlerFunc {
 		}
 
 		var req struct {
-			Messages     []map[string]interface{} `json:"messages"`
-			Model        string                   `json:"model"`
-			Agent        string                   `json:"agent"`
-			UserTimezone string                   `json:"user_timezone"`
-			ThreadID     string                   `json:"thread_id"`
+			Messages       []map[string]interface{} `json:"messages"`
+			Model          string                   `json:"model"`
+			Agent          string                   `json:"agent"`
+			UserTimezone   string                   `json:"user_timezone"`
+			ThreadID       string                   `json:"thread_id"`
+			TaggedIssueIDs []string                 `json:"tagged_issue_ids"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -55,7 +56,8 @@ func assistantChatHandler() gin.HandlerFunc {
 			"user_id":       c.GetString("user_id"),
 			"user_jwt":      jwt,
 			"user_timezone": req.UserTimezone,
-			"thread_id":     req.ThreadID,
+			"thread_id":         req.ThreadID,
+			"tagged_issue_ids":  req.TaggedIssueIDs,
 		}
 		raw, err := json.Marshal(payload)
 		if err != nil {

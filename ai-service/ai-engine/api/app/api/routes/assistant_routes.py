@@ -36,6 +36,7 @@ class AssistantChatRequest(BaseModel):
     agent: str = Field(default="operator", description="operator | series | issues")
     user_timezone: str = "UTC"
     thread_id: Optional[str] = None
+    tagged_issue_ids: List[str] = Field(default_factory=list)
 
 
 @router.post("/chat")
@@ -63,6 +64,7 @@ async def assistant_chat(request: AssistantChatRequest):
                 agent=request.agent or "operator",
                 user_timezone=request.user_timezone or "UTC",
                 thread_id=request.thread_id,
+                tagged_issue_ids=request.tagged_issue_ids,
             ):
                 yield chunk
         except Exception as exc:

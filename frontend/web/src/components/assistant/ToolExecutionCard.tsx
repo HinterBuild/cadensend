@@ -6,7 +6,10 @@ import type { AssistantToolResult } from '@/types/assistant';
 import { humanizeToolName } from '@/lib/assistantActions';
 import { EntityPreview } from './EntityPreview';
 
-const RICH_ENTITY_TYPES = new Set(['analytics', 'series_list', 'series', 'issue_list', 'issue', 'plan']);
+const RICH_ENTITY_TYPES = new Set([
+  'analytics', 'series_list', 'series', 'issue_list', 'issue', 'plan',
+  'skills_list', 'connectors_list', 'workflows_list', 'evaluation', 'retrieval',
+]);
 
 export function ToolExecutionCard({ tool }: { tool: AssistantToolResult }) {
   const running = tool.status === 'running';

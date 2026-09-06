@@ -320,6 +320,7 @@ export function useAssistantChat() {
       agent: AssistantAgentId,
       timezone: string,
       activeThreadId: string,
+      taggedIssueIds: string[] = [],
     ) => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -349,6 +350,7 @@ export function useAssistantChat() {
             agent,
             user_timezone: timezone,
             thread_id: isLocalThread(activeThreadId) ? undefined : activeThreadId,
+            tagged_issue_ids: taggedIssueIds,
           }),
           signal: controller.signal,
         });
@@ -432,7 +434,13 @@ export function useAssistantChat() {
   );
 
   const sendMessage = useCallback(
-    async (text: string, model: string, agent: AssistantAgentId, timezone: string) => {
+    async (
+      text: string,
+      model: string,
+      agent: AssistantAgentId,
+      timezone: string,
+      taggedIssueIds: string[] = [],
+    ) => {
       const trimmed = text.trim();
       if (!trimmed || streaming || !threadId) return;
 
@@ -440,7 +448,7 @@ export function useAssistantChat() {
       const next = [...messages, userMsg];
       setMessages(next);
       saveLocalMessages(next);
-      await streamChat(toApiMessages(next), model, agent, timezone, threadId);
+      await streamChat(toApiMessages(next), model, agent, timezone, threadId, taggedIssueIds);
     },
     [messages, streamChat, streaming, threadId],
   );
@@ -454,6 +462,7 @@ export function useAssistantChat() {
       model: string,
       agent: AssistantAgentId,
       timezone: string,
+      taggedIssueIds: string[] = [],
     ) => {
       if (!threadId) return;
       const toolMsg: AssistantMessage = {
@@ -469,7 +478,7 @@ export function useAssistantChat() {
       const next = [...messages, toolMsg];
       setMessages(next);
       await syncToServer(next, { agent, model, thread: threadId });
-      await streamChat(apiMessages, model, agent, timezone, threadId);
+      await streamChat(apiMessages, model, agent, timezone, threadId, taggedIssueIds);
     },
     [messages, streamChat, syncToServer, threadId],
   );

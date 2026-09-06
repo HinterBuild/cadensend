@@ -28,7 +28,7 @@ import { SeriesSetupFormCard } from './SeriesSetupFormCard';
 import { ToolExecutionCard } from './ToolExecutionCard';
 import { AssistantMessageContent } from './AssistantMessageContent';
 import { AnalyticsPreview } from './AnalyticsPreview';
-import { SeriesCreatedCard } from './SeriesCreatedCard';
+import { IssueTagPicker, type TaggedIssue } from './IssueTagPicker';
 
 const AGENTS: Array<{ id: AssistantAgentId; label: string; hint: string; icon: typeof Zap }> = [
   { id: 'operator', label: 'Operator', hint: 'Full workspace control', icon: Sparkles },
@@ -50,8 +50,12 @@ const SUGGESTIONS = [
     text: 'Add a new issue about RAG evaluation to my latest series',
   },
   {
-    title: 'Analytics',
-    text: 'What analytics do I have this week?',
+    title: 'Review issue',
+    text: 'Evaluate and suggest edits for my latest draft issue',
+  },
+  {
+    title: 'Sync connector',
+    text: 'List connectors and sync my RSS feed',
   },
 ];
 
@@ -73,6 +77,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
   const [permissionBusy, setPermissionBusy] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [taggedIssues, setTaggedIssues] = useState<TaggedIssue[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
@@ -171,10 +176,11 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
     if (!input.trim() || streaming) return;
     openDock();
     const text = input;
+    const taggedIds = taggedIssues.map((i) => i.id);
     setInput('');
-    await sendMessage(text, model, agent, timezone);
+    await sendMessage(text, model, agent, timezone, taggedIds);
     inputRef.current?.focus();
-  }, [input, streaming, sendMessage, model, agent, timezone, openDock]);
+  }, [input, streaming, sendMessage, model, agent, timezone, openDock, taggedIssues]);
 
   const handleSuggestion = useCallback((text: string) => {
     openDock();
@@ -194,6 +200,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
         error: ok ? undefined : result,
       });
       onSeriesChange?.();
+      const taggedIds = taggedIssues.map((i) => i.id);
       const toolCall = message.toolCalls?.find((tc) => tc.id === message.permission?.id);
       if (toolCall) {
         await continueWithToolResult(
@@ -204,11 +211,12 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           model,
           agent,
           timezone,
+          taggedIds,
         );
       }
       setPermissionBusy(false);
     },
-    [agent, continueWithToolResult, model, onSeriesChange, timezone, updatePermission],
+    [agent, continueWithToolResult, model, onSeriesChange, timezone, updatePermission, taggedIssues],
   );
 
   const handleDeny = useCallback(
@@ -229,6 +237,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
         ...values,
         send_days: values.send_days.join(', '),
       });
+      const taggedIds = taggedIssues.map((i) => i.id);
       if (toolCall) {
         await continueWithToolResult(
           message,
@@ -238,11 +247,12 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           model,
           agent,
           timezone,
+          taggedIds,
         );
       }
       setFormBusy(false);
     },
-    [agent, continueWithToolResult, model, timezone, updateForm],
+    [agent, continueWithToolResult, model, timezone, updateForm, taggedIssues],
   );
 
   const activeAgent = AGENTS.find((a) => a.id === agent) || AGENTS[0];
@@ -589,6 +599,11 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
 
       {/* Composer */}
       <div className="border-t border-[#e7e0d6] bg-white px-4 py-4 sm:px-6">
+        <IssueTagPicker
+          tagged={taggedIssues}
+          onChange={setTaggedIssues}
+          disabled={streaming || loadingThread || !threadId}
+        />
         <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-[#e7e0d6] bg-[#faf8f5] p-2 shadow-inner focus-within:border-stone-400 focus-within:ring-2 focus-within:ring-stone-200">
           <textarea
             ref={inputRef}
@@ -601,7 +616,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               }
             }}
             rows={1}
-            placeholder="Ask me to create a series, check status, or manage issues…"
+            placeholder="Ask me to edit issues, apply skills, sync connectors, or manage your series…"
             disabled={streaming || loadingThread || !threadId}
             className="max-h-32 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none disabled:opacity-60"
           />

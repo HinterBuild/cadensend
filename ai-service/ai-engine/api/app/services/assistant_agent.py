@@ -21,21 +21,27 @@ MAX_TOOL_ROUNDS = 8
 
 SYSTEM_PROMPT = """You are Cadensend AI — an expert operator for an AI email course platform.
 
-You help users create series, plan curricula, manage issues, add sources, and activate delivery — all through conversation.
+You help users create series, plan curricula, manage issues, add sources, apply skills, sync connectors, edit and review issues, and activate delivery — all through conversation.
 
 Rules:
 - Be concise, warm, and action-oriented.
 - When creating a series: ask for topic, then goal (one question at a time). Once you have both, call show_series_setup_form — never list level/duration/cadence/send time/send days/timezone as numbered text questions.
 - After the user submits the setup form (tool result), call propose_create_series with those values.
-- Use read tools (list_series, get_series, list_issues, etc.) to look up current state before proposing changes.
-- For ANY write action (create, update, delete, generate, approve, activate, pause, add source), call the matching propose_* tool. Never claim you executed a write without a propose tool.
+- Use read tools (list_series, get_series, list_issues, get_issue, etc.) to look up current state before proposing changes.
+- When the user tags specific issues in chat, prioritize those issue ids for edits, reviews, and generation.
+- For skills: call list_skills, then propose_set_series_skill to apply a writing style to a series.
+- For connectors: call list_connectors, then propose_sync_connector to pull external content.
+- For issue editing: use get_issue first, then propose_update_issue or propose_studio_section for section rewrites.
+- For reviews: use evaluate_issue and analyze_issue before suggesting edits.
+- For RAG grounding: use search_sources with the series id and a natural language query.
+- For ANY write action (create, update, delete, generate, approve, activate, pause, resume, add source, sync connector, edit issue), call the matching propose_* tool. Never claim you executed a write without a propose tool.
 - After a propose tool runs, tell the user what you prepared and that they can approve it in the chat card.
 - When tool results include series or issues, reference ids so the UI can link them.
 - If OPENROUTER_API_KEY is missing, explain that an admin must configure it.
 - Default timezone UTC if the user does not specify one.
 - For "N day" or "N week" courses, set duration accordingly and cadence to daily or weekly as appropriate.
 
-Available agents: operator (default), series (course setup), issues (drafting). Stay within your agent's scope."""
+Available agents: operator (default), series (course setup + skills/connectors), issues (drafting + editing + review). Stay within your agent's scope."""
 
 
 def _sse(event: Dict[str, Any]) -> str:
@@ -147,6 +153,16 @@ def _entity_hint(name: str, output: str) -> Optional[str]:
         return "plan"
     if name == "analytics_overview":
         return "analytics"
+    if name == "list_skills" and isinstance(data.get("data"), list):
+        return "skills_list"
+    if name == "list_connectors" and isinstance(data.get("data"), list):
+        return "connectors_list"
+    if name == "list_workflows" and isinstance(data.get("data"), list):
+        return "workflows_list"
+    if name in {"evaluate_issue", "analyze_issue"} and data.get("data"):
+        return "evaluation"
+    if name == "search_sources" and data.get("results"):
+        return "retrieval"
     return None
 
 
@@ -192,6 +208,7 @@ class AssistantAgent:
         agent: str = "operator",
         user_timezone: str = "UTC",
         thread_id: Optional[str] = None,
+        tagged_issue_ids: Optional[List[str]] = None,
     ) -> AsyncIterator[str]:
         run_id = str(uuid.uuid4())
         yield _sse({"type": "run_start", "run_id": run_id, "agent": agent, "thread_id": thread_id})
@@ -215,6 +232,25 @@ class AssistantAgent:
         tools = _filter_tools(all_tools, agent)
         tool_map = {t.name: t for t in tools}
 
+        tagged_context = ""
+        issue_ids = [str(i).strip() for i in (tagged_issue_ids or []) if str(i).strip()]
+        if issue_ids:
+            summaries: List[str] = []
+            for issue_id in issue_ids[:5]:
+                raw = await client.get_issue(issue_id)
+                try:
+                    parsed = json.loads(raw)
+                    row = parsed.get("data") if isinstance(parsed, dict) else None
+                    if isinstance(row, dict):
+                        title = row.get("title") or row.get("subject") or issue_id
+                        status = row.get("status") or "unknown"
+                        summaries.append(f"- {issue_id}: {title} ({status})")
+                    else:
+                        summaries.append(f"- {issue_id}")
+                except Exception:
+                    summaries.append(f"- {issue_id}")
+            tagged_context = "\nTagged issues in this message (prioritize for edits/reviews):\n" + "\n".join(summaries)
+
         chat = get_chat_model_for_workspace(workspace_id, model=model, temperature=0.35, max_tokens=2048)
         bound = chat.bind_tools(tools)
 
@@ -226,6 +262,7 @@ class AssistantAgent:
                     f"Workspace: {workspace_id}\n"
                     f"User: {user_id}\n"
                     f"User timezone: {user_timezone}"
+                    f"{tagged_context}"
                 )
             ),
             *_to_lc_messages(messages),
