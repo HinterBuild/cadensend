@@ -14,6 +14,16 @@ const PROVIDER_HINTS: Record<string, string> = {
   qwen: "Get a key from Alibaba DashScope",
 };
 
+const PROVIDER_LABELS: Record<string, string> = {
+  openrouter: "OpenRouter",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  gemini: "Google Gemini",
+  local: "Local LLM",
+  xai: "xAI",
+  qwen: "Qwen",
+};
+
 function providerHasKey(configs: Record<string, unknown>, providerId: string): boolean {
   const nested = configs[providerId];
   if (nested && typeof nested === "object" && nested !== null) {
@@ -34,140 +44,139 @@ export function ProviderCredentials({
   configs,
   onSaved,
 }: ProviderCredentialsProps) {
-  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [providerMeta, setProviderMeta] = useState<LLMProvider | null>(null);
   const [loading, setLoading] = useState(true);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [visible, setVisible] = useState<Record<string, boolean>>({});
-  const [saving, setSaving] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setDraft("");
+    setShowKey(false);
+    setError(null);
+  }, [activeProvider]);
+
+  useEffect(() => {
+    if (!activeProvider) {
+      setProviderMeta(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     modelsApi
       .listProviders()
-      .then((res) => setProviders(res.data ?? []))
-      .catch(() => setProviders([]))
+      .then((res) => {
+        const match = (res.data ?? []).find((p) => p.id === activeProvider);
+        setProviderMeta(match ?? null);
+      })
+      .catch(() => setProviderMeta(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [activeProvider]);
 
-  const saveCredential = async (providerId: string) => {
-    const value = (drafts[providerId] || "").trim();
-    if (providerId !== "local" && !value) return;
+  const saveCredential = async () => {
+    const value = draft.trim();
+    const isLocal = activeProvider === "local";
+    if (!isLocal && !value) return;
 
-    setSaving(providerId);
-    setErrors((prev) => ({ ...prev, [providerId]: "" }));
+    setSaving(true);
+    setError(null);
     try {
-      const payload: Record<string, unknown> =
-        providerId === "local"
-          ? { base_url: value || "http://localhost:11434/v1" }
-          : { api_key: value };
+      const payload: Record<string, unknown> = isLocal
+        ? { base_url: value || "http://localhost:11434/v1" }
+        : { api_key: value };
 
       await modelsApi.updateProviderConfig({
         provider: activeProvider,
-        configs: { [providerId]: payload },
+        configs: { [activeProvider]: payload },
       });
-      setDrafts((prev) => ({ ...prev, [providerId]: "" }));
+      setDraft("");
       onSaved?.();
     } catch (e: unknown) {
-      setErrors((prev) => ({
-        ...prev,
-        [providerId]: e instanceof Error ? e.message : "Failed to save",
-      }));
+      setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
-  if (loading) {
-    return <p className="text-sm text-gray-500">Loading providers…</p>;
+  if (!activeProvider) {
+    return null;
   }
 
+  if (loading) {
+    return <p className="text-sm text-gray-500">Loading provider settings…</p>;
+  }
+
+  const configured = providerHasKey(configs, activeProvider);
+  const isLocal = activeProvider === "local";
+  const providerName =
+    providerMeta?.name || PROVIDER_LABELS[activeProvider] || activeProvider;
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-medium text-gray-900">Provider API keys</h3>
-        <p className="mt-1 text-xs text-gray-500">
-          Add credentials for each provider you want to use. Keys are stored per workspace and never shown again after saving.
-        </p>
+    <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium text-gray-900">
+            {isLocal ? `${providerName} connection` : `${providerName} API key`}
+          </h3>
+          <p className="mt-1 text-xs text-gray-500">
+            {PROVIDER_HINTS[activeProvider] || providerMeta?.description}
+          </p>
+        </div>
+        {configured && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+            <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+            Configured
+          </span>
+        )}
       </div>
 
-      <div className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-gray-50/50">
-        {providers.map((p) => {
-          const configured = providerHasKey(configs, p.id);
-          const isLocal = p.id === "local";
-          const draft = drafts[p.id] || "";
-          const show = visible[p.id] ?? false;
-
-          return (
-            <div key={p.id} className="space-y-2 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{p.name}</p>
-                  <p className="text-xs text-gray-500">{PROVIDER_HINTS[p.id] || p.description}</p>
-                </div>
-                {configured && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-                    Configured
-                  </span>
-                )}
-              </div>
-
-              <div className="relative">
-                <input
-                  type={isLocal || show ? "text" : "password"}
-                  value={draft}
-                  onChange={(e) =>
-                    setDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
-                  }
-                  placeholder={
-                    isLocal
-                      ? configured
-                        ? "http://localhost:11434/v1"
-                        : "http://localhost:11434/v1"
-                      : configured
-                        ? "Enter new key to replace saved key"
-                        : "Paste API key"
-                  }
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-stone-800"
-                />
-                {!isLocal && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => setVisible((prev) => ({ ...prev, [p.id]: !show }))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    aria-label={show ? "Hide key" : "Show key"}
-                  >
-                    {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                )}
-              </div>
-
-              {errors[p.id] && (
-                <p className="text-xs text-red-600">{errors[p.id]}</p>
-              )}
-
-              <button
-                type="button"
-                onClick={() => saveCredential(p.id)}
-                disabled={saving === p.id || (!isLocal && !draft.trim())}
-                className="inline-flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700 disabled:opacity-50"
-              >
-                {saving === p.id && <Loader2 className="h-3 w-3 animate-spin" />}
-                {saving === p.id
-                  ? "Saving…"
-                  : configured
-                    ? isLocal
-                      ? "Update URL"
-                      : "Update key"
-                    : isLocal
-                      ? "Save URL"
-                      : "Save key"}
-              </button>
-            </div>
-          );
-        })}
+      <div className="relative">
+        <input
+          type={isLocal || showKey ? "text" : "password"}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={
+            isLocal
+              ? "http://localhost:11434/v1"
+              : configured
+                ? "Enter new key to replace saved key"
+                : "Paste API key"
+          }
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-stone-800"
+        />
+        {!isLocal && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => setShowKey((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            aria-label={showKey ? "Hide key" : "Show key"}
+          >
+            {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        )}
       </div>
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      <button
+        type="button"
+        onClick={saveCredential}
+        disabled={saving || (!isLocal && !draft.trim())}
+        className="inline-flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700 disabled:opacity-50"
+      >
+        {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+        {saving
+          ? "Saving…"
+          : configured
+            ? isLocal
+              ? "Update URL"
+              : "Update key"
+            : isLocal
+              ? "Save URL"
+              : "Save key"}
+      </button>
     </div>
   );
 }

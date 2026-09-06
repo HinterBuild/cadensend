@@ -9,6 +9,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RadioGroup } from '@/components/RadioGroup';
 import type { ExtractedBrief } from '@/types';
+import { useContentPreferences } from '@/hooks/useContentPreferences';
+import { DEFAULT_GOAL_STARTERS, DEFAULT_TONE_OPTIONS } from '@/lib/seriesFormOptions';
 
 type FormValues = {
   topic: string;
@@ -49,12 +51,6 @@ const levelOptions = [
   { value: 'advanced', label: 'Advanced' },
 ];
 
-const toneOptions = [
-  { value: 'instructor', label: 'Instructor' },
-  { value: 'newsletter', label: 'Newsletter' },
-  { value: 'briefing', label: 'Briefing' },
-];
-
 const lengthOptions = [
   { value: '5 min', label: '5 min' },
   { value: '10 min', label: '10 min' },
@@ -73,21 +69,6 @@ const cadenceOptions = [
   { value: 'weekly', label: 'Weekly' },
   { value: 'biweekly', label: 'Bi-weekly' },
   { value: 'monthly', label: 'Monthly' },
-];
-
-const goalStarters = [
-  {
-    label: 'Hands-on labs',
-    text: 'By the end of this series, you should be able to complete practical labs and apply the concepts yourself.',
-  },
-  {
-    label: 'Interview prep',
-    text: 'By the end of this series, you should be able to explain the core ideas clearly and answer common interview questions.',
-  },
-  {
-    label: 'Weekly digest',
-    text: 'By the end of this series, you should be able to keep up with this topic through short, practical recaps.',
-  },
 ];
 
 const TIMEZONES = [
@@ -175,6 +156,27 @@ function previewSendDates(startDate: string, cadence: string, sendDays: string[]
 export default function CreateSeriesPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { prefs: contentPrefs } = useContentPreferences();
+
+  const toneOptions = useMemo(
+    () => [
+      ...DEFAULT_TONE_OPTIONS,
+      ...contentPrefs.custom_voices.map((v) => ({
+        value: v.value || v.label,
+        label: v.label,
+      })),
+    ],
+    [contentPrefs.custom_voices],
+  );
+
+  const goalStarters = useMemo(
+    () => [
+      ...DEFAULT_GOAL_STARTERS,
+      ...contentPrefs.custom_goals.map((g) => ({ label: g.label, text: g.text })),
+    ],
+    [contentPrefs.custom_goals],
+  );
+
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -550,9 +552,14 @@ export default function CreateSeriesPage() {
                 <p className="mt-1 text-xs text-gray-500">{formData.topic.length}/100</p>
               </div>
               <div>
-                <label htmlFor="goal" className="block text-sm font-medium text-gray-700 mb-2">
-                  Goal <span className="text-red-500">*</span>
-                </label>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label htmlFor="goal" className="block text-sm font-medium text-gray-700">
+                    Goal <span className="text-red-500">*</span>
+                  </label>
+                  <Link href="/settings" className="text-xs font-medium text-stone-600 hover:text-stone-900">
+                    Manage custom goals
+                  </Link>
+                </div>
                 <div className="mb-2 flex flex-wrap gap-2">
                   {goalStarters.map((starter) => (
                     <button
@@ -584,20 +591,27 @@ export default function CreateSeriesPage() {
                 containerClassName="grid grid-cols-3 gap-3"
               />
               <div className="grid gap-4 sm:grid-cols-2">
-                <RadioGroup
-                  legend="Voice"
-                  value={formData.tone}
-                  options={toneOptions}
-                  onChange={(value) => updateField('tone', value)}
-                  containerClassName="grid grid-cols-1 gap-2"
-                  itemClassName={(checked) =>
-                    `p-2 border rounded-lg text-sm ${
-                      checked
-                        ? 'border-stone-900 bg-stone-100 font-medium'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`
-                  }
-                />
+                <div>
+                  <div className="mb-2 flex items-center justify-end">
+                    <Link href="/settings" className="text-xs font-medium text-stone-600 hover:text-stone-900">
+                      Manage custom voices
+                    </Link>
+                  </div>
+                  <RadioGroup
+                    legend="Voice"
+                    value={formData.tone}
+                    options={toneOptions}
+                    onChange={(value) => updateField('tone', value)}
+                    containerClassName="grid grid-cols-1 gap-2"
+                    itemClassName={(checked) =>
+                      `p-2 border rounded-lg text-sm ${
+                        checked
+                          ? 'border-stone-900 bg-stone-100 font-medium'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`
+                    }
+                  />
+                </div>
                 <RadioGroup
                   legend="Lesson length"
                   value={formData.length}

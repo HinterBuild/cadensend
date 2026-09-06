@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
 import { authApi, modelsApi, emailProviderApi } from '@/lib/api';
 import type { EmailProviderConfig, EmailProviderOption } from '@/lib/api';
-import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck, Sparkles } from 'lucide-react';
+import { User, Save, Lock, LogOut, AlertCircle, Check, Mail, Clock, ShieldCheck, Sparkles, PenLine } from 'lucide-react';
 import { ProviderConfigForm } from '@/components/llm-provider';
 import { ModelPicker } from '@/components/llm-provider/ModelPicker';
+import { ContentPreferencesEditor } from '@/components/settings/ContentPreferencesEditor';
+import { useContentPreferences } from '@/hooks/useContentPreferences';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -41,6 +43,8 @@ export default function SettingsPage() {
   const [smtpPassword, setSmtpPassword] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
+  const [savingContentPrefs, setSavingContentPrefs] = useState(false);
+  const { prefs: contentPrefs, loading: contentPrefsLoading, save: saveContentPrefs } = useContentPreferences();
 
   useEffect(() => {
     if (user) {
@@ -349,6 +353,36 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Voices & Goals */}
+          <div className="bg-white rounded-xl shadow p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <PenLine className="h-5 w-5 text-gray-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-gray-900">Voices & goals</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-6">
+              Create custom writing voices and goal presets. They appear when you create a new series.
+            </p>
+            {contentPrefsLoading ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : (
+              <ContentPreferencesEditor
+                prefs={contentPrefs}
+                saving={savingContentPrefs}
+                onSave={async (next) => {
+                  setSavingContentPrefs(true);
+                  try {
+                    await saveContentPrefs(next);
+                    setSuccess('Voices and goals saved.');
+                  } catch (err: unknown) {
+                    setError(err instanceof Error ? err.message : 'Failed to save voices and goals');
+                  } finally {
+                    setSavingContentPrefs(false);
+                  }
+                }}
+              />
+            )}
           </div>
 
           {/* AI Provider */}
