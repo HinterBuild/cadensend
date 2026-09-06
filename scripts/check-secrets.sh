@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Exclude this script (it contains pattern examples as literals).
+FILES="$(git ls-files | rg -v '^scripts/check-secrets\.sh$' || true)"
+
 PATTERNS=(
   'sk-or-v1-[a-zA-Z0-9]{20,}'
   'sk-proj-[a-zA-Z0-9]{20,}'
@@ -18,16 +21,15 @@ PATTERNS=(
 
 FOUND=0
 for pattern in "${PATTERNS[@]}"; do
-  if git ls-files -z | xargs -0 rg -n "$pattern" 2>/dev/null; then
+  if echo "$FILES" | xargs rg -n "$pattern" 2>/dev/null; then
     FOUND=1
   fi
 done
 
-# Block hardcoded OpenRouter keys in compose/env (must use ${OPENROUTER_API_KEY})
-if git ls-files -z | xargs -0 rg -n 'OPENROUTER_API_KEY:\s*"sk-' 2>/dev/null; then
+if echo "$FILES" | xargs rg -n 'OPENROUTER_API_KEY:\s*"sk-' 2>/dev/null; then
   FOUND=1
 fi
-if git ls-files -z | xargs -0 rg -n 'OPENROUTER_API_KEY=sk-' 2>/dev/null; then
+if echo "$FILES" | xargs rg -n 'OPENROUTER_API_KEY=sk-' 2>/dev/null; then
   FOUND=1
 fi
 
