@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -12,11 +13,14 @@ from typing import Any, Callable, TypeVar
 from app.core.config import settings
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 _RESET_MS = re.compile(r"X-RateLimit-Reset['\"]?\s*[:=]\s*['\"]?(\d+)", re.I)
 _lock = threading.Lock()
 _next_ok = 0.0
 _generation_model: ContextVar[str] = ContextVar("openrouter_generation_model", default="")
+_redis_client = None
+_redis_lock = threading.Lock()
 
 
 def set_generation_model(model: str | None):
@@ -71,6 +75,9 @@ def wait_for_openrouter_slot(model: str | None = None) -> None:
     """Space requests so free-tier 20/min is not blown in a burst."""
     if not uses_free_tier_pacing(model):
         return
+    if settings.OPENROUTER_REDIS_PACING:
+        if _wait_redis_slot():
+            return
     global _next_ok
     interval = max(0.0, float(settings.OPENROUTER_MIN_INTERVAL_SECONDS))
     with _lock:
@@ -79,6 +86,43 @@ def wait_for_openrouter_slot(model: str | None = None) -> None:
         _next_ok = max(now, _next_ok) + interval
     if delay:
         time.sleep(delay)
+
+
+def _redis_pacing_client():
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    with _redis_lock:
+        if _redis_client is not None:
+            return _redis_client
+        try:
+            import redis
+
+            _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+            _redis_client.ping()
+        except Exception as exc:
+            logger.debug("Redis OpenRouter pacing unavailable: %s", exc)
+            _redis_client = False  # type: ignore[assignment]
+        return _redis_client
+
+
+def _wait_redis_slot() -> bool:
+    """Distributed pacing across API/worker replicas. Returns True if Redis handled the wait."""
+    client = _redis_pacing_client()
+    if not client or client is False:
+        return False
+    interval_ms = max(100, int(float(settings.OPENROUTER_MIN_INTERVAL_SECONDS) * 1000))
+    key = "cadensend:openrouter:free_slot"
+    deadline = time.monotonic() + 120.0
+    while time.monotonic() < deadline:
+        try:
+            if client.set(key, "1", nx=True, px=interval_ms):
+                return True
+        except Exception as exc:
+            logger.debug("Redis pacing error: %s", exc)
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def call_with_429_retry(fn: Callable[[], T], model: str | None = None) -> T:

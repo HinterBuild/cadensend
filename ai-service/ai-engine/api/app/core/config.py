@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     
     # Database settings
     DATABASE_URL: str = "postgresql+asyncpg://localhost:5432/cadensend"
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
     
     # Qdrant settings
     QDRANT_URL: str = "http://localhost:6333"
@@ -91,6 +93,7 @@ class Settings(BaseSettings):
     OPENROUTER_429_MAX_RETRIES: int = 8
     OPENROUTER_429_MAX_WAIT_SECONDS: int = 90
     OPENROUTER_TIMEOUT_SECONDS: float = 120.0
+    OPENROUTER_REDIS_PACING: bool = True
     ISSUE_JOB_GAP_SECONDS: float = 20.0
     
     # Email settings
