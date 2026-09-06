@@ -372,6 +372,7 @@ export type LLMProviderConfig = {
   default_model: string;
   embedding_model: string;
   configs: Record<string, unknown>;
+  has_api_key?: boolean;
 };
 
 export const modelsApi = {
@@ -385,7 +386,7 @@ export const modelsApi = {
     fetchApi<{ data: LLMProviderConfig }>('/llm-providers/config'),
 
   updateProviderConfig: (payload: {
-    provider: string;
+    provider?: string;
     default_model?: string;
     embedding_model?: string;
     configs?: Record<string, unknown>;
@@ -511,6 +512,47 @@ export const platformApi = {
     fetchApi(`/platform/connectors/${connectorId}/config`, {
       method: 'PUT',
       body: JSON.stringify({ config, enabled }),
+    }),
+};
+
+export type AssistantThread = {
+  id: string;
+  title: string;
+  agent: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const assistantApi = {
+  listThreads: () =>
+    fetchApi<{ threads: AssistantThread[] }>('/assistant/threads'),
+
+  createThread: (payload?: { title?: string; agent?: string; model?: string }) =>
+    fetchApi<{ thread: AssistantThread; messages: unknown[] }>('/assistant/threads', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+
+  getThread: (id: string) =>
+    fetchApi<{ thread: AssistantThread; messages: Array<Record<string, unknown>> }>(`/assistant/threads/${id}`),
+
+  updateThread: (id: string, payload: { title?: string; agent?: string; model?: string }) =>
+    fetchApi<{ thread: AssistantThread }>(`/assistant/threads/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteThread: (id: string) =>
+    fetchApi<{ message: string }>(`/assistant/threads/${id}`, { method: 'DELETE' }),
+
+  syncMessages: (
+    id: string,
+    payload: { messages: unknown[]; title?: string; agent?: string; model?: string },
+  ) =>
+    fetchApi<{ message: string }>(`/assistant/threads/${id}/messages`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
 };
 

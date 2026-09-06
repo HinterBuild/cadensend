@@ -1,39 +1,37 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus, BookOpen, Calendar, Send, ArrowUpRight, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useRequireAuth, useAuth } from '@/contexts/AuthContext';
+import { useRequireAuth } from '@/contexts/AuthContext';
 import { seriesApi } from '@/lib/api';
 import { Series } from '@/types';
-import { BrandLogo } from '@/components/BrandLogo';
+import { AssistantChat } from '@/components/assistant/AssistantChat';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
-  const { logout } = useAuth();
   const [series, setSeries] = useState<Series[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const loadSeries = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
+    try {
+      const response = await seriesApi.list();
+      setSeries(response.series);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load series');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
-
-    const loadSeries = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await seriesApi.list();
-        setSeries(response.series);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load series');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadSeries();
-  }, [authLoading]);
+    void loadSeries();
+  }, [authLoading, loadSeries]);
 
   const greetingName = user?.name?.trim() || user?.email?.split('@')[0] || 'there';
   const activeCount = series.filter((item) => item.status === 'active').length;
@@ -57,61 +55,32 @@ export default function DashboardPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen">
-        <header className="border-b border-[#e7e0d6] bg-[#faf8f5]/80">
-          <div className="mx-auto flex max-w-6xl items-center gap-3 px-6 py-5">
-            <BrandLogo className="h-9 w-9" />
-            <h1 className="font-display text-3xl text-stone-900">Cadensend</h1>
-          </div>
-        </header>
-        <div className="mx-auto max-w-6xl px-6 py-16">
-          <div className="text-center">
-            <div
-              className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800"
-              role="status"
-              aria-label="Loading series"
-            ></div>
-            <p className="mt-4 text-stone-500">Loading series...</p>
-          </div>
-        </div>
+      <div className="py-16 text-center">
+        <div
+          className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800"
+          role="status"
+          aria-label="Loading series"
+        />
+        <p className="mt-4 text-stone-500">Loading dashboard…</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-[#e7e0d6] bg-[#faf8f5]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div>
-            <p className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-stone-500">
-              <BrandLogo className="h-5 w-5" />
-              Cadensend
-            </p>
-            <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">
-              Good day, {greetingName}
-            </h1>
-          </div>
-          <div className="flex items-center gap-5">
-            <Link
-              href="/insights"
-              className="hidden text-sm font-medium text-stone-700 no-underline hover:text-stone-900 hover:underline sm:inline"
-            >
-              Insights
-            </Link>
-            <span className="hidden text-sm text-stone-500 sm:inline">{user?.email}</span>
-            <button
-              type="button"
-              onClick={logout}
-              className="text-sm font-medium text-stone-700 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+    <div>
+      <div className="mb-8">
+        <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Dashboard</p>
+        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">
+          Good day, {greetingName}
+        </h1>
+        <p className="mt-1 text-sm text-stone-500">{user?.email}</p>
+      </div>
 
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <div className="mb-8 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6">
+        <AssistantChat layout="dock" onSeriesChange={() => void loadSeries(true)} />
+      </div>
+
+      <div className="mb-8 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
             <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Series</p>
             <p className="font-display mt-1 text-3xl text-stone-900">{series.length}</p>
@@ -126,7 +95,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h2 className="font-display text-2xl tracking-tight text-stone-900">Your Series</h2>
             <p className="mt-1 text-sm text-stone-500">Courses you are writing and sending.</p>
@@ -138,9 +107,9 @@ export default function DashboardPage() {
             <Plus className="h-4 w-4" aria-hidden="true" />
             Create New Series
           </Link>
-        </div>
+      </div>
 
-        {error ? (
+      {error ? (
           <div
             role="alert"
             aria-live="assertive"
@@ -162,8 +131,8 @@ export default function DashboardPage() {
               Create your first series
             </Link>
           </div>
-        ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {series.map((s) => (
               <Link
                 key={s.id}
@@ -232,9 +201,8 @@ export default function DashboardPage() {
                 </div>
               </Link>
             ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
