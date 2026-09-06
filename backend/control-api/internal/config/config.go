@@ -63,8 +63,13 @@ type Config struct {
 	// OpenRouter
 	DefaultModel string
 	// Multi-LLM Provider settings
-	DefaultProvider   string
-	EmbeddingModel    string
+	DefaultProvider string
+	EmbeddingModel  string
+
+	// Database pool (per replica — size for horizontal scale)
+	DBMaxIdleConns    int
+	DBMaxOpenConns    int
+	DBConnMaxLifetime time.Duration
 }
 
 // LoadConfig loads configuration from environment variables
@@ -99,7 +104,10 @@ func LoadConfig() *Config {
 		RequireEmailVerify: getEnvBool("REQUIRE_EMAIL_VERIFY", false),
 		DefaultModel:       getEnv("DEFAULT_MODEL", "poolside/laguna-s-2.1:free"),
 		DefaultProvider:    getEnv("DEFAULT_PROVIDER", "openrouter"),
-		EmbeddingModel:    getEnv("EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b:free"),
+		EmbeddingModel:     getEnv("EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b:free"),
+		DBMaxIdleConns:     getEnvInt("DB_MAX_IDLE_CONNS", 10),
+		DBMaxOpenConns:     getEnvInt("DB_MAX_OPEN_CONNS", 40),
+		DBConnMaxLifetime:  time.Duration(getEnvInt("DB_CONN_MAX_LIFETIME_MINUTES", 30)) * time.Minute,
 	}
 
 	// Parse JWT expiry override
@@ -136,6 +144,16 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if boolVal, err := strconv.ParseBool(value); err == nil {
 			return boolVal
+		}
+	}
+	return defaultValue
+}
+
+// getEnvInt retrieves an environment variable as an integer or returns a default value
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
 		}
 	}
 	return defaultValue
