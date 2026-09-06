@@ -205,6 +205,7 @@ func EnsureAppSchema() error {
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_workspace_llm_default ON workspace_llm_config(default_provider)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS content_preferences JSONB NOT NULL DEFAULT '{}'`,
 	}
 
 	for _, stmt := range statements {

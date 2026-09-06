@@ -27,8 +27,9 @@ type User struct {
 	UpdatedAt      time.Time  `json:"updated_at" gorm:"not null"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty" gorm:"index"`
 	EmailVerified  bool       `json:"email_verified" gorm:"not null"`
-	PreferredModel string     `json:"preferred_model" gorm:"column:preferred_model"`
-	TokenVersion   int        `json:"-" gorm:"not null;default:1"`
+	PreferredModel       string     `json:"preferred_model" gorm:"column:preferred_model"`
+	ContentPreferences   []byte     `json:"content_preferences" gorm:"type:jsonb;not null;default:'{}'"`
+	TokenVersion         int        `json:"-" gorm:"not null;default:1"`
 }
 
 // MagicLinkToken model
@@ -603,4 +604,123 @@ func (s *UserService) ListRecipients(workspaceID string) ([]Recipient, error) {
 func (s *UserService) DeleteRecipient(workspaceID, recipientID string) error {
 	return s.db.Where("id = ? AND workspace_id = ?", recipientID, workspaceID).
 		Delete(&Recipient{}).Error
+}
+
+// CustomVoice is a user-defined writing voice preset for series creation.
+type CustomVoice struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Hint  string `json:"hint,omitempty"`
+}
+
+// CustomGoal is a user-defined goal preset for series creation.
+type CustomGoal struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Text  string `json:"text"`
+}
+
+// ContentPreferences stores user-defined voice and goal presets.
+type ContentPreferences struct {
+	CustomVoices []CustomVoice `json:"custom_voices"`
+	CustomGoals  []CustomGoal  `json:"custom_goals"`
+}
+
+func emptyContentPreferences() ContentPreferences {
+	return ContentPreferences{
+		CustomVoices: []CustomVoice{},
+		CustomGoals:  []CustomGoal{},
+	}
+}
+
+func parseContentPreferences(raw []byte) ContentPreferences {
+	if len(raw) == 0 {
+		return emptyContentPreferences()
+	}
+	var prefs ContentPreferences
+	if err := json.Unmarshal(raw, &prefs); err != nil {
+		return emptyContentPreferences()
+	}
+	if prefs.CustomVoices == nil {
+		prefs.CustomVoices = []CustomVoice{}
+	}
+	if prefs.CustomGoals == nil {
+		prefs.CustomGoals = []CustomGoal{}
+	}
+	return prefs
+}
+
+// GetContentPreferences returns saved voice and goal presets for a user.
+func (s *UserService) GetContentPreferences(userID string) (ContentPreferences, error) {
+	user, err := s.GetUser(userID)
+	if err != nil {
+		return emptyContentPreferences(), err
+	}
+	return parseContentPreferences(user.ContentPreferences), nil
+}
+
+// UpdateContentPreferences replaces voice and goal presets for a user.
+func (s *UserService) UpdateContentPreferences(userID string, prefs ContentPreferences) (ContentPreferences, error) {
+	if prefs.CustomVoices == nil {
+		prefs.CustomVoices = []CustomVoice{}
+	}
+	if prefs.CustomGoals == nil {
+		prefs.CustomGoals = []CustomGoal{}
+	}
+	if len(prefs.CustomVoices) > 30 {
+		return emptyContentPreferences(), errors.New("too many custom voices (max 30)")
+	}
+	if len(prefs.CustomGoals) > 30 {
+		return emptyContentPreferences(), errors.New("too many custom goals (max 30)")
+	}
+
+	for i, v := range prefs.CustomVoices {
+		label := strings.TrimSpace(v.Label)
+		if label == "" {
+			return emptyContentPreferences(), fmt.Errorf("voice %d: label is required", i+1)
+		}
+		if v.ID == "" {
+			prefs.CustomVoices[i].ID = uuid.NewString()
+		}
+    if strings.TrimSpace(v.Value) == "" {
+			prefs.CustomVoices[i].Value = label
+		}
+		prefs.CustomVoices[i].Label = label
+		prefs.CustomVoices[i].Hint = strings.TrimSpace(v.Hint)
+	}
+
+	for i, g := range prefs.CustomGoals {
+		label := strings.TrimSpace(g.Label)
+		text := strings.TrimSpace(g.Text)
+		if label == "" {
+			return emptyContentPreferences(), fmt.Errorf("goal %d: label is required", i+1)
+		}
+		if len(text) < 10 {
+			return emptyContentPreferences(), fmt.Errorf("goal %d: text must be at least 10 characters", i+1)
+		}
+		if g.ID == "" {
+			prefs.CustomGoals[i].ID = uuid.NewString()
+		}
+		prefs.CustomGoals[i].Label = label
+		prefs.CustomGoals[i].Text = text
+	}
+
+	raw, err := json.Marshal(prefs)
+	if err != nil {
+		return emptyContentPreferences(), err
+	}
+
+	result := s.db.Model(&User{}).Where("id = ? AND deleted_at IS NULL", userID).
+		Updates(map[string]interface{}{
+			"content_preferences": raw,
+			"updated_at":          time.Now(),
+		})
+	if result.Error != nil {
+		return emptyContentPreferences(), result.Error
+	}
+	if result.RowsAffected == 0 {
+		return emptyContentPreferences(), errors.New("user not found")
+	}
+	return prefs, nil
 }

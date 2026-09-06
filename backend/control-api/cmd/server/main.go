@@ -278,6 +278,8 @@ func main() {
 				settings.GET("/email-provider", getEmailProviderHandler(db))
 				settings.PUT("/email-provider", updateEmailProviderHandler(db))
 				settings.POST("/email-provider/test", testEmailProviderHandler(db))
+				settings.GET("/content-preferences", getContentPreferencesHandler(db, userService))
+				settings.PUT("/content-preferences", updateContentPreferencesHandler(db, userService))
 			}
 		}
 
