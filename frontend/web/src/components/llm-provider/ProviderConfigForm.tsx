@@ -1,18 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { modelsApi } from "@/lib/api";
-import type { LLMProviderConfig } from "@/lib/api";
+import { modelsApi, type LLMProviderConfig } from "@/lib/api";
 import { ProviderSelector } from "./ProviderSelector";
 import { ModelPicker } from "./ModelPicker";
-import { ApiKeyInput } from "./ApiKeyInput";
+import { ProviderCredentials } from "./ProviderCredentials";
+import { ModelCapabilities } from "./ModelCapabilities";
+
+const EMPTY_CONFIG: LLMProviderConfig = {
+  provider: "openrouter",
+  default_model: "",
+  embedding_model: "",
+  configs: {},
+};
 
 type ProviderConfigFormProps = {
   onUpdate?: () => void;
 };
 
 export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
-  const [config, setConfig] = useState<LLMProviderConfig | null>(null);
+  const [config, setConfig] = useState<LLMProviderConfig>(EMPTY_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,9 +33,10 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
     setLoading(true);
     try {
       const res = await modelsApi.getProviderConfig();
-      setConfig(res.data);
+      setConfig(res.data ?? EMPTY_CONFIG);
     } catch (e) {
       console.error("Failed to load provider config:", e);
+      setConfig(EMPTY_CONFIG);
     } finally {
       setLoading(false);
     }
@@ -40,20 +48,19 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
     try {
       await modelsApi.updateProviderConfig({
         provider,
-        default_model: config?.default_model || "",
-        embedding_model: config?.embedding_model || "",
+        default_model: config.default_model,
+        embedding_model: config.embedding_model,
       });
-      setConfig({ ...config, provider });
+      setConfig((prev) => ({ ...prev, provider }));
       onUpdate?.();
-    } catch (e: any) {
-      setError(e.message || "Failed to update provider");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update provider");
     } finally {
       setSaving(false);
     }
   };
 
   const updateModel = async (model: string) => {
-    if (!config) return;
     setSaving(true);
     setError(null);
     try {
@@ -62,38 +69,33 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
         default_model: model,
         embedding_model: config.embedding_model,
       });
-      setConfig({ ...config, default_model: model });
+      setConfig((prev) => ({ ...prev, default_model: model }));
       onUpdate?.();
-    } catch (e: any) {
-      setError(e.message || "Failed to update model");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to update model");
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <div className="animate-pulse">Loading configuration...</div>;
+    return <div className="animate-pulse text-sm text-gray-500">Loading AI provider settings…</div>;
   }
 
-  if (!config) {
-    return <p className="text-sm text-gray-500">No configuration found.</p>;
-  }
+  const baseUrl = typeof config.configs?.base_url === "string" ? config.configs.base_url : "";
 
   return (
     <div className="space-y-6">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Default LLM Provider
+          LLM provider
         </label>
-        <ProviderSelector
-          selected={config.provider}
-          onChange={updateProvider}
-        />
+        <ProviderSelector selected={config.provider} onChange={updateProvider} />
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Default Model
+          Default model
         </label>
         <ModelPicker
           provider={config.provider}
@@ -104,21 +106,24 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Embedding Model
+          Embedding model
         </label>
         <ModelPicker
           provider={config.provider}
           value={config.embedding_model || ""}
           onChange={async (model) => {
             setSaving(true);
+            setError(null);
             try {
               await modelsApi.updateProviderConfig({
                 provider: config.provider,
                 default_model: config.default_model,
                 embedding_model: model,
               });
-              setConfig({ ...config, embedding_model: model });
+              setConfig((prev) => ({ ...prev, embedding_model: model }));
               onUpdate?.();
+            } catch (e: unknown) {
+              setError(e instanceof Error ? e.message : "Failed to update embedding model");
             } finally {
               setSaving(false);
             }
@@ -126,12 +131,16 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
         />
       </div>
 
-      <div>
-        <ApiKeyInput provider={config.provider} onSaved={onUpdate} />
-      </div>
+      <ProviderCredentials
+        activeProvider={config.provider}
+        configs={config.configs}
+        onSaved={loadConfig}
+      />
+
+      <ModelCapabilities provider={config.provider} model={config.default_model} />
 
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {saving && <p className="text-sm text-gray-500">Saving...</p>}
+      {saving && <p className="text-sm text-gray-500">Saving…</p>}
 
       <div>
         <button
@@ -145,20 +154,20 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
           <div className="mt-4 space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Custom Base URL (optional)
+                Custom base URL (optional)
               </label>
               <input
                 type="url"
                 placeholder="https://api.example.com/v1"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-stone-800"
-                defaultValue={config.configs?.base_url || ""}
+                defaultValue={baseUrl}
                 onBlur={async (e) => {
-                  const base_url = e.target.value;
-                  if (!base_url) return;
+                  const nextBaseUrl = e.target.value.trim();
                   await modelsApi.updateProviderConfig({
                     provider: config.provider,
-                    configs: { ...config.configs, base_url },
+                    configs: { ...config.configs, base_url: nextBaseUrl },
                   });
+                  await loadConfig();
                   onUpdate?.();
                 }}
               />

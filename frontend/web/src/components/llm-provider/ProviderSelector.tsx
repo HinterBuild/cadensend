@@ -28,7 +28,13 @@ export function ProviderSelector({
     } catch (e) {
       console.error("Failed to load providers:", e);
       setProviders([
-        { id: "openrouter", name: "OpenRouter", description: "Default provider" }
+        {
+          id: "openrouter",
+          name: "OpenRouter",
+          description: "Default provider",
+          supports_chat: true,
+          supports_embed: true,
+        },
       ]);
     } finally {
       setLoading(false);
