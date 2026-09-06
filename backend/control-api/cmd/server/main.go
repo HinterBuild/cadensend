@@ -12,10 +12,8 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,8 +24,10 @@ import (
 
 	"backend/control-api/internal/config"
 	"backend/control-api/internal/database"
+	"backend/control-api/internal/httpclient"
 	applogger "backend/control-api/internal/logger"
 	"backend/control-api/internal/middleware"
+	"backend/control-api/internal/redisclient"
 	"backend/control-api/internal/service"
 	"backend/control-api/internal/version"
 )
@@ -50,6 +50,7 @@ func init() {
 
 func setupDatabase() {
 	database.Init(cfg.DatabaseURL)
+	database.ConfigurePool(cfg.DBMaxIdleConns, cfg.DBMaxOpenConns, cfg.DBConnMaxLifetime)
 	db = database.Get()
 
 	if err := database.AutoMigrate(
@@ -84,6 +85,9 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 
 	setupDatabase()
+	redisClient := redisclient.Init(cfg.RedisURL)
+	_ = httpclient.Standard()
+	_ = httpclient.Streaming()
 
 	r := gin.New()
 
@@ -94,18 +98,22 @@ func main() {
 	r.Use(middleware.RequestIDMiddleware())
 	r.Use(middleware.SecurityHeadersMiddleware(isDev))
 	r.Use(corsMiddleware())
-	r.Use(middleware.RateLimitMiddleware())
+	r.Use(middleware.RateLimitMiddleware(redisClient))
 
-	// Health check endpoint (deep checks included)
+	// Shallow liveness — safe for load balancers under load.
 	r.GET("/healthz", func(c *gin.Context) {
-		checks := deepHealthChecks()
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	// Deep readiness — verifies backing services (use for orchestrator ready probes).
+	r.GET("/readyz", func(c *gin.Context) {
+		checks := deepHealthChecks(redisClient)
 		status := http.StatusOK
 		for _, ok := range checks {
 			if !ok {
 				status = http.StatusServiceUnavailable
 			}
 		}
-		c.JSON(status, gin.H{"status": map[bool]string{true: "healthy", false: "degraded"}[status == http.StatusOK], "checks": checks})
+		c.JSON(status, gin.H{"status": map[bool]string{true: "ready", false: "not_ready"}[status == http.StatusOK], "checks": checks})
 	})
 	r.GET("/version", func(c *gin.Context) {
 		info := version.Get()
@@ -323,6 +331,8 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
+	_ = redisclient.Close()
+	_ = database.Close()
 
 	log.Println("Server exited")
 }
@@ -361,7 +371,7 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 // deepHealthChecks verifies that backing services are reachable.
-func deepHealthChecks() map[string]bool {
+func deepHealthChecks(redisClient *redis.Client) map[string]bool {
 	checks := map[string]bool{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -374,36 +384,11 @@ func deepHealthChecks() map[string]bool {
 		checks["postgres"] = false
 	}
 
-	addr, dbNum, password := parseRedisURL(cfg.RedisURL)
-	client := redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
-	defer client.Close()
-	if err := client.Ping(ctx).Err(); err == nil {
-		checks["redis"] = true
+	if redisClient != nil {
+		checks["redis"] = redisClient.Ping(ctx).Err() == nil
 	} else {
 		checks["redis"] = false
 	}
 
 	return checks
-}
-
-func parseRedisURL(rawURL string) (addr string, dbNum int, password string) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return rawURL, 0, ""
-	}
-
-	addr = u.Host
-	if u.User != nil {
-		password, _ = u.User.Password()
-	}
-
-	if u.Path != "" && u.Path != "/" {
-		path := strings.TrimPrefix(u.Path, "/")
-		parts := strings.Split(path, "/")
-		if len(parts) > 0 && parts[0] != "" {
-			dbNum, _ = strconv.Atoi(parts[0])
-		}
-	}
-
-	return addr, dbNum, password
 }

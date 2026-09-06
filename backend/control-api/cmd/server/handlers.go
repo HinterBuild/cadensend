@@ -19,7 +19,9 @@ import (
 	"gorm.io/gorm"
 
 	"backend/control-api/internal/contentstructure"
+	"backend/control-api/internal/httpclient"
 	"backend/control-api/internal/mail"
+	"backend/control-api/internal/redisclient"
 	"backend/control-api/internal/service"
 	"backend/control-api/internal/urlcheck"
 )
@@ -1665,7 +1667,11 @@ var (
 
 func generationQueue() *redis.Client {
 	generationRedisOnce.Do(func() {
-		addr, dbNum, password := parseRedisURL(cfg.RedisURL)
+		if shared := redisclient.Get(); shared != nil {
+			generationRedis = shared
+			return
+		}
+		addr, dbNum, password := redisclient.ParseRedisURL(cfg.RedisURL)
 		generationRedis = redis.NewClient(&redis.Options{Addr: addr, Password: password, DB: dbNum})
 	})
 	return generationRedis
@@ -1832,7 +1838,7 @@ func aiEngineRequest(method, path string, payload map[string]interface{}) (int, 
 	if token := strings.TrimSpace(cfg.InternalAPIToken); token != "" {
 		req.Header.Set("X-Internal-Token", token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.Standard().Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
