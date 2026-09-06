@@ -6,6 +6,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import DashboardPage from '@/app/dashboard/page';
 import { seriesApi } from '@/lib/api';
 
+jest.mock('@/components/assistant/AssistantChat', () => ({
+  AssistantChat: () => <div data-testid="assistant-chat" />,
+}));
+
 // Mock next/navigation
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -54,7 +58,7 @@ describe('DashboardPage', () => {
 
   it('renders the dashboard title', async () => {
     render(<DashboardPage />);
-    expect(await screen.findByText('Cadensend')).toBeInTheDocument();
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
   });
 
   it('shows create new series button', async () => {

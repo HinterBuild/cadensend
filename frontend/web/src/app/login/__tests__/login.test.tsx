@@ -4,12 +4,18 @@
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import LoginPage from '@/app/login/page';
-import { authApi } from '@/lib/api';
 
 // Mock next/navigation
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
     push: jest.fn(),
+  }),
+}));
+
+jest.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    login: jest.fn(),
+    sendMagicLink: jest.fn(),
   }),
 }));
 
@@ -40,8 +46,11 @@ describe('LoginPage', () => {
   });
 
   it('calls login on form submit', async () => {
-    const mockLogin = authApi.login as jest.Mock;
-    mockLogin.mockResolvedValue({ token: 'test-token', user: {} });
+    const mockLogin = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(require('@/contexts/AuthContext'), 'useAuth').mockReturnValue({
+      login: mockLogin,
+      sendMagicLink: jest.fn(),
+    });
 
     render(<LoginPage />);
 
@@ -60,8 +69,11 @@ describe('LoginPage', () => {
   });
 
   it('shows error on login failure', async () => {
-    const mockLogin = authApi.login as jest.Mock;
-    mockLogin.mockRejectedValue(new Error('Login failed'));
+    const mockLogin = jest.fn().mockRejectedValue(new Error('Login failed'));
+    jest.spyOn(require('@/contexts/AuthContext'), 'useAuth').mockReturnValue({
+      login: mockLogin,
+      sendMagicLink: jest.fn(),
+    });
 
     render(<LoginPage />);
 
