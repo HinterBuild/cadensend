@@ -12,7 +12,7 @@ import (
 func TestRateLimiterAllowsWithinLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(RateLimitMiddleware())
+	router.Use(RateLimitMiddleware(nil))
 	router.POST("/v1/users/login", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	for i := 0; i < 10; i++ {
@@ -54,7 +54,7 @@ func TestRateLimiterIsPerIP(t *testing.T) {
 func TestWebhooksSkipRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(RateLimitMiddleware())
+	router.Use(RateLimitMiddleware(nil))
 	router.POST("/v1/webhooks/email/brevo", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	for i := 0; i < 50; i++ {

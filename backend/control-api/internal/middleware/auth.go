@@ -13,6 +13,7 @@ import (
     "time"
 
     "github.com/gin-gonic/gin"
+    "github.com/go-redis/redis/v8"
     "github.com/golang-jwt/jwt/v5"
     "gorm.io/gorm"
 )
@@ -169,11 +170,10 @@ func (rl *rateLimiter) allow(key string) bool {
     return true
 }
 
-// RateLimitMiddleware applies a fixed-window limit per client IP. Sensitive
-// endpoints (auth) get a much tighter budget than general API traffic and are
-// additionally keyed by the submitted account so that many users behind one
-// proxy address cannot lock each other out.
-func RateLimitMiddleware() gin.HandlerFunc {
+// RateLimitMiddleware applies a fixed-window limit per client IP. When redis
+// is provided, limits are shared across API replicas; otherwise a process-local
+// fallback is used.
+func RateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 	authLimits := map[string]int{
 		"POST:/v1/users/login":             10,
 		"POST:/v1/users":                   5,
@@ -187,10 +187,12 @@ func RateLimitMiddleware() gin.HandlerFunc {
 		sensitive[key] = newRateLimiter(limit, time.Minute)
 	}
 	general := newRateLimiter(600, time.Minute)
+	window := time.Minute
+	useRedis := redisClient != nil
 
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if path == "/healthz" || path == "/metrics" || path == "/version" {
+		if path == "/healthz" || path == "/readyz" || path == "/metrics" || path == "/version" {
 			c.Next()
 			return
 		}
@@ -203,12 +205,18 @@ func RateLimitMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		key := ip
-		if limiter, ok := sensitive[c.Request.Method+":"+path]; ok {
+		ctx := c.Request.Context()
+		routeKey := c.Request.Method + ":" + path
+		if limit, ok := authLimits[routeKey]; ok {
+			key := ip
 			if account := peekAccountIdentifier(c); account != "" {
 				key = ip + "|" + account
 			}
-			if !limiter.allow(key) {
+			allowed := !useRedis && sensitive[routeKey].allow(key)
+			if useRedis {
+				allowed = redisAllow(ctx, redisClient, "s:"+routeKey+":"+key, limit, window)
+			}
+			if !allowed {
 				c.Header("Retry-After", "60")
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests, slow down"})
 				return
@@ -217,7 +225,11 @@ func RateLimitMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if !general.allow(ip) {
+		allowed := !useRedis && general.allow(ip)
+		if useRedis {
+			allowed = redisAllow(ctx, redisClient, "g:"+ip, 600, window)
+		}
+		if !allowed {
 			c.Header("Retry-After", "60")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
