@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"backend/control-api/internal/httpclient"
 )
 
 const assistantMaxMessages = 40
@@ -35,6 +37,7 @@ func assistantChatHandler() gin.HandlerFunc {
 			UserTimezone   string                   `json:"user_timezone"`
 			ThreadID       string                   `json:"thread_id"`
 			TaggedIssueIDs []string                 `json:"tagged_issue_ids"`
+			Effort         string                   `json:"effort"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -47,17 +50,21 @@ func assistantChatHandler() gin.HandlerFunc {
 		if req.Agent == "" {
 			req.Agent = "operator"
 		}
+		if req.Effort == "" {
+			req.Effort = "high"
+		}
 
 		payload := map[string]interface{}{
-			"messages":      req.Messages,
-			"model":         req.Model,
-			"agent":         req.Agent,
-			"workspace_id":  c.GetString("workspace_id"),
-			"user_id":       c.GetString("user_id"),
-			"user_jwt":      jwt,
-			"user_timezone": req.UserTimezone,
-			"thread_id":         req.ThreadID,
-			"tagged_issue_ids":  req.TaggedIssueIDs,
+			"messages":         req.Messages,
+			"model":            req.Model,
+			"agent":            req.Agent,
+			"workspace_id":     c.GetString("workspace_id"),
+			"user_id":          c.GetString("user_id"),
+			"user_jwt":         jwt,
+			"user_timezone":    req.UserTimezone,
+			"thread_id":        req.ThreadID,
+			"tagged_issue_ids": req.TaggedIssueIDs,
+			"effort":           req.Effort,
 		}
 		raw, err := json.Marshal(payload)
 		if err != nil {
@@ -75,7 +82,7 @@ func assistantChatHandler() gin.HandlerFunc {
 			upstream.Header.Set("X-Internal-Token", token)
 		}
 
-		client := &http.Client{}
+		client := httpclient.Streaming()
 		resp, err := client.Do(upstream)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "ai engine unreachable"})

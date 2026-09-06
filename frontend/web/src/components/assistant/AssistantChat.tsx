@@ -28,7 +28,14 @@ import { SeriesSetupFormCard } from './SeriesSetupFormCard';
 import { ToolExecutionCard } from './ToolExecutionCard';
 import { AssistantMessageContent } from './AssistantMessageContent';
 import { AnalyticsPreview } from './AnalyticsPreview';
+import { EffortSelect } from './EffortSelect';
 import { IssueTagPicker, type TaggedIssue } from './IssueTagPicker';
+import {
+  effortLabel,
+  loadStoredEffort,
+  saveStoredEffort,
+  type AssistantEffort,
+} from '@/lib/assistantEffort';
 
 const AGENTS: Array<{ id: AssistantAgentId; label: string; hint: string; icon: typeof Zap }> = [
   { id: 'operator', label: 'Operator', hint: 'Full workspace control', icon: Sparkles },
@@ -78,6 +85,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
   const [formBusy, setFormBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [taggedIssues, setTaggedIssues] = useState<TaggedIssue[]>([]);
+  const [effort, setEffort] = useState<AssistantEffort>(() => loadStoredEffort());
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
@@ -104,6 +112,10 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
 
   const timezone = user?.timezone || 'UTC';
   const greeting = user?.name?.split(' ')[0] || 'there';
+
+  useEffect(() => {
+    saveStoredEffort(effort);
+  }, [effort]);
 
   useEffect(() => {
     modelsApi.list().then((res) => {
@@ -178,9 +190,9 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
     const text = input;
     const taggedIds = taggedIssues.map((i) => i.id);
     setInput('');
-    await sendMessage(text, model, agent, timezone, taggedIds);
+    await sendMessage(text, model, agent, timezone, taggedIds, effort);
     inputRef.current?.focus();
-  }, [input, streaming, sendMessage, model, agent, timezone, openDock, taggedIssues]);
+  }, [input, streaming, sendMessage, model, agent, timezone, openDock, taggedIssues, effort]);
 
   const handleSuggestion = useCallback((text: string) => {
     openDock();
@@ -212,11 +224,12 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           agent,
           timezone,
           taggedIds,
+          effort,
         );
       }
       setPermissionBusy(false);
     },
-    [agent, continueWithToolResult, model, onSeriesChange, timezone, updatePermission, taggedIssues],
+    [agent, continueWithToolResult, model, onSeriesChange, timezone, updatePermission, taggedIssues, effort],
   );
 
   const handleDeny = useCallback(
@@ -248,15 +261,18 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           agent,
           timezone,
           taggedIds,
+          effort,
         );
       }
       setFormBusy(false);
     },
-    [agent, continueWithToolResult, model, timezone, updateForm, taggedIssues],
+    [agent, continueWithToolResult, model, timezone, updateForm, taggedIssues, effort],
   );
 
   const activeAgent = AGENTS.find((a) => a.id === agent) || AGENTS[0];
   const modelLabel = model || defaultModel;
+  const thinkingLabel =
+    effort === 'max' || effort === 'very_high' ? 'Deep reasoning…' : 'Thinking…';
   const lastUserMessage = messages.filter((m) => m.role === 'user').at(-1)?.content;
   const hasPendingAction = messages.some(
     (m) => m.permission?.status === 'pending' || m.form?.status === 'pending',
@@ -295,6 +311,14 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
                 placeholder="Ask Cadensend AI…"
                 disabled={streaming || loadingThread || !threadId}
                 className="max-h-20 min-h-[24px] flex-1 resize-none bg-transparent text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none disabled:opacity-60"
+              />
+            </div>
+
+            <div className="hidden w-28 shrink-0 sm:block">
+              <EffortSelect
+                value={effort}
+                onChange={setEffort}
+                disabled={streaming || loadingThread}
               />
             </div>
 
@@ -357,13 +381,13 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               {streaming && (
                 <span className="inline-flex items-center gap-1 text-blue-600">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Thinking…
+                  {thinkingLabel}
                 </span>
               )}
               {hasPendingAction && !streaming && (
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Action needed</span>
               )}
-              <span>{activeAgent.label} · {modelLabel.split('/').pop()}</span>
+              <span>{activeAgent.label} · {effortLabel(effort)} · {modelLabel.split('/').pop()}</span>
             </span>
           </div>
 
@@ -478,6 +502,14 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               <Plus className="h-3.5 w-3.5" />
               New
             </button>
+            <div className="w-32">
+              <EffortSelect
+                value={effort}
+                onChange={setEffort}
+                variant="dark"
+                disabled={streaming || loadingThread}
+              />
+            </div>
             <div className="w-48 [&_button]:border-white/15 [&_button]:bg-white/10 [&_button]:text-stone-100">
               <ModelSelect
                 value={model}
@@ -642,7 +674,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           )}
         </div>
         <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-stone-400">
-          Enter to send · Shift+Enter for new line · Write actions require your approval
+          Enter to send · Shift+Enter for new line · Effort: {effortLabel(effort)} · Write actions require approval
           {isDock && ' · Esc to minimize'}
         </p>
       </div>

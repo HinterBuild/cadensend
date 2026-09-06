@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { assistantApi } from '@/lib/api';
 import type {
   AssistantAgentId,
+  AssistantEffort,
   AssistantMessage,
   AssistantPermission,
   AssistantSeriesSetupForm,
@@ -321,6 +322,7 @@ export function useAssistantChat() {
       timezone: string,
       activeThreadId: string,
       taggedIssueIds: string[] = [],
+      effort: AssistantEffort = 'high',
     ) => {
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -351,6 +353,7 @@ export function useAssistantChat() {
             user_timezone: timezone,
             thread_id: isLocalThread(activeThreadId) ? undefined : activeThreadId,
             tagged_issue_ids: taggedIssueIds,
+            effort,
           }),
           signal: controller.signal,
         });
@@ -440,6 +443,7 @@ export function useAssistantChat() {
       agent: AssistantAgentId,
       timezone: string,
       taggedIssueIds: string[] = [],
+      effort: AssistantEffort = 'high',
     ) => {
       const trimmed = text.trim();
       if (!trimmed || streaming || !threadId) return;
@@ -448,7 +452,7 @@ export function useAssistantChat() {
       const next = [...messages, userMsg];
       setMessages(next);
       saveLocalMessages(next);
-      await streamChat(toApiMessages(next), model, agent, timezone, threadId, taggedIssueIds);
+      await streamChat(toApiMessages(next), model, agent, timezone, threadId, taggedIssueIds, effort);
     },
     [messages, streamChat, streaming, threadId],
   );
@@ -463,6 +467,7 @@ export function useAssistantChat() {
       agent: AssistantAgentId,
       timezone: string,
       taggedIssueIds: string[] = [],
+      effort: AssistantEffort = 'high',
     ) => {
       if (!threadId) return;
       const toolMsg: AssistantMessage = {
@@ -478,7 +483,7 @@ export function useAssistantChat() {
       const next = [...messages, toolMsg];
       setMessages(next);
       await syncToServer(next, { agent, model, thread: threadId });
-      await streamChat(apiMessages, model, agent, timezone, threadId, taggedIssueIds);
+      await streamChat(apiMessages, model, agent, timezone, threadId, taggedIssueIds, effort);
     },
     [messages, streamChat, syncToServer, threadId],
   );

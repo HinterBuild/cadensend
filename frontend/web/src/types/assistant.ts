@@ -1,3 +1,5 @@
+export type AssistantEffort = 'low' | 'high' | 'very_high' | 'max';
+
 export type AssistantAgentId = 'operator' | 'series' | 'issues';
 
 export type AssistantRole = 'user' | 'assistant' | 'tool';
@@ -56,7 +58,7 @@ export type AssistantMessage = {
 };
 
 export type AssistantStreamEvent =
-  | { type: 'run_start'; run_id: string; agent: string }
+  | { type: 'run_start'; run_id: string; agent: string; effort?: AssistantEffort }
   | { type: 'token'; content: string }
   | { type: 'tool_start'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; id: string; name: string; output: string; entity_type?: string }
