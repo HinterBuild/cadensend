@@ -7,6 +7,63 @@ from app.platform.llms import LLMRegistry, ProviderConfig
 
 logger = logging.getLogger(__name__)
 
+# Curated latest models per direct provider (native API slugs). Used when live fetch is unavailable.
+CURATED_MODELS: Dict[str, List[Dict[str, str]]] = {
+    "openrouter": [
+        {"id": "poolside/laguna-s-2.1:free", "name": "Laguna S2.1 (Free)"},
+        {"id": "meta-llama/llama-3.3-70b-instruct:free", "name": "Llama 3.3 70B (Free)"},
+        {"id": "qwen/qwen3-next-80b-a3b-instruct:free", "name": "Qwen3 Next 80B (Free)"},
+        {"id": "openai/gpt-oss-120b:free", "name": "GPT OSS 120B (Free)"},
+        {"id": "google/gemma-4-31b-it:free", "name": "Gemma 4 31B (Free)"},
+    ],
+    "openai": [
+        {"id": "gpt-5.6-luna", "name": "GPT-5.6 Luna"},
+        {"id": "gpt-5.6-luna-pro", "name": "GPT-5.6 Luna Pro"},
+        {"id": "gpt-6-astra", "name": "GPT-6 Astra"},
+        {"id": "gpt-4o", "name": "GPT-4o"},
+        {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+        {"id": "o3", "name": "o3"},
+        {"id": "o3-mini", "name": "o3 Mini"},
+    ],
+    "anthropic": [
+        {"id": "claude-opus-5", "name": "Claude Opus 5"},
+        {"id": "claude-sonnet-5", "name": "Claude Sonnet 5"},
+        {"id": "claude-fable-5.1", "name": "Claude Fable 5.1"},
+        {"id": "claude-haiku-4-20250514", "name": "Claude Haiku 4"},
+    ],
+    "gemini": [
+        {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+        {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash"},
+        {"id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash Lite"},
+        {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro"},
+    ],
+    "xai": [
+        {"id": "grok-4.6", "name": "Grok 4.6"},
+        {"id": "grok-4.5", "name": "Grok 4.5"},
+        {"id": "grok-4.20", "name": "Grok 4.20"},
+        {"id": "grok-4.3", "name": "Grok 4.3"},
+    ],
+    "qwen": [
+        {"id": "qwen3.8-max", "name": "Qwen3.8 Max"},
+        {"id": "qwen3.8-flash", "name": "Qwen3.8 Flash"},
+        {"id": "qwen3.7-plus", "name": "Qwen3.7 Plus"},
+        {"id": "qwen3.7-max", "name": "Qwen3.7 Max"},
+    ],
+    "local": [
+        {"id": "llama3.3", "name": "Llama 3.3"},
+        {"id": "llama4", "name": "Llama 4"},
+        {"id": "qwen3", "name": "Qwen 3"},
+        {"id": "gemma3", "name": "Gemma 3"},
+    ],
+}
+
+
+def _is_openai_chat_model(model_id: str) -> bool:
+    lower = model_id.lower()
+    if any(x in lower for x in ("embed", "whisper", "tts", "dall-e", "moderation", "realtime")):
+        return False
+    return lower.startswith(("gpt-", "o", "chatgpt-"))
+
 
 class ModelCatalogService:
     """Service for tracking and managing available LLM models across providers."""
@@ -49,6 +106,9 @@ class ModelCatalogService:
                 else:
                     models = []
 
+            if not models:
+                models = self._get_fallback_models(provider)
+
             self._cache[cache_key] = {"models": models, "_timestamp": now}
             return models
         except Exception as e:
@@ -57,18 +117,19 @@ class ModelCatalogService:
 
     def _fetch_openrouter_models(self) -> List[Dict[str, Any]]:
         api_key = settings.OPENROUTER_API_KEY
-        if not api_key:
-            return self._get_fallback_models("openrouter")
+        headers = {"HTTP-Referer": "https://cadensend.app", "X-Title": "Cadensend"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
         url = f"{settings.OPENROUTER_BASE_URL}/models"
-        response = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"})
+        response = httpx.get(url, headers=headers, timeout=12.0)
         response.raise_for_status()
         data = response.json()
 
         models = []
         for item in data.get("data", []):
             model_id = item.get("id", "")
-            if "embed" in model_id.lower():
+            if not model_id or "embed" in model_id.lower():
                 continue
             models.append({
                 "id": model_id,
@@ -77,6 +138,7 @@ class ModelCatalogService:
                 "context_length": item.get("context_length", 4096),
                 "pricing": item.get("pricing", {}),
             })
+        models.sort(key=lambda m: (not str(m["id"]).endswith(":free"), str(m["id"])))
         return models
 
     def _fetch_openai_models(self) -> List[Dict[str, Any]]:
@@ -84,93 +146,114 @@ class ModelCatalogService:
         if not api_key:
             return self._get_fallback_models("openai")
 
-        url = (settings.OPENAI_BASE_URL or "https://api.openai.com/v1") + "/models"
-        response = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"})
+        base = (settings.OPENAI_BASE_URL or "https://api.openai.com/v1").rstrip("/")
+        response = httpx.get(f"{base}/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=12.0)
         response.raise_for_status()
         data = response.json()
 
         models = []
         for item in data.get("data", []):
             model_id = item.get("id", "")
-            models.append({
-                "id": model_id,
-                "name": item.get("id", model_id),
-                "description": "",
-            })
+            if not model_id or not _is_openai_chat_model(model_id):
+                continue
+            models.append({"id": model_id, "name": model_id, "description": ""})
+        models.sort(key=lambda m: m["id"], reverse=True)
         return models
 
     def _fetch_anthropic_models(self) -> List[Dict[str, Any]]:
-        return [
-            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "description": "Latest Claude model"},
-            {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "description": "Fast Claude model"},
-            {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus", "description": "Most capable Claude model"},
-        ]
+        return [{**m, "description": ""} for m in CURATED_MODELS["anthropic"]]
 
     def _fetch_gemini_models(self) -> List[Dict[str, Any]]:
-        return [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Fast multimodal model"},
-            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "description": "Large context model"},
-        ]
+        api_key = settings.GOOGLE_API_KEY
+        if not api_key:
+            return self._get_fallback_models("gemini")
+
+        response = httpx.get(
+            f"https://generativelanguage.googleapis.com/v1/models?key={api_key}",
+            timeout=12.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        models = []
+        for item in data.get("models", []):
+            full_name = item.get("name", "")
+            model_id = full_name.removeprefix("models/")
+            if not model_id or "gemini" not in model_id.lower():
+                continue
+            methods = item.get("supportedGenerationMethods") or []
+            if "generateContent" not in methods:
+                continue
+            models.append({
+                "id": model_id,
+                "name": item.get("displayName", model_id),
+                "description": "",
+            })
+        models.sort(key=lambda m: m["id"], reverse=True)
+        return models or self._get_fallback_models("gemini")
 
     def _fetch_xai_models(self) -> List[Dict[str, Any]]:
-        return [
-            {"id": "grok-2-128k", "name": "Grok 2 128K", "description": "xAI reasoning model"},
-            {"id": "grok-2-vision-128k", "name": "Grok 2 Vision 128K", "description": "Vision-capable model"},
-        ]
+        return self._fetch_openai_compatible_models(
+            "https://api.x.ai/v1/models",
+            settings.XAI_API_KEY,
+            "xai",
+        )
 
     def _fetch_qwen_models(self) -> List[Dict[str, Any]]:
-        return [
-            {"id": "qwen-turbo", "name": "Qwen Turbo", "description": "Fast Qwen model"},
-            {"id": "qwen-plus", "name": "Qwen Plus", "description": "Advanced Qwen model"},
-            {"id": "qwen-max", "name": "Qwen Max", "description": "Most capable Qwen model"},
-        ]
+        return self._fetch_openai_compatible_models(
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
+            settings.QWEN_API_KEY,
+            "qwen",
+        )
+
+    def _fetch_openai_compatible_models(
+        self, url: str, api_key: str, provider: str
+    ) -> List[Dict[str, Any]]:
+        if not api_key:
+            return self._get_fallback_models(provider)
+
+        response = httpx.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=12.0)
+        response.raise_for_status()
+        data = response.json()
+
+        models = []
+        for item in data.get("data", []):
+            model_id = item.get("id", "")
+            if not model_id:
+                continue
+            models.append({
+                "id": model_id,
+                "name": item.get("name", model_id),
+                "description": "",
+            })
+        models.sort(key=lambda m: m["id"], reverse=True)
+        return models or self._get_fallback_models(provider)
 
     def _fetch_local_models(self) -> List[Dict[str, Any]]:
         try:
-            url = (settings.LOCAL_BASE_URL or "http://localhost:11434") + "/api/tags"
-            response = httpx.get(url)
+            base = (settings.LOCAL_BASE_URL or "http://localhost:11434").rstrip("/").removesuffix("/v1")
+            response = httpx.get(f"{base}/api/tags", timeout=5.0)
             data = response.json()
 
             models = []
             for item in data.get("models", []):
+                name = item.get("name", "")
+                if not name:
+                    continue
                 models.append({
-                    "id": item.get("name", ""),
-                    "name": item.get("name", ""),
+                    "id": name,
+                    "name": name,
                     "description": item.get("description", ""),
                     "size": item.get("size", 0),
                 })
-            return models
+            if models:
+                return models
         except Exception as e:
             logger.warning("Could not fetch local models: %s", e)
-            return []
+        return self._get_fallback_models("local")
 
     def _get_fallback_models(self, provider: str) -> List[Dict[str, Any]]:
-        fallback = {
-            "openrouter": [
-                {"id": "poolside/laguna-s-2.1:free", "name": "Laguna S2.1 (Free)", "description": "Default model"},
-                {"id": "meta-llama/llama-3-8b-instruct:free", "name": "Llama 3 8B (Free)", "description": "Meta model"},
-            ],
-            "openai": [
-                {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "description": "Fast and affordable"},
-                {"id": "gpt-4o", "name": "GPT-4o", "description": "Most capable"},
-            ],
-            "anthropic": [
-                {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet", "description": "Balanced model"},
-                {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "description": "Fast model"},
-            ],
-            "gemini": [
-                {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Fast model"},
-                {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "description": "Powerful model"},
-            ],
-            "local": [],
-            "xai": [
-                {"id": "grok-2-128k", "name": "Grok 2 128K", "description": "xAI model"},
-            ],
-            "qwen": [
-                {"id": "qwen-turbo", "name": "Qwen Turbo", "description": "Fast Qwen"},
-            ],
-        }
-        return fallback.get(provider, [])
+        return [{**m, "description": m.get("description", "")} for m in CURATED_MODELS.get(provider, [])]
 
     def get_workspace_preferred_models(self, workspace_id: str) -> List[Dict[str, Any]]:
         """Get models preferred by workspace configuration."""

@@ -11,7 +11,7 @@ class QwenProvider(LLMProvider):
         self.config = config
         self.api_key = config.api_key
         self.base_url = config.base_url or self.DEFAULT_BASE_URL
-        self.model = config.model or "qwen-turbo"
+        self.model = config.model or "qwen3.8-flash"
         self._client = None
 
     @property

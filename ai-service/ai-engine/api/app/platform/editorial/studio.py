@@ -57,7 +57,7 @@ EMOJI_PRESETS: Dict[str, str] = {
 COMPARE_MODELS = [
     "poolside/laguna-s-2.1:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemma-3-12b-it:free",
+    "google/gemma-4-31b-it:free",
 ]
 
 

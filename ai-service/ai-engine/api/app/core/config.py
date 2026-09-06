@@ -39,28 +39,24 @@ class Settings(BaseSettings):
     # OpenAI settings
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: Optional[str] = None
-    OPENAI_MODEL: str = "gpt-4o-mini"
     
     # Anthropic settings
     ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
     
     # Google Gemini settings
     GOOGLE_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
     
     # xAI Grok settings
     XAI_API_KEY: str = ""
-    XAI_MODEL: str = "grok-2-128k"
     
     # Qwen settings
     QWEN_API_KEY: str = ""
-    QWEN_MODEL: str = "qwen-turbo"
     
     # Local LLM settings
     LOCAL_BASE_URL: str = "http://localhost:11434"
-    LOCAL_MODEL: str = "llama3"
     
+    # Bootstrap defaults when workspace has no saved provider/model yet.
+    # Model pickers load live catalogs from provider APIs — these are not the source of truth.
     DEFAULT_MODEL: str = "poolside/laguna-s-2.1:free"
     EMBEDDING_MODEL: str = "nvidia/nemotron-3-embed-1b:free"
     

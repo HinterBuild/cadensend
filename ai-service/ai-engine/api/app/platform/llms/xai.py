@@ -11,7 +11,7 @@ class XAIProvider(LLMProvider):
         self.config = config
         self.api_key = config.api_key
         self.base_url = config.base_url or self.DEFAULT_BASE_URL
-        self.model = config.model or "grok-2-128k"
+        self.model = config.model or "grok-4.6"
         self._client = None
 
     @property
