@@ -151,44 +151,13 @@ func listLLMProvidersHandler(db *gorm.DB) gin.HandlerFunc {
 func getLLMProviderModelsHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		provider := c.Param("id")
-
-		fallbackModels := map[string][]gin.H{
-			"openrouter": {
-				{"id": "poolside/laguna-s-2.1:free", "name": "Laguna S2.1 (Free)"},
-				{"id": "meta-llama/llama-3-8b-instruct:free", "name": "Llama 3 8B (Free)"},
-				{"id": "meta-llama/llama-3-70b-instruct:free", "name": "Llama 3 70B (Free)"},
-			},
-			"openai": {
-				{"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
-				{"id": "gpt-4o", "name": "GPT-4o"},
-				{"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
-			},
-			"anthropic": {
-				{"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet"},
-				{"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"},
-				{"id": "claude-3-opus-20240229", "name": "Claude 3 Opus"},
-			},
-			"gemini": {
-				{"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
-				{"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
-			},
-			"local": {
-				{"id": "llama3", "name": "Llama 3"},
-				{"id": "phi3", "name": "Phi-3"},
-				{"id": "gemma2", "name": "Gemma 2"},
-			},
-			"xai": {
-				{"id": "grok-2-128k", "name": "Grok 2 128K"},
-				{"id": "grok-2-vision-128k", "name": "Grok 2 Vision 128K"},
-			},
-			"qwen": {
-				{"id": "qwen-turbo", "name": "Qwen Turbo"},
-				{"id": "qwen-plus", "name": "Qwen Plus"},
-				{"id": "qwen-max", "name": "Qwen Max"},
-			},
+		if !validLLMProviders[provider] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown provider: " + provider})
+			return
 		}
 
-		models := fallbackModels[provider]
+		workspaceID := c.GetString("workspace_id")
+		models := resolveProviderModels(db, workspaceID, provider)
 		if models == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown provider: " + provider})
 			return

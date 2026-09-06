@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1916,45 +1915,16 @@ func listModelsHandler() gin.HandlerFunc {
 		}
 		seen := map[string]bool{defaultModel: true}
 
-		req, err := http.NewRequest(http.MethodGet, "https://openrouter.ai/api/v1/models", nil)
-		if err == nil {
-			req.Header.Set("HTTP-Referer", "https://cadensend.app")
-			req.Header.Set("X-Title", "Cadensend")
-			resp, err := http.DefaultClient.Do(req)
-			if err == nil {
-				defer resp.Body.Close()
-				var payload struct {
-					Data []struct {
-						ID   string `json:"id"`
-						Name string `json:"name"`
-					} `json:"data"`
-				}
-				if json.NewDecoder(resp.Body).Decode(&payload) == nil {
-					var extras []gin.H
-					for _, m := range payload.Data {
-						if m.ID == "" || seen[m.ID] || strings.Contains(strings.ToLower(m.ID), "embed") {
-							continue
-						}
-						name := m.Name
-						if name == "" {
-							name = m.ID
-						}
-						extras = append(extras, gin.H{"id": m.ID, "name": name, "is_default": false})
-						seen[m.ID] = true
-					}
-					sort.Slice(extras, func(i, j int) bool {
-						iID := extras[i]["id"].(string)
-						jID := extras[j]["id"].(string)
-						iFree := strings.HasSuffix(iID, ":free")
-						jFree := strings.HasSuffix(jID, ":free")
-						if iFree != jFree {
-							return iFree
-						}
-						return iID < jID
-					})
-					models = append(models, extras...)
-				}
+		for _, m := range fetchOpenRouterModels("") {
+			if seen[m.ID] {
+				continue
 			}
+			name := m.Name
+			if name == "" {
+				name = m.ID
+			}
+			models = append(models, gin.H{"id": m.ID, "name": name, "is_default": false})
+			seen[m.ID] = true
 		}
 
 		c.JSON(http.StatusOK, gin.H{
