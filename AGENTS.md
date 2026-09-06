@@ -15,9 +15,11 @@ cd ai-service/ai-engine/workers && python workers/main.py
 cd frontend/web && npm run dev
 
 # Run tests
+make test
+# or individually:
 go test ./backend/control-api/...
 go test ./backend/control-worker/...
-pip install -r ai-service/ai-engine/api/requirements.txt && python -m pytest ai-service/ai-engine/api/tests/
+pip install -r ai-service/ai-engine/api/requirements.txt -r ai-service/ai-engine/api/requirements-dev.txt && python -m pytest ai-service/ai-engine/api/tests/
 cd frontend/web && npm test
 
 # Build all
