@@ -1,4 +1,4 @@
-# AGENTS.md - Project Guidance for Kilo Agents
+# AGENTS.md - Project Guidance for AI Coding Agents
 
 ## Build & Run Commands
 
