@@ -4,6 +4,7 @@ package database
 import (
 	"log"
 	"sync"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -51,6 +52,28 @@ func Init(databaseURL string) {
 
 		log.Println("Database connection established")
 	})
+}
+
+// ConfigurePool applies connection pool limits (call after Init).
+func ConfigurePool(maxIdle, maxOpen int, maxLifetime time.Duration) {
+	if dbInstance == nil {
+		return
+	}
+	sqlDB, err := dbInstance.DB()
+	if err != nil {
+		log.Printf("ConfigurePool: %v", err)
+		return
+	}
+	if maxIdle > 0 {
+		sqlDB.SetMaxIdleConns(maxIdle)
+	}
+	if maxOpen > 0 {
+		sqlDB.SetMaxOpenConns(maxOpen)
+	}
+	if maxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(maxLifetime)
+	}
+	log.Printf("Database pool: max_idle=%d max_open=%d max_lifetime=%s", maxIdle, maxOpen, maxLifetime)
 }
 
 // Get returns the database instance

@@ -29,6 +29,15 @@ type Config struct {
 
 	// Frontend base URL used in alert links.
 	FrontendOrigin string
+
+	// Database pool (per replica)
+	DBMaxIdleConns    int
+	DBMaxOpenConns    int
+	DBConnMaxLifetime time.Duration
+
+	// Worker concurrency
+	AsynqConcurrency    int
+	SchedulerSemLimit   int
 }
 
 // LoadConfig loads configuration from environment variables
@@ -51,6 +60,12 @@ func LoadConfig() *Config {
 		OTELEndpoint:  getEnv("OTEL_ENDPOINT", "http://localhost:4318"),
 
 		FrontendOrigin: strings.TrimRight(getEnv("FRONTEND_ORIGIN", "http://localhost:3000"), "/"),
+
+		DBMaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
+		DBMaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 20),
+		DBConnMaxLifetime: time.Duration(getEnvInt("DB_CONN_MAX_LIFETIME_MINUTES", 30)) * time.Minute,
+		AsynqConcurrency:  getEnvInt("ASYNQ_CONCURRENCY", 10),
+		SchedulerSemLimit: getEnvInt("SCHEDULER_SEM_LIMIT", 10),
 	}
 
 	if expiry := getEnv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"); expiry != "" {

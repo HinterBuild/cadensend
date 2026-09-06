@@ -30,6 +30,7 @@ func init() {
 	cfg = config.LoadConfig()
 
 	database.Init(cfg.DatabaseURL)
+	database.ConfigurePool(cfg.DBMaxIdleConns, cfg.DBMaxOpenConns, cfg.DBConnMaxLifetime)
 	deliveryWorker := delivery.StartDeliveryWorker(cfg)
 	tasks.SetDeliverer(deliveryWorker.DeliverScheduled)
 	go scheduler.StartScheduler(cfg)

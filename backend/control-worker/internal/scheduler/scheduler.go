@@ -53,11 +53,15 @@ func StartScheduler(cfg *config.Config) {
 	defer asynqClient.Close()
 
 	// Create scheduler
+	semLimit := cfg.SchedulerSemLimit
+	if semLimit <= 0 {
+		semLimit = 10
+	}
 	s := &Scheduler{
 		config:      cfg,
 		db:          db,
 		asynqClient: asynqClient,
-		sem:         semaphore.NewWeighted(10),
+		sem:         semaphore.NewWeighted(int64(semLimit)),
 	}
 
 	// Start scheduler loop
@@ -74,9 +78,13 @@ func StartScheduler(cfg *config.Config) {
 	mux.HandleFunc("source:ingest", tasks.IngestSourceTask)
 	mux.HandleFunc("schedule:run", tasks.ScheduleRunTask)
 
+	asynqConcurrency := cfg.AsynqConcurrency
+	if asynqConcurrency <= 0 {
+		asynqConcurrency = 10
+	}
 	server := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum},
-		asynq.Config{Concurrency: 10},
+		asynq.Config{Concurrency: asynqConcurrency},
 	)
 
 	go func() {
@@ -105,25 +113,22 @@ type Scheduler struct {
 func (s *Scheduler) processDueJobs(ctx context.Context) error {
 	now := time.Now().UTC()
 
-	tx := s.db.Begin()
-
 	var schedules []Schedule
-	if err := tx.WithContext(ctx).
-		Where("status = ? AND run_at <= ? AND attempts < ?", "pending", now, s.config.MaxAttempts).
-		Order("run_at ASC").
-		Limit(50).
-		Find(&schedules).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to query schedules: %w", err)
+	err := s.db.WithContext(ctx).Raw(`
+		UPDATE schedules
+		SET status = 'claimed', claimed_at = ?, updated_at = ?
+		WHERE id IN (
+			SELECT id FROM schedules
+			WHERE status = 'pending' AND run_at <= ? AND attempts < ?
+			ORDER BY run_at ASC
+			LIMIT 50
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, now, now, now, s.config.MaxAttempts).Scan(&schedules).Error
+	if err != nil {
+		return fmt.Errorf("failed to claim schedules: %w", err)
 	}
-
-	for i := range schedules {
-		schedules[i].Status = "claimed"
-		schedules[i].ClaimedAt = &now
-		tx.Save(&schedules[i])
-	}
-
-	tx.Commit()
 
 	for i := range schedules {
 		if err := s.processSchedule(ctx, &schedules[i]); err != nil {
