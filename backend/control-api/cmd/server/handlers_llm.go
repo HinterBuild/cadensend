@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"backend/control-api/internal/httpclient"
 	"backend/control-api/internal/service"
 )
 
@@ -371,7 +372,7 @@ func validateLLMProviderHandler(db *gorm.DB) gin.HandlerFunc {
 			httpReq.Header.Set(k, v)
 		}
 
-		resp, err := http.DefaultClient.Do(httpReq)
+		resp, err := httpclient.Standard().Do(httpReq)
 		if err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"valid": false, "error": "failed to reach provider"})
 			return
