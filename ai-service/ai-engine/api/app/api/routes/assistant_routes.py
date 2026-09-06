@@ -37,6 +37,7 @@ class AssistantChatRequest(BaseModel):
     user_timezone: str = "UTC"
     thread_id: Optional[str] = None
     tagged_issue_ids: List[str] = Field(default_factory=list)
+    effort: str = Field(default="high", description="low | high | very_high | max")
 
 
 @router.post("/chat")
@@ -65,6 +66,7 @@ async def assistant_chat(request: AssistantChatRequest):
                 user_timezone=request.user_timezone or "UTC",
                 thread_id=request.thread_id,
                 tagged_issue_ids=request.tagged_issue_ids,
+                effort=request.effort,
             ):
                 yield chunk
         except Exception as exc:
@@ -81,6 +83,24 @@ async def assistant_chat(request: AssistantChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/effort-levels")
+async def list_effort_levels():
+    from app.services.assistant_effort import EFFORT_PROFILES
+
+    return {
+        "levels": [
+            {
+                "id": key,
+                "label": val["label"],
+                "description": val["description"],
+                "max_tool_rounds": val["max_tool_rounds"],
+            }
+            for key, val in EFFORT_PROFILES.items()
+        ],
+        "default": "high",
+    }
 
 
 @router.get("/agents")

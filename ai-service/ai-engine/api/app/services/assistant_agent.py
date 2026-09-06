@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, Sys
 from app.core.config import settings
 from app.services.assistant_client import ControlAPIClient
 from app.services.assistant_tools import AGENT_PROFILES, PROPOSE_PREFIX, build_assistant_tools
+from app.services.assistant_effort import effort_model_kwargs, get_effort_profile, normalize_effort
 from app.services.model_service import ModelService, get_chat_model_for_workspace, resolve_provider_config
 
 logger = logging.getLogger(__name__)
@@ -104,9 +105,9 @@ def normalize_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, An
     return out
 
 
-def _to_lc_messages(messages: List[Dict[str, Any]]) -> List:
+def _to_lc_messages(messages: List[Dict[str, Any]], max_history: int = MAX_HISTORY) -> List:
     out = []
-    for msg in messages[-MAX_HISTORY:]:
+    for msg in messages[-max_history:]:
         role = msg.get("role")
         content = str(msg.get("content") or "")
         if role == "user":
@@ -209,9 +210,21 @@ class AssistantAgent:
         user_timezone: str = "UTC",
         thread_id: Optional[str] = None,
         tagged_issue_ids: Optional[List[str]] = None,
+        effort: str = "high",
     ) -> AsyncIterator[str]:
+        effort_key = normalize_effort(effort)
+        profile = get_effort_profile(effort_key)
+        max_tool_rounds = int(profile["max_tool_rounds"])
+        max_history = int(profile["max_history"])
+
         run_id = str(uuid.uuid4())
-        yield _sse({"type": "run_start", "run_id": run_id, "agent": agent, "thread_id": thread_id})
+        yield _sse({
+            "type": "run_start",
+            "run_id": run_id,
+            "agent": agent,
+            "thread_id": thread_id,
+            "effort": effort_key,
+        })
 
         provider_config = resolve_provider_config(provider=None, model=model, workspace_id=workspace_id)
         has_key = bool((provider_config.api_key or "").strip())
@@ -251,13 +264,20 @@ class AssistantAgent:
                     summaries.append(f"- {issue_id}")
             tagged_context = "\nTagged issues in this message (prioritize for edits/reviews):\n" + "\n".join(summaries)
 
-        chat = get_chat_model_for_workspace(workspace_id, model=model, temperature=0.35, max_tokens=2048)
+        chat = get_chat_model_for_workspace(
+            workspace_id,
+            model=model,
+            temperature=float(profile["temperature"]),
+            max_tokens=int(profile["max_tokens"]),
+            model_kwargs=effort_model_kwargs(effort_key),
+        )
         bound = chat.bind_tools(tools)
 
         lc_messages = [
             SystemMessage(
                 content=(
                     f"{SYSTEM_PROMPT}\n\n"
+                    f"{profile['system_hint']}\n\n"
                     f"Agent profile: {agent}\n"
                     f"Workspace: {workspace_id}\n"
                     f"User: {user_id}\n"
@@ -265,11 +285,11 @@ class AssistantAgent:
                     f"{tagged_context}"
                 )
             ),
-            *_to_lc_messages(messages),
+            *_to_lc_messages(messages, max_history=max_history),
         ]
 
         rounds = 0
-        while rounds < MAX_TOOL_ROUNDS:
+        while rounds < max_tool_rounds:
             rounds += 1
             response: Optional[AIMessage] = None
             try:

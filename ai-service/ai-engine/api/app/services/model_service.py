@@ -107,10 +107,12 @@ def get_chat_model_from_config(
     config: ProviderConfig,
     temperature: float = 0.7,
     max_tokens: int = 4000,
+    model_kwargs: Optional[Dict[str, Any]] = None,
 ) -> ChatOpenAI:
     """LangChain chat model for OpenAI-compatible providers."""
     base_url = config.base_url
     api_key = config.api_key
+    extra_kwargs = model_kwargs or {}
 
     if config.provider == "openrouter":
         base_url = base_url or settings.OPENROUTER_BASE_URL
@@ -121,6 +123,7 @@ def get_chat_model_from_config(
             model=config.model,
             temperature=temperature,
             max_tokens=max_tokens,
+            model_kwargs=extra_kwargs,
             timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
             max_retries=2,
         )
@@ -139,6 +142,7 @@ def get_chat_model_from_config(
             model=config.model,
             temperature=temperature,
             max_tokens=max_tokens,
+            model_kwargs=extra_kwargs,
             timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
             max_retries=2,
         )
@@ -150,6 +154,7 @@ def get_chat_model_from_config(
         model=config.model,
         temperature=temperature,
         max_tokens=max_tokens,
+        model_kwargs=extra_kwargs,
         timeout=float(settings.OPENROUTER_TIMEOUT_SECONDS),
         max_retries=2,
     )
@@ -160,10 +165,16 @@ def get_chat_model_for_workspace(
     model: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 4000,
+    model_kwargs: Optional[Dict[str, Any]] = None,
 ) -> ChatOpenAI:
     """Chat model using the workspace's configured LLM provider."""
     config = resolve_provider_config(provider=None, model=model, workspace_id=workspace_id)
-    return get_chat_model_from_config(config, temperature=temperature, max_tokens=max_tokens)
+    return get_chat_model_from_config(
+        config,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        model_kwargs=model_kwargs,
+    )
 
 
 class ModelService:
