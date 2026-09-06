@@ -23,6 +23,7 @@ import type {
   Source,
   User,
 } from '@/types';
+import type { ContentPreferences } from '@/types/contentPreferences';
 
 async function fetchApi<T>(
   endpoint: string,
@@ -574,4 +575,13 @@ export const emailProviderApi = {
   update: (payload: { provider: string; from_email: string; from_name?: string; config?: Record<string, unknown> }) =>
     fetchApi('/settings/email-provider', { method: 'PUT', body: JSON.stringify(payload) }),
   test: () => fetchApi<{ message: string }>('/settings/email-provider/test', { method: 'POST', body: '{}' }),
+};
+
+export const contentPreferencesApi = {
+  get: () => fetchApi<{ data: ContentPreferences }>('/settings/content-preferences'),
+  update: (prefs: ContentPreferences) =>
+    fetchApi<{ data: ContentPreferences; message: string }>('/settings/content-preferences', {
+      method: 'PUT',
+      body: JSON.stringify(prefs),
+    }),
 };

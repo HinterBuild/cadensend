@@ -42,3 +42,24 @@ export const SERIES_TIMEZONES = [
   'Asia/Tokyo',
   'Australia/Sydney',
 ];
+
+export const DEFAULT_TONE_OPTIONS = [
+  { value: 'instructor', label: 'Instructor' },
+  { value: 'newsletter', label: 'Newsletter' },
+  { value: 'briefing', label: 'Briefing' },
+];
+
+export const DEFAULT_GOAL_STARTERS = [
+  {
+    label: 'Hands-on labs',
+    text: 'By the end of this series, you should be able to complete practical labs and apply the concepts yourself.',
+  },
+  {
+    label: 'Interview prep',
+    text: 'By the end of this series, you should be able to explain the core ideas clearly and answer common interview questions.',
+  },
+  {
+    label: 'Weekly digest',
+    text: 'By the end of this series, you should be able to keep up with this topic through short, practical recaps.',
+  },
+];
