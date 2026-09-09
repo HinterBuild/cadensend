@@ -1,5 +1,7 @@
 'use client';
 
+import { PageHeader } from '@/components/WorkspaceUI';
+
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Save, Calendar, Clock, CheckCircle, Plus, X, Link2, Rss, FileUp, Wand2 } from 'lucide-react';
 import Link from 'next/link';
@@ -421,7 +423,7 @@ export default function CreateSeriesPage() {
     : TIMEZONES;
 
   return (
-    <div className="min-h-full py-12">
+    <div className="min-h-full py-6 sm:py-8">
       <div className="max-w-2xl mx-auto px-4">
         <div className="mb-6">
           <Link
@@ -434,6 +436,8 @@ export default function CreateSeriesPage() {
           </Link>
         </div>
 
+        <PageHeader eyebrow="Create" title="New series" description="Choose a topic, shape your content, and set your publishing schedule." />
+
         <nav aria-label="Progress" className="mb-8">
           <ol className="flex items-start justify-between gap-2">
             {steps.map((step) => {
@@ -443,6 +447,7 @@ export default function CreateSeriesPage() {
                 <li key={step.id} className="flex-1">
                   <button
                     type="button"
+                    aria-current={active ? 'step' : undefined}
                     onClick={() => goToStep(step.id)}
                     className="w-full text-left"
                   >
@@ -469,7 +474,7 @@ export default function CreateSeriesPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
+        <div className="bg-white rounded-lg border border-[#e7e0d6] p-5 sm:p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-2">
             {steps[currentStep - 1].title}
           </h2>

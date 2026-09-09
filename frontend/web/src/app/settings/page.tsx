@@ -215,10 +215,11 @@ export default function SettingsPage() {
   return (
     <div className="min-h-full">
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Account</p>
-            <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Settings</h1>
+            <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Settings</h1>
+            <p className="mt-2 text-sm leading-6 text-stone-600">Manage your profile, writing preferences, and delivery settings.</p>
           </div>
           <button
             type="button"
@@ -230,6 +231,10 @@ export default function SettingsPage() {
             Sign Out
           </button>
         </div>
+
+        <nav aria-label="Settings sections" className="mb-6 flex flex-wrap gap-2">{[
+          ['profile', 'Profile'], ['voices', 'Voices & goals'], ['models', 'Models'], ['sending', 'Send inbox'], ['password', 'Password'], ['security', 'Security']
+        ].map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-lg border border-[#e7e0d6] bg-white px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 hover:no-underline">{label}</a>)}</nav>
 
         {error && (
           <div
@@ -253,12 +258,12 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <div className="grid gap-8">
+        <div className="grid gap-5">
           {/* Profile Settings */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-white rounded-lg border border-[#e7e0d6] p-6">
             <div className="flex items-center gap-3 mb-4">
               <User className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">Profile</h2>
+              <h2 id="profile" className="scroll-mt-20 font-display text-2xl text-stone-900">Profile</h2>
             </div>
 
             <form onSubmit={handleSave} className="space-y-6">
@@ -359,10 +364,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Voices & Goals */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-white rounded-lg border border-[#e7e0d6] p-6">
             <div className="flex items-center gap-3 mb-4">
               <PenLine className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">Voices & goals</h2>
+              <h2 id="voices" className="scroll-mt-20 font-display text-2xl text-stone-900">Voices & goals</h2>
             </div>
             <p className="text-sm text-gray-500 mb-6">
               Create custom writing voices and goal presets. They appear when you create a new series.
@@ -389,10 +394,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Model provider */}
-          <div className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
+          <div className="rounded-lg border border-[#e7e0d6] bg-white p-6">
             <div className="mb-4 flex items-center gap-3">
               <Sparkles className="h-5 w-5 text-stone-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-stone-900">Model provider</h2>
+              <h2 id="models" className="scroll-mt-20 font-display text-2xl text-stone-900">Model provider</h2>
             </div>
             <p className="mb-6 text-sm text-stone-500">
               Choose your LLM provider and API key for this workspace. Generation and the assistant use these settings.
@@ -409,10 +414,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Email Provider / Send Inbox */}
-          <div className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
+          <div className="rounded-lg border border-[#e7e0d6] bg-white p-6">
             <div className="mb-4 flex items-center gap-3">
               <Mail className="h-5 w-5 text-stone-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-stone-900">Send inbox</h2>
+              <h2 id="sending" className="scroll-mt-20 font-display text-2xl text-stone-900">Send inbox</h2>
             </div>
             <p className="mb-4 text-sm text-stone-500">
               Choose your email provider. Issues send from your configured inbox.
@@ -496,10 +501,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Password Settings */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-white rounded-lg border border-[#e7e0d6] p-6">
             <div className="flex items-center gap-3 mb-4">
               <Lock className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">Password</h2>
+              <h2 id="password" className="scroll-mt-20 font-display text-2xl text-stone-900">Password</h2>
             </div>
 
             <form onSubmit={handlePasswordChange} className="space-y-6">
@@ -572,10 +577,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Security */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-white rounded-lg border border-[#e7e0d6] p-6">
             <div className="flex items-center gap-3 mb-2">
               <ShieldCheck className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">Security</h2>
+              <h2 id="security" className="scroll-mt-20 font-display text-2xl text-stone-900">Security</h2>
             </div>
             <p className="mb-4 text-sm text-gray-600">
               Signed out everywhere else? Revoke all sessions if a device was lost or you suspect
