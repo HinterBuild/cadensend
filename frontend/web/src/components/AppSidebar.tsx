@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { BrandLogo, BrandWordmark } from '@/components/BrandLogo';
 
-const navigation = [
+export const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Insights', href: '/insights', icon: Sparkles },
   { name: 'Skills', href: '/skills', icon: Wand2 },

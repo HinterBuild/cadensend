@@ -1,7 +1,8 @@
 'use client';
 
 import { ChevronDown, Gauge } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   EFFORT_OPTIONS,
   type AssistantEffort,
@@ -23,12 +24,51 @@ export function EffortSelect({
 }: EffortSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
   const active = EFFORT_OPTIONS.find((o) => o.id === value) || EFFORT_OPTIONS[1];
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const trigger = triggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger || !menu) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const margin = 8;
+      const gap = 4;
+      const width = Math.min(208, window.innerWidth - margin * 2);
+      menu.style.width = `${width}px`;
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - gap - margin);
+      const spaceAbove = Math.max(0, rect.top - gap - margin);
+      const height = menu.scrollHeight + 2;
+      const openUp = spaceBelow < height && spaceAbove > spaceBelow;
+      const maxHeight = openUp ? spaceAbove : spaceBelow;
+
+      Object.assign(menu.style, {
+        left: `${Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))}px`,
+        top: `${openUp ? Math.max(margin, rect.top - gap - Math.min(height, maxHeight)) : rect.bottom + gap}px`,
+        maxHeight: `${maxHeight}px`,
+      });
+    };
+
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', onPointer);
     return () => document.removeEventListener('mousedown', onPointer);
@@ -37,10 +77,23 @@ export function EffortSelect({
   const isDark = variant === 'dark';
 
   return (
-    <div ref={rootRef} className="relative">
+    <div
+      ref={rootRef}
+      className="relative"
+      onKeyDown={(event) => {
+        if (open && event.key === 'Escape') {
+          event.stopPropagation();
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
+      }}
+    >
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((v) => !v)}
         title={`Effort: ${active.hint}`}
         className={`inline-flex h-9 w-full items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors disabled:opacity-50 ${
@@ -66,9 +119,13 @@ export function EffortSelect({
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          className={`absolute bottom-full left-0 z-50 mb-1 w-52 overflow-hidden rounded-xl border shadow-lg ${
+          ref={menuRef}
+          id={menuId}
+          role="group"
+          aria-label="Effort level"
+          className={`fixed z-[100] w-52 overflow-y-auto rounded-xl border shadow-lg ${
             isDark ? 'border-stone-600 bg-stone-900' : 'border-[#e7e0d6] bg-white'
           }`}
         >
@@ -81,7 +138,9 @@ export function EffortSelect({
                 onClick={() => {
                   onChange(opt.id);
                   setOpen(false);
+                  triggerRef.current?.focus();
                 }}
+                aria-pressed={selected}
                 className={`flex w-full items-start gap-2 px-3 py-2.5 text-left text-sm transition-colors ${
                   selected
                     ? isDark ? 'bg-white/10 text-white' : 'bg-stone-50 text-stone-900'
@@ -109,7 +168,8 @@ export function EffortSelect({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

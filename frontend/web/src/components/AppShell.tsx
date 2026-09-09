@@ -1,35 +1,25 @@
 "use client";
 
-import { ReactNode, useEffect, useState, type CSSProperties } from 'react';
+import { ReactNode, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
-import { AppSidebar } from '@/components/AppSidebar';
+import { AppSidebar, navigation } from '@/components/AppSidebar';
 import { BrandWordmark } from '@/components/BrandLogo';
 
 const SIDEBAR_COLLAPSED_KEY = 'cadensend.sidebar.collapsed';
 
-const MOBILE_NAV = [
-  { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Insights', href: '/insights' },
-  { name: 'Recipients', href: '/recipients' },
-  { name: 'Sources', href: '/sources' },
-  { name: 'Run Center', href: '/runs' },
-  { name: 'Settings', href: '/settings' },
-];
-
 export function AppShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const pathname = usePathname();
-
-  useEffect(() => {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
     try {
-      setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1');
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
     } catch {
-      // ignore storage errors
+      return false;
     }
-  }, []);
+  });
+  const pathname = usePathname();
 
   const toggleSidebar = () => {
     setSidebarCollapsed((prev) => {
@@ -68,10 +58,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav
           id="mobile-nav"
           aria-label="Primary"
-          className="fixed inset-x-0 top-[52px] z-40 border-b border-[#e7e0d6] bg-[#faf8f5] px-4 pb-4 pt-2 shadow-lg sm:hidden"
+          className="fixed inset-x-0 top-[52px] z-40 max-h-[calc(100dvh-52px)] overflow-y-auto border-b border-[#e7e0d6] bg-[#faf8f5] px-4 pb-4 pt-2 shadow-lg sm:hidden"
         >
           <ul className="space-y-1">
-            {MOBILE_NAV.map((item) => {
+            {navigation.map((item) => {
+              const Icon = item.icon;
               const inSeriesFlow =
                 item.href === '/dashboard' &&
                 (pathname.startsWith('/series') || pathname.startsWith('/issues'));
@@ -82,11 +73,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                     href={item.href}
                     onClick={close}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`block rounded-xl px-3 py-2.5 text-sm font-medium no-underline ${
+                    className={`flex items-center rounded-xl px-3 py-2.5 text-sm font-medium no-underline ${
                       isActive ? 'bg-stone-900 text-white' : 'text-stone-700 hover:bg-stone-200/70'
                     }`}
                   >
-                    {item.name}
+                    <Icon className="mr-3 h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                    <span>{item.name}</span>
                   </Link>
                 </li>
               );
