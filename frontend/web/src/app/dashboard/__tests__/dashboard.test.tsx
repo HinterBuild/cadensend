@@ -2,7 +2,7 @@
  * Tests for dashboard page
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DashboardPage from '@/app/dashboard/page';
 import { seriesApi } from '@/lib/api';
 
@@ -64,6 +64,17 @@ describe('DashboardPage', () => {
   it('shows create new series button', async () => {
     render(<DashboardPage />);
     expect(await screen.findByText('Create New Series')).toBeInTheDocument();
+  });
+
+  it('filters series by topic and restores results when filters are cleared', async () => {
+    render(<DashboardPage />);
+    const search = await screen.findByRole('searchbox', { name: 'Search series' });
+    fireEvent.change(search, { target: { value: 'missing topic' } });
+    expect(screen.queryByText('Intro to Kubernetes')).not.toBeInTheDocument();
+    expect(screen.getByText('No results match this view')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByText('Intro to Kubernetes')).toBeInTheDocument();
+    expect(search).toHaveValue('');
   });
 
   it('displays series when loaded', async () => {

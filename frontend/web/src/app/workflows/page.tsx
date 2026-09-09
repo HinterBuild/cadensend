@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchField, EmptyResults } from '@/components/WorkspaceUI';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronDown, GitBranch, Sparkles, Wand2 } from 'lucide-react';
@@ -230,12 +232,12 @@ export default function WorkflowsPage() {
 
   if (authLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="h-8 w-64 animate-pulse rounded-lg bg-stone-200" />
         <div className="mt-4 h-4 w-full max-w-xl animate-pulse rounded bg-stone-100" />
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[1, 2, 3, 4].map((n) => (
-            <div key={n} className="h-36 animate-pulse rounded-2xl bg-stone-100" />
+            <div key={n} className="h-36 animate-pulse rounded-lg bg-stone-100" />
           ))}
         </div>
       </div>
@@ -245,9 +247,10 @@ export default function WorkflowsPage() {
   if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="mb-8">
-        <h1 className="font-display text-3xl text-stone-900">Workflows</h1>
+        <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Production</p>
+        <h1 className="font-display mt-1 text-3xl text-stone-900 sm:text-4xl">Workflows</h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-600">
           <strong className="font-medium text-stone-800">Skills</strong> define what you write.{' '}
           <strong className="font-medium text-stone-800">Workflows</strong> define how each issue is produced.
@@ -277,8 +280,9 @@ export default function WorkflowsPage() {
               <button
                 key={preset.id}
                 type="button"
+                aria-pressed={active}
                 onClick={() => pickWorkflow(preset.id)}
-                className={`rounded-2xl border p-5 text-left transition-shadow ${
+                className={`rounded-lg border p-5 text-left transition-shadow ${
                   active ? 'border-stone-900 bg-stone-50 shadow-sm' : 'border-[#e7e0d6] bg-white hover:border-stone-400 hover:shadow-md'
                 }`}
               >
@@ -292,7 +296,7 @@ export default function WorkflowsPage() {
         </div>
       </section>
 
-      <section className="mb-10 rounded-2xl border border-[#e7e0d6] bg-white p-6">
+      <section className="mb-10 rounded-lg border border-[#e7e0d6] bg-white p-6">
         <h2 className="font-display text-lg text-stone-900">Assign to a series</h2>
         <p className="mt-1 text-sm text-stone-600">
           Selected: <strong>{selected?.name ?? selectedId}</strong>
@@ -352,7 +356,7 @@ export default function WorkflowsPage() {
         )}
       </section>
 
-      <div className="mb-6 rounded-2xl border border-[#e7e0d6] bg-[#faf8f5] p-4 text-sm text-stone-700">
+      <div className="mb-6 rounded-lg border border-[#e7e0d6] bg-[#faf8f5] p-4 text-sm text-stone-700">
         <p className="font-medium text-stone-900">Skills vs workflows</p>
         <ul className="mt-2 grid gap-2 sm:grid-cols-2">
           <li><span className="font-medium">Skill</span> — what to write (digest, investor update, tutorial)</li>
@@ -360,13 +364,11 @@ export default function WorkflowsPage() {
         </ul>
       </div>
 
-      <input
-        type="search"
-        placeholder="Search all workflows…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        className="mb-6 w-full max-w-md rounded-xl border border-[#e7e0d6] bg-white px-4 py-2.5 text-sm"
-      />
+      <div className="mb-6"><SearchField label="Search workflows" placeholder="Search all workflows…" value={filter} onChange={value => {
+        setFilter(value);
+        if (value.trim()) setOpenSections(Object.fromEntries(SECTIONS.map(section => [section.key, true])));
+      }} /></div>
+      {!workflowsLoading && !workflowsError && filter.trim() && Object.values(filteredByCategory).every(items => items.length === 0) && <EmptyResults onClear={() => setFilter('')} />}
 
       {workflowsError && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -389,6 +391,7 @@ export default function WorkflowsPage() {
             <section key={section.key} className="mb-6">
               <button
                 type="button"
+                aria-expanded={open}
                 onClick={() => setOpenSections((prev) => ({ ...prev, [section.key]: !prev[section.key] }))}
                 className="flex w-full items-center justify-between rounded-xl border border-[#e7e0d6] bg-white px-4 py-3 text-left"
               >
@@ -407,8 +410,9 @@ export default function WorkflowsPage() {
                     <button
                       key={wf.id}
                       type="button"
+                      aria-pressed={selectedId === wf.id}
                       onClick={() => pickWorkflow(wf.id)}
-                      className={`rounded-2xl border p-4 text-left transition-colors ${
+                      className={`rounded-lg border p-4 text-left transition-colors ${
                         selectedId === wf.id ? 'border-stone-900 bg-stone-50' : 'border-[#e7e0d6] bg-white hover:border-stone-400'
                       }`}
                     >
@@ -424,7 +428,7 @@ export default function WorkflowsPage() {
         })
       )}
 
-      <section className="mt-10 rounded-2xl border border-[#e7e0d6] bg-white p-6">
+      <section className="mt-10 rounded-lg border border-[#e7e0d6] bg-white p-6">
         <h2 className="font-display text-lg text-stone-900">Optional: preview before assigning</h2>
         <p className="mt-1 text-sm text-stone-600">
           Runs a sample generation (can take 10–30s). You can assign a workflow without previewing.
