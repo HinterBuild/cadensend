@@ -8,7 +8,7 @@ import type { AnalyticsOverview } from '@/types';
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
+    <div className="rounded-lg border border-[#e7e0d6] bg-white px-5 py-4">
       <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</p>
       <p className="font-display mt-1 text-3xl text-stone-900 tabular-nums">{value}</p>
     </div>
@@ -48,7 +48,7 @@ export default function InsightsPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+      <div className="mx-auto max-w-6xl px-6 py-16 text-center">
         <div
           className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800"
           role="status"
@@ -61,8 +61,8 @@ export default function InsightsPage() {
 
   if (error || !data) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10">
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-6 py-12 text-center text-red-700">
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-6 py-12 text-center text-red-700">
           {error || 'Could not load insights'}
         </div>
       </div>
@@ -77,29 +77,29 @@ export default function InsightsPage() {
     .slice(0, 3);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Workspace</p>
-          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Insights</h1>
+          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Insights</h1>
           <p className="mt-2 text-sm text-stone-500">A quick read on what needs your attention.</p>
         </div>
         <Link
           href="/dashboard"
-          className="rounded-full border border-[#e7e0d6] bg-white px-4 py-2.5 text-sm font-medium text-stone-700 no-underline hover:bg-[#faf8f5] hover:no-underline"
+          className="rounded-lg border border-[#e7e0d6] bg-white px-4 py-2.5 text-sm font-medium text-stone-700 no-underline hover:bg-[#faf8f5] hover:no-underline"
         >
           View series
         </Link>
       </header>
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-2">
+      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Active series" value={headline.series_active} />
         <StatCard label="Issues sent" value={headline.issues_sent} />
         <StatCard label="Due in 7 days" value={cadence.due_next_7_days} />
         <StatCard label="Overdue" value={cadence.overdue_pending} />
       </div>
 
-      <section className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
+      <section className="rounded-lg border border-[#e7e0d6] bg-white p-6">
         <h2 className="font-display text-lg text-stone-900">Needs attention</h2>
         {attention.length === 0 ? (
           <p className="mt-3 text-sm text-stone-500">Nothing urgent right now.</p>
@@ -124,7 +124,7 @@ export default function InsightsPage() {
       </section>
 
       {behind.length > 0 && (
-        <section className="mt-6 rounded-2xl border border-[#e7e0d6] bg-white p-6">
+        <section className="mt-6 rounded-lg border border-[#e7e0d6] bg-white p-6">
           <h2 className="font-display text-lg text-stone-900">Behind on plan</h2>
           <ul className="mt-4 divide-y divide-[#efe8dc]">
             {behind.map((row) => (
@@ -135,9 +135,10 @@ export default function InsightsPage() {
                 >
                   {row.topic}
                 </Link>
-                <span className="shrink-0 tabular-nums text-stone-500">
-                  {row.issued}/{row.planned}
-                </span>
+                <div className="w-28 shrink-0">
+                  <p className="mb-1 text-right text-xs tabular-nums text-stone-500">{row.issued} of {row.planned} issues</p>
+                  <progress aria-label={`${row.topic} plan completion`} max={100} value={Math.max(0, Math.min(100, row.percent))} className="h-1.5 w-full overflow-hidden rounded-full [&::-webkit-progress-bar]:bg-stone-100 [&::-webkit-progress-value]:bg-stone-800 [&::-moz-progress-bar]:bg-stone-800" />
+                </div>
               </li>
             ))}
           </ul>

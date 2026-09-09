@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchField, EmptyResults, SummaryCards } from '@/components/WorkspaceUI';
+
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, BookOpen, Calendar, Send, ArrowUpRight, Trash2 } from 'lucide-react';
 import Link from 'next/link';
@@ -10,6 +12,8 @@ import { AssistantChat } from '@/components/assistant/AssistantChat';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [series, setSeries] = useState<Series[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +39,10 @@ export default function DashboardPage() {
 
   const greetingName = user?.name?.trim() || user?.email?.split('@')[0] || 'there';
   const activeCount = series.filter((item) => item.status === 'active').length;
+
+  const visibleSeries = series.filter(item =>
+    (statusFilter === 'all' || item.status === statusFilter) &&
+    `${item.topic} ${item.goal || ''}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   const handleDeleteSeries = async (e: React.MouseEvent, seriesId: string, topic: string) => {
     e.preventDefault();
@@ -70,7 +78,7 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-8">
         <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Dashboard</p>
-        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">
+        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">
           Good day, {greetingName}
         </h1>
         <p className="mt-1 text-sm text-stone-500">{user?.email}</p>
@@ -80,45 +88,40 @@ export default function DashboardPage() {
         <AssistantChat layout="dock" onSeriesChange={() => void loadSeries(true)} />
       </div>
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Series</p>
-            <p className="font-display mt-1 text-3xl text-stone-900">{series.length}</p>
-          </div>
-          <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Active</p>
-            <p className="font-display mt-1 text-3xl text-stone-900">{activeCount}</p>
-          </div>
-          <div className="rounded-2xl border border-[#e7e0d6] bg-white px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">Drafts</p>
-            <p className="font-display mt-1 text-3xl text-stone-900">{Math.max(series.length - activeCount, 0)}</p>
-          </div>
-        </div>
+      <SummaryCards items={[{ label: 'Total series', value: series.length }, { label: 'Active', value: activeCount }, { label: 'Drafts', value: series.filter(item => item.status === 'draft').length }]} />
 
-      <div className="mb-6 flex items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="font-display text-2xl tracking-tight text-stone-900">Your Series</h2>
             <p className="mt-1 text-sm text-stone-500">Series you are writing and sending.</p>
           </div>
           <Link
             href="/series/create"
-            className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-sm font-medium text-white no-underline hover:bg-stone-800 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+            className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white no-underline hover:bg-stone-800 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             Create New Series
           </Link>
       </div>
 
+      {series.length > 0 && <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SearchField label="Search series" placeholder="Search by topic or goal…" value={query} onChange={setQuery} />
+        <select aria-label="Filter series by status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-lg border border-[#e7e0d6] bg-white px-3 py-2.5 text-sm">
+          <option value="all">All statuses</option>{Array.from(new Set(series.map(item => item.status))).sort().map(status => <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>)}
+        </select>
+        <p className="text-xs text-stone-500" role="status">{visibleSeries.length} of {series.length} series</p>
+      </div>}
+
       {error ? (
           <div
             role="alert"
             aria-live="assertive"
-            className="rounded-2xl border border-red-200 bg-red-50 px-6 py-12 text-center text-red-700"
+            className="rounded-lg border border-red-200 bg-red-50 px-6 py-12 text-center text-red-700"
           >
-            {error}
+            {error}<button type="button" onClick={() => void loadSeries()} className="mx-auto mt-4 block rounded-lg border border-red-200 bg-white px-4 py-2 text-sm">Retry</button>
           </div>
         ) : series.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-[#d6cdc0] bg-white/70 px-6 py-16 text-center">
+          <div className="rounded-lg border border-dashed border-[#d6cdc0] bg-white/70 px-6 py-16 text-center">
             <BookOpen className="mx-auto mb-4 h-10 w-10 text-stone-300" aria-hidden="true" />
             <h3 className="font-display text-2xl text-stone-900">No series yet</h3>
             <p className="mx-auto mt-2 max-w-md text-stone-500">
@@ -126,17 +129,17 @@ export default function DashboardPage() {
             </p>
             <Link
               href="/series/create"
-              className="mt-6 inline-flex rounded-full bg-stone-900 px-6 py-3 text-sm font-medium text-white no-underline hover:bg-stone-800 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+              className="mt-6 inline-flex rounded-lg bg-stone-900 px-6 py-3 text-sm font-medium text-white no-underline hover:bg-stone-800 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
             >
               Create your first series
             </Link>
           </div>
-      ) : (
+      ) : visibleSeries.length === 0 ? <EmptyResults onClear={() => { setQuery(''); setStatusFilter('all'); }} /> : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {series.map((s) => (
+            {visibleSeries.map((s) => (
               <article
                 key={s.id}
-                className="group flex h-full flex-col rounded-2xl border border-[#e7e0d6] bg-white p-6 shadow-[0_1px_0_rgba(28,25,23,0.04)] transition-all hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-md"
+                className="group flex h-full flex-col rounded-lg border border-[#e7e0d6] bg-white p-6 shadow-[0_1px_0_rgba(28,25,23,0.04)] transition-all hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-md"
               >
                 <Link
                   href={`/series/${s.id}`}

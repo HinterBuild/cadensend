@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchField, SummaryCards } from '@/components/WorkspaceUI';
+
 import { useCallback, useEffect, useState } from 'react';
 import { UserPlus, MailCheck, Trash2, Ban, RotateCw } from 'lucide-react';
 import { recipientApi } from '@/lib/api';
@@ -8,6 +10,7 @@ import { useRequireAuth } from '@/contexts/AuthContext';
 
 export default function RecipientsPage() {
   const { loading: authLoading } = useRequireAuth();
+  const [query, setQuery] = useState('');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,10 +103,10 @@ export default function RecipientsPage() {
   const deliverable = recipients.filter((r) => r.verified && !r.suppressed).length;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-2">
         <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Audience</p>
-        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Recipients</h1>
+        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Recipients</h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-500">
           Issues are delivered to verified recipients of your workspace. Unverified or unsubscribed
           addresses are skipped automatically.
@@ -121,6 +124,7 @@ export default function RecipientsPage() {
         </div>
       )}
 
+      <div className="mt-6"><SummaryCards items={[{ label: 'Recipients', value: recipients.length }, { label: 'Ready to receive', value: deliverable }, { label: 'Awaiting verification', value: recipients.filter(r => !r.verified && !r.suppressed).length }]} /></div>
       <form onSubmit={handleAdd} className="mt-8 flex flex-col gap-3 sm:flex-row">
         <input
           type="email"
@@ -134,7 +138,7 @@ export default function RecipientsPage() {
         <button
           type="submit"
           disabled={adding}
-          className="inline-flex items-center justify-center gap-2 rounded-full bg-stone-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
         >
           <UserPlus className="h-4 w-4" aria-hidden="true" />
           {adding ? 'Adding…' : 'Add recipient'}
@@ -145,13 +149,15 @@ export default function RecipientsPage() {
         {deliverable} of {recipients.length} recipient{recipients.length === 1 ? '' : 's'} will receive sends.
       </p>
 
-      <ul className="mt-6 divide-y divide-[#efe8dc] rounded-2xl border border-[#e7e0d6] bg-white">
+      <div className="mt-6"><SearchField label="Search recipients" placeholder="Find an email address…" value={query} onChange={setQuery} /></div>
+      {recipients.length > 0 && !recipients.some(r => r.email.toLowerCase().includes(query.trim().toLowerCase())) && <p role="status" className="mt-4 text-sm text-stone-600">No recipients match. <button type="button" onClick={() => setQuery('')} className="underline">Clear search</button></p>}
+      <ul className="mt-6 divide-y divide-[#efe8dc] rounded-lg border border-[#e7e0d6] bg-white">
         {recipients.length === 0 ? (
           <li className="px-6 py-12 text-center text-sm text-stone-500">
             No recipients yet. Add the people who should receive your series.
           </li>
         ) : (
-          recipients.map((rcpt) => (
+          recipients.filter(r => r.email.toLowerCase().includes(query.trim().toLowerCase())).map((rcpt) => (
             <li key={rcpt.id} className="flex items-center gap-4 px-5 py-4">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-stone-900">{rcpt.email}</p>
