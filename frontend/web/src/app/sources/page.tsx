@@ -4,11 +4,13 @@ import { useEffect, useState, useRef } from 'react';
 import { Upload, Link2, FileText, X } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
 import { InjectionBadge } from '@/components/InjectionBadge';
+import { useRequireAuth } from '@/contexts/AuthContext';
 import type { Source } from '@/types';
 
 type ChunkPreview = { chunk_index: number; title?: string; heading_path: string[]; preview: string };
 
 export default function SourcesPage() {
+  const { loading: authLoading } = useRequireAuth();
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -28,8 +30,9 @@ export default function SourcesPage() {
   const lastFocusableRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
     loadSources();
-  }, []);
+  }, [authLoading]);
 
   // Close dialog on Escape and trap focus
   useEffect(() => {
@@ -119,27 +122,35 @@ export default function SourcesPage() {
     }
   };
 
-  return (
-    <div className="min-h-full">
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Sources</h1>
-        </div>
-      </header>
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-16 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800" role="status" aria-label="Loading" />
+        <p className="mt-4 text-stone-500">Loading sources…</p>
+      </div>
+    );
+  }
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">Source Library</h2>
-          <button
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Library</p>
+          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Sources</h1>
+          <p className="mt-2 max-w-2xl text-sm text-stone-500">
+            Upload files and URLs to ground issue generation.
+          </p>
+        </div>
+        <button
             type="button"
             aria-label="Add Source"
             onClick={() => setShowAddDialog(true)}
-            className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
+            className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
           >
             <Upload className="h-4 w-4" aria-hidden="true" />
             Add Source
           </button>
-        </div>
+      </header>
 
         {loading ? (
           <div className="text-center py-12">
@@ -421,7 +432,6 @@ export default function SourcesPage() {
             </form>
           </div>
         )}
-      </div>
     </div>
   );
 }

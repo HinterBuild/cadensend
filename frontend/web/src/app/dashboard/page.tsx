@@ -67,7 +67,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-8">
         <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Dashboard</p>
         <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">
@@ -98,7 +98,7 @@ export default function DashboardPage() {
       <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <h2 className="font-display text-2xl tracking-tight text-stone-900">Your Series</h2>
-            <p className="mt-1 text-sm text-stone-500">Courses you are writing and sending.</p>
+            <p className="mt-1 text-sm text-stone-500">Series you are writing and sending.</p>
           </div>
           <Link
             href="/series/create"
@@ -122,7 +122,7 @@ export default function DashboardPage() {
             <BookOpen className="mx-auto mb-4 h-10 w-10 text-stone-300" aria-hidden="true" />
             <h3 className="font-display text-2xl text-stone-900">No series yet</h3>
             <p className="mx-auto mt-2 max-w-md text-stone-500">
-              Create your first learning series to start planning issues and sending them on a schedule.
+              Create your first series to plan issues and send them on a schedule.
             </p>
             <Link
               href="/series/create"
@@ -134,14 +134,13 @@ export default function DashboardPage() {
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {series.map((s) => (
-              <Link
+              <article
                 key={s.id}
-                href={`/series/${s.id}`}
-                className="group block no-underline hover:no-underline"
+                className="group flex h-full flex-col rounded-2xl border border-[#e7e0d6] bg-white p-6 shadow-[0_1px_0_rgba(28,25,23,0.04)] transition-all hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-md"
               >
-                <div
-                  tabIndex={-1}
-                  className="h-full rounded-2xl border border-[#e7e0d6] bg-white p-6 shadow-[0_1px_0_rgba(28,25,23,0.04)] transition-all group-hover:-translate-y-0.5 group-hover:border-stone-300 group-hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+                <Link
+                  href={`/series/${s.id}`}
+                  className="block min-w-0 flex-1 no-underline hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -178,15 +177,6 @@ export default function DashboardPage() {
                         ? 'Plan failed'
                         : s.status}
                     </span>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${s.topic}`}
-                      disabled={deletingId === s.id}
-                      onClick={(e) => handleDeleteSeries(e, s.id, s.topic)}
-                      className="ml-auto rounded-full p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
                   <div className="mt-5 flex items-center gap-4 text-xs text-stone-500">
                     <div className="flex items-center">
@@ -198,8 +188,20 @@ export default function DashboardPage() {
                       <span>{s.status === 'active' ? 'Sending' : 'Scheduled'}</span>
                     </div>
                   </div>
+                </Link>
+                <div className="mt-4 flex justify-end border-t border-[#efe8dc] pt-3">
+                  <button
+                    type="button"
+                    aria-label={`Delete ${s.topic}`}
+                    disabled={deletingId === s.id}
+                    onClick={(e) => handleDeleteSeries(e, s.id, s.topic)}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-stone-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
                 </div>
-              </Link>
+              </article>
             ))}
         </div>
       )}

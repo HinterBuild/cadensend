@@ -27,14 +27,15 @@ export default function ConnectorsPage() {
     load();
   }, [authLoading]);
 
-  const handleSync = async (id: string) => {
+  const handleSync = async (id: string, name?: string) => {
     setSyncing(id);
     setSyncResult(null);
     try {
       const result = await platformApi.syncConnector(id, { oauth_connected: Boolean(apiKey) });
       const status = (result as { status?: string }).status ?? 'completed';
       const fetched = (result as { items_fetched?: number }).items_fetched ?? 0;
-      setSyncResult(`${id}: ${status} (${fetched} items fetched)`);
+      const label = name || id;
+      setSyncResult(`${label}: ${status} (${fetched} items fetched)`);
     } catch (e) {
       setSyncResult(e instanceof Error ? e.message : 'Sync failed');
     } finally {
@@ -70,7 +71,7 @@ export default function ConnectorsPage() {
       <header className="mb-8">
         <h1 className="font-display text-3xl text-stone-900">Connectors</h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-600">
-          Unified connector service for 20 integrations. Configure credentials, then sync sources into your library.
+          Connect apps and sync content into your source library.
         </p>
       </header>
 
@@ -125,7 +126,7 @@ export default function ConnectorsPage() {
                 className="rounded-lg border border-[#e7e0d6] px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-[#faf8f5]">
                 Configure
               </button>
-              <button type="button" disabled={syncing === c.id} onClick={() => handleSync(c.id)}
+              <button type="button" disabled={syncing === c.id} onClick={() => handleSync(c.id, c.name)}
                 className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
                 {syncing === c.id ? 'Syncing…' : 'Sync'}
               </button>

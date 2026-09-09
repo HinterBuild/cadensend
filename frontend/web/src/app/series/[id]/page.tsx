@@ -1046,7 +1046,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             tabIndex={0}
           >
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="font-display text-xl text-stone-900">What will the AI read?</h2>
+              <h2 className="font-display text-xl text-stone-900">Preview source context</h2>
               <p className="mt-1 mb-5 text-sm text-gray-600">
                 Ask a question like the objective of your next issue. You'll see exactly which source
                 chunks generation would retrieve as context.

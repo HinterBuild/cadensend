@@ -40,7 +40,7 @@ export default function LoginPage() {
     } catch (err: any) {
       const backendError = err.message || '';
       if (backendError.includes('user not found')) {
-        setError('We could not find an account with that email. Please check your email or sign up.');
+        setError('We could not find an account with that email. Check the address or ask your workspace admin for access.');
       } else if (backendError.includes('incorrect password')) {
         setError('Incorrect password. Please try again or reset your password.');
       } else {
@@ -80,7 +80,7 @@ export default function LoginPage() {
               <BrandLogo className="h-10 w-10" />
               <h1 className="font-display text-3xl text-stone-900">Cadensend</h1>
             </div>
-            <p className="text-sm text-gray-600">AI-powered newsletter series platform</p>
+            <p className="text-sm text-stone-600">Plan and send email series on a schedule</p>
           </div>
 
           {error && (
@@ -200,14 +200,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2 text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-stone-800 focus-visible:ring-2 focus-visible:ring-stone-800"
-                  />
-                  <span>Remember me</span>
-                </label>
+              <div className="flex justify-end text-sm">
                 <Link
                   href="/forgot-password"
                   className="font-medium text-stone-800 hover:text-stone-900 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
@@ -238,8 +231,8 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="mt-8 text-center text-xs text-gray-500">
-          By continuing, you agree to Cadensend's Terms of Service and Privacy Policy.
+        <p className="mt-8 text-center text-xs text-stone-500">
+          Sign in with the account provided by your workspace.
         </p>
       </div>
     </main>

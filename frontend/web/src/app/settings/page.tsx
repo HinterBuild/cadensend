@@ -214,9 +214,12 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-full">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Account</p>
+            <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Settings</h1>
+          </div>
           <button
             type="button"
             aria-label="Sign out"
@@ -385,14 +388,14 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* AI Provider */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Sparkles className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">AI provider</h2>
+          {/* Model provider */}
+          <div className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-stone-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-stone-900">Model provider</h2>
             </div>
-            <p className="text-sm text-gray-500 mb-6">
-              Choose your LLM provider and API key for this workspace. Generation jobs and Cadensend AI use these settings.
+            <p className="mb-6 text-sm text-stone-500">
+              Choose your LLM provider and API key for this workspace. Generation and the assistant use these settings.
             </p>
             <ProviderConfigForm
               onUpdate={() => {
@@ -406,13 +409,13 @@ export default function SettingsPage() {
           </div>
 
           {/* Email Provider / Send Inbox */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <Mail className="h-5 w-5 text-gray-600" aria-hidden="true" />
-              <h2 className="text-xl font-semibold text-gray-900">Send inbox</h2>
+          <div className="rounded-2xl border border-[#e7e0d6] bg-white p-6">
+            <div className="mb-4 flex items-center gap-3">
+              <Mail className="h-5 w-5 text-stone-600" aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-stone-900">Send inbox</h2>
             </div>
-            <p className="text-sm text-gray-500 mb-4">
-              Choose your email provider for newsletter delivery. Newsletters send from your configured inbox.
+            <p className="mb-4 text-sm text-stone-500">
+              Choose your email provider. Issues send from your configured inbox.
             </p>
             {emailConfig?.using_env && (
               <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">

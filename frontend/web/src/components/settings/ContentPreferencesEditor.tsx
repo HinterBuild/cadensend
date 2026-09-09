@@ -117,7 +117,7 @@ export function ContentPreferencesEditor({ prefs, saving, onSave }: ContentPrefe
             type="text"
             value={voiceHint}
             onChange={(e) => setVoiceHint(e.target.value)}
-            placeholder="Optional style hint for the AI"
+            placeholder="Optional style hint for generation"
             className={inputClass}
           />
         </div>

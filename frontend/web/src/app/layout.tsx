@@ -14,8 +14,8 @@ const newsreader = Newsreader({
 });
 
 export const metadata = {
-  title: 'Cadensend - AI Newsletter Series Platform',
-  description: 'Turn learning goals into grounded, scheduled email courses — delivered exactly once.',
+  title: 'Cadensend — Email series platform',
+  description: 'Plan, write, and send email series on a schedule.',
   icons: {
     icon: [
       { url: '/logo.svg', type: 'image/svg+xml' },

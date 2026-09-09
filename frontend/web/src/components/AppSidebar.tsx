@@ -55,7 +55,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
           <>
             <BrandWordmark />
             <p className="mt-2 pl-[42px] font-sans text-xs uppercase tracking-[0.18em] text-stone-500">
-              Learning series
+              Email series
             </p>
           </>
         )}

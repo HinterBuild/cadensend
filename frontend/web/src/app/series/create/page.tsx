@@ -482,7 +482,7 @@ export default function CreateSeriesPage() {
                   <div>
                     <h3 className="text-sm font-semibold text-stone-900">Extract From Raw Notes</h3>
                     <p className="mt-1 text-sm text-stone-600">
-                      Paste messy notes, a transcript, or a voice-note dump. Cadensend will turn it into a cleaner newsletter brief.
+                      Paste notes, a transcript, or a rough outline. Cadensend will turn it into a structured series brief.
                     </p>
                   </div>
                   <button
@@ -890,7 +890,7 @@ export default function CreateSeriesPage() {
               </div>
               <div>
                 <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-2">
-                  AI model
+                  Generation model
                 </label>
                 <ModelSelect
                   id="model"

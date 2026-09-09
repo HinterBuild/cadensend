@@ -98,7 +98,7 @@ function toApiMessages(messages: AssistantMessage[]) {
 function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error) {
     if (err.message === 'Not Found') {
-      return 'Cadensend AI API is unavailable. Restart backend-api and ai-engine-api, then refresh.';
+      return 'Assistant is unavailable. Restart backend-api and ai-engine-api, then refresh.';
     }
     return err.message;
   }
@@ -257,7 +257,7 @@ export function useAssistantChat() {
       if (status === 404 || status === 502) {
         enableLocalMode();
       } else {
-        setError(apiErrorMessage(err, 'Failed to load Cadensend AI'));
+        setError(apiErrorMessage(err, 'Failed to load assistant'));
         enableLocalMode();
       }
     } finally {
@@ -362,7 +362,7 @@ export function useAssistantChat() {
           const err = await response.json().catch(() => ({}));
           const msg = err.error || response.statusText;
           if (response.status === 404) {
-            throw new Error('Cadensend AI chat endpoint not found. Rebuild backend-api and ai-engine-api.');
+            throw new Error('Assistant chat endpoint not found. Rebuild backend-api and ai-engine-api.');
           }
           throw new Error(msg);
         }

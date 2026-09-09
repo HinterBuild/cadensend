@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, BookOpen, CalendarDays, CheckCircle2, FlaskConical, Layers3, Plus, RefreshCw, Search, Sparkles } from 'lucide-react';
+import { AlertCircle, BookOpen, CalendarDays, CheckCircle2, FlaskConical, Plus, RefreshCw, Search } from 'lucide-react';
 import { platformApi } from '@/lib/api';
 import { useRequireAuth } from '@/contexts/AuthContext';
 import type { PlatformSkill } from '@/types';
@@ -158,13 +158,10 @@ export default function SkillsPage() {
       <header className="mb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-stone-500 ring-1 ring-[#e7e0d6]">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              Catalog
-            </div>
-            <h1 className="font-display text-3xl text-stone-900 sm:text-4xl">Content Skills</h1>
+            <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Catalog</p>
+            <h1 className="font-display mt-1 text-3xl text-stone-900 sm:text-4xl">Skills</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-              Choose a skill to give Studio or a new series the right structure, cadence, and writing pattern.
+              Pick a format for structure, cadence, and section layout.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[28rem]">
@@ -251,12 +248,8 @@ export default function SkillsPage() {
           {multiIssueCount} multi-issue formats
         </span>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e7e0d6] bg-white px-3 py-1">
-          <Layers3 className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
-          Section-aware generation
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e7e0d6] bg-white px-3 py-1">
           <CalendarDays className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-          Cadence presets
+          {cadenceCount} cadence presets
         </span>
       </div>
 
@@ -276,7 +269,9 @@ export default function SkillsPage() {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="font-display text-xl leading-7 text-stone-900">{skill.name}</h2>
-                <p className="mt-1 text-xs text-stone-500">{skill.id}</p>
+                {skill.cadence && (
+                  <p className="mt-1 text-xs capitalize text-stone-500">{skill.cadence} cadence</p>
+                )}
               </div>
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ${CATEGORY_COLORS[skill.category] ?? 'bg-stone-100 text-stone-700 ring-stone-200'}`}>
                 {skill.category}

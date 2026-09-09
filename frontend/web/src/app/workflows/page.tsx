@@ -19,8 +19,8 @@ const RECOMMENDED: RecommendedPreset[] = [
   {
     id: 'default',
     name: 'Standard',
-    tagline: 'Fastest — one AI pass',
-    when: 'Simple newsletters and quick first drafts',
+    tagline: 'Fastest — single pass',
+    when: 'Simple series and quick first drafts',
     steps: ['Write draft'],
   },
   {
@@ -47,9 +47,9 @@ const RECOMMENDED: RecommendedPreset[] = [
 ];
 
 const SECTIONS = [
-  { key: 'pipeline', title: 'Writing flows', subtitle: 'AI runs multiple steps in order', defaultOpen: false },
+  { key: 'pipeline', title: 'Writing flows', subtitle: 'Multiple steps run in order', defaultOpen: false },
   { key: 'agent', title: 'Add-on reviewers', subtitle: 'Optional checks before you approve an issue', defaultOpen: false },
-  { key: 'mode', title: 'Writing strategies', subtitle: 'How the AI approaches the draft', defaultOpen: false },
+  { key: 'mode', title: 'Writing strategies', subtitle: 'How each draft is produced', defaultOpen: false },
 ] as const;
 
 function workflowSteps(wf: PlatformWorkflow): string[] {
@@ -247,10 +247,10 @@ export default function WorkflowsPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-8">
-        <h1 className="font-display text-3xl text-stone-900">How your newsletter gets written</h1>
+        <h1 className="font-display text-3xl text-stone-900">Workflows</h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-600">
-          <strong className="font-medium text-stone-800">Skills</strong> choose what kind of newsletter you write.{' '}
-          <strong className="font-medium text-stone-800">Workflows</strong> choose how the AI produces each issue.
+          <strong className="font-medium text-stone-800">Skills</strong> define what you write.{' '}
+          <strong className="font-medium text-stone-800">Workflows</strong> define how each issue is produced.
           Pick a workflow below, then assign it to a series.
         </p>
         <div className="mt-4 flex flex-wrap gap-3 text-sm">
@@ -356,7 +356,7 @@ export default function WorkflowsPage() {
         <p className="font-medium text-stone-900">Skills vs workflows</p>
         <ul className="mt-2 grid gap-2 sm:grid-cols-2">
           <li><span className="font-medium">Skill</span> — what to write (digest, investor update, tutorial)</li>
-          <li><span className="font-medium">Workflow</span> — how AI writes it (single pass, research flow, source-grounded)</li>
+          <li><span className="font-medium">Workflow</span> — how each issue is written (single pass, research flow, source-grounded)</li>
         </ul>
       </div>
 

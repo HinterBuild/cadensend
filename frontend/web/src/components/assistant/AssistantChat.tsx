@@ -24,6 +24,7 @@ import { useAssistantChat } from '@/hooks/useAssistantChat';
 import { executeAssistantAction } from '@/lib/assistantActions';
 import type { AssistantAgentId, AssistantMessage, AssistantSeriesSetupValues } from '@/types/assistant';
 import { PermissionCard } from './PermissionCard';
+import { SeriesCreatedCard } from './SeriesCreatedCard';
 import { SeriesSetupFormCard } from './SeriesSetupFormCard';
 import { ToolExecutionCard } from './ToolExecutionCard';
 import { AssistantMessageContent } from './AssistantMessageContent';
@@ -38,31 +39,27 @@ import {
 } from '@/lib/assistantEffort';
 
 const AGENTS: Array<{ id: AssistantAgentId; label: string; hint: string; icon: typeof Zap }> = [
-  { id: 'operator', label: 'Operator', hint: 'Full workspace control', icon: Sparkles },
-  { id: 'series', label: 'Series', hint: 'Create & manage courses', icon: MessageSquarePlus },
-  { id: 'issues', label: 'Issues', hint: 'Draft & approve issues', icon: Zap },
+  { id: 'operator', label: 'Operator', hint: 'Full workspace access', icon: Sparkles },
+  { id: 'series', label: 'Series', hint: 'Create and manage series', icon: MessageSquarePlus },
+  { id: 'issues', label: 'Issues', hint: 'Draft and approve issues', icon: Zap },
 ];
 
 const SUGGESTIONS = [
   {
     title: 'New series',
-    text: 'Create a 7-day series on LLM ops for beginners',
+    text: 'Create a weekly series on product updates',
   },
   {
-    title: 'Status check',
-    text: 'Show my active series and their plan status',
+    title: 'Status',
+    text: 'Show my active series and plan status',
   },
   {
     title: 'Add issue',
-    text: 'Add a new issue about RAG evaluation to my latest series',
+    text: 'Add a new issue to my latest series',
   },
   {
-    title: 'Review issue',
-    text: 'Evaluate and suggest edits for my latest draft issue',
-  },
-  {
-    title: 'Sync connector',
-    text: 'List connectors and sync my RSS feed',
+    title: 'Review draft',
+    text: 'Review my latest draft issue and suggest edits',
   },
 ];
 
@@ -271,8 +268,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
 
   const activeAgent = AGENTS.find((a) => a.id === agent) || AGENTS[0];
   const modelLabel = model || defaultModel;
-  const thinkingLabel =
-    effort === 'max' || effort === 'very_high' ? 'Deep reasoning…' : 'Thinking…';
+  const thinkingLabel = 'Working…';
   const lastUserMessage = messages.filter((m) => m.role === 'user').at(-1)?.content;
   const hasPendingAction = messages.some(
     (m) => m.permission?.status === 'pending' || m.form?.status === 'pending',
@@ -282,7 +278,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
     return (
       <section
         className="overflow-hidden rounded-2xl border border-[#e0d8cc] bg-white shadow-[0_8px_30px_rgba(28,25,23,0.08)] transition-all duration-300"
-        aria-label="Cadensend AI command bar"
+        aria-label="Assistant command bar"
       >
         <div className="flex flex-col gap-2 p-2.5 sm:p-3">
           <div className="flex items-center gap-2">
@@ -290,7 +286,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               type="button"
               onClick={openDock}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-900 text-amber-200 hover:bg-stone-800"
-              aria-label="Open Cadensend AI"
+              aria-label="Open assistant"
             >
               <Sparkles className="h-4 w-4" />
             </button>
@@ -308,7 +304,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
                   }
                 }}
                 rows={1}
-                placeholder="Ask Cadensend AI…"
+                placeholder="Ask the assistant…"
                 disabled={streaming || loadingThread || !threadId}
                 className="max-h-20 min-h-[24px] flex-1 resize-none bg-transparent text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none disabled:opacity-60"
               />
@@ -345,7 +341,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
                 type="button"
                 onClick={() => void handleSend()}
                 disabled={!input.trim() || loadingThread || !threadId}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-40"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-900 text-white shadow-sm hover:bg-stone-800 disabled:opacity-40"
                 aria-label="Send"
               >
                 <Send className="h-4 w-4" />
@@ -379,7 +375,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
             })}
             <span className="ml-auto hidden items-center gap-2 text-[11px] text-stone-400 sm:inline-flex">
               {streaming && (
-                <span className="inline-flex items-center gap-1 text-blue-600">
+                <span className="inline-flex items-center gap-1 text-stone-600">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   {thinkingLabel}
                 </span>
@@ -404,7 +400,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
                   <p className="truncate text-[11px] text-stone-500">{lastUserMessage}</p>
                 )}
               </div>
-              <span className="shrink-0 text-[11px] font-medium text-blue-600">Expand</span>
+              <span className="shrink-0 text-[11px] font-medium text-stone-600">Expand</span>
             </button>
           )}
         </div>
@@ -419,22 +415,21 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
       }`}
     >
       {/* Header */}
-      <div className="relative border-b border-[#e7e0d6] bg-[#1c1917] px-5 py-5 sm:px-6">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_55%)]" />
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20 backdrop-blur">
-              <Sparkles className="h-5 w-5 text-amber-200" />
+      <div className="border-b border-[#e7e0d6] bg-[#faf8f5] px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#e7e0d6] bg-white">
+              <Sparkles className="h-4 w-4 text-stone-700" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-display text-xl tracking-tight text-white">Cadensend AI</h2>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-200 ring-1 ring-emerald-400/30">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <h2 className="font-display text-xl tracking-tight text-stone-900">Assistant</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-stone-600">
+                  <span className={`h-1.5 w-1.5 rounded-full ${streaming ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                   {streaming ? 'Working' : 'Ready'}
                 </span>
               </div>
-              <p className="mt-0.5 text-sm text-stone-400">
+              <p className="mt-0.5 text-sm text-stone-500">
                 {activeThreadTitle}
                 {!persistenceEnabled && ' · local mode'}
               </p>
@@ -446,7 +441,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               <button
                 type="button"
                 onClick={closeDock}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-white/10"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#e7e0d6] bg-white px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
                 title="Minimize chat (Esc)"
               >
                 <Minimize2 className="h-3.5 w-3.5" />
@@ -457,7 +452,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               <button
                 type="button"
                 onClick={() => setHistoryOpen((o) => !o)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-white/10"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#e7e0d6] bg-white px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
               >
                 <History className="h-3.5 w-3.5" />
                 History
@@ -497,7 +492,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
             <button
               type="button"
               onClick={() => void newThread(agent, model)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-white/10"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#e7e0d6] bg-white px-3 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
             >
               <Plus className="h-3.5 w-3.5" />
               New
@@ -506,11 +501,10 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               <EffortSelect
                 value={effort}
                 onChange={setEffort}
-                variant="dark"
                 disabled={streaming || loadingThread}
               />
             </div>
-            <div className="w-48 [&_button]:border-white/15 [&_button]:bg-white/10 [&_button]:text-stone-100">
+            <div className="w-48">
               <ModelSelect
                 value={model}
                 onChange={setModel}
@@ -521,7 +515,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
           </div>
         </div>
 
-        <div className="relative mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           {AGENTS.map((a) => {
             const Icon = a.icon;
             const active = agent === a.id;
@@ -533,8 +527,8 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
                 title={a.hint}
                 className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
                   active
-                    ? 'bg-white text-stone-900 shadow-sm'
-                    : 'bg-white/5 text-stone-300 ring-1 ring-white/10 hover:bg-white/10'
+                    ? 'bg-stone-900 text-white'
+                    : 'border border-[#e7e0d6] bg-white text-stone-600 hover:border-stone-300'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -562,9 +556,9 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-stone-900 text-white shadow-lg">
               <Bot className="h-7 w-7" />
             </div>
-            <h3 className="font-display text-2xl text-stone-900">What should we work on, {greeting}?</h3>
+            <h3 className="font-display text-2xl text-stone-900">What do you need, {greeting}?</h3>
             <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-stone-500">
-              Describe a series, ask about your workspace, or let me run tools on your behalf — I&apos;ll ask before any write action.
+              Create series, check status, or edit issues. Write actions always need your approval first.
             </p>
             <div className={`mt-8 grid gap-3 ${isDock ? 'sm:grid-cols-2' : 'sm:grid-cols-2'}`}>
               {SUGGESTIONS.map((s) => (
@@ -648,7 +642,7 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
               }
             }}
             rows={1}
-            placeholder="Ask me to edit issues, apply skills, sync connectors, or manage your series…"
+            placeholder="Ask about your series, issues, or workspace…"
             disabled={streaming || loadingThread || !threadId}
             className="max-h-32 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none disabled:opacity-60"
           />
@@ -740,7 +734,7 @@ function MessageBubble({
 
       <div className={`min-w-0 flex-1 ${isUser ? 'max-w-[78%] ml-auto' : 'max-w-full'}`}>
         {!isUser && (
-          <p className="mb-1.5 text-[11px] font-medium text-stone-400">Cadensend AI</p>
+          <p className="mb-1.5 text-[11px] font-medium text-stone-400">Assistant</p>
         )}
 
         <div className="space-y-3">

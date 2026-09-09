@@ -220,7 +220,7 @@ export function IssueVersionPanel({
             </div>
             {versions.length === 0 ? (
               <div className="px-4 py-10 text-sm text-stone-500">
-                No saved versions yet. Manual saves, AI regenerations, and restores all create snapshots here.
+                No saved versions yet. Manual saves, regenerations, and restores all create snapshots here.
               </div>
             ) : (
               <ul className="divide-y divide-[#f0ebe3]">

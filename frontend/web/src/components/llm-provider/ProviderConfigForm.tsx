@@ -79,7 +79,7 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
   };
 
   if (loading) {
-    return <div className="animate-pulse text-sm text-gray-500">Loading AI provider settings…</div>;
+    return <div className="animate-pulse text-sm text-stone-500">Loading model provider settings…</div>;
   }
 
   const baseUrl = typeof config.configs?.base_url === "string" ? config.configs.base_url : "";

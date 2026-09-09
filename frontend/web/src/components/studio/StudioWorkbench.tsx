@@ -79,8 +79,8 @@ export function StudioWorkbench() {
   const [skills, setSkills] = useState<PlatformSkill[]>([]);
   const [meta, setMeta] = useState<StudioMeta | null>(null);
   const [skillId, setSkillId] = useState(searchParams.get('skill') || 'daily_brief');
-  const [topic, setTopic] = useState('AI infrastructure trends');
-  const [goal, setGoal] = useState('Inform technical leaders');
+  const [topic, setTopic] = useState('Product updates');
+  const [goal, setGoal] = useState('Keep readers informed');
   const [tone, setTone] = useState(0.5);
   const [persona, setPersona] = useState('practitioner');
   const [brandVoice, setBrandVoice] = useState('default');
@@ -229,9 +229,9 @@ export function StudioWorkbench() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <header className="mb-6">
-        <h1 className="font-display text-3xl text-stone-900">Newsletter Studio</h1>
+        <h1 className="font-display text-3xl text-stone-900">Studio</h1>
         <p className="mt-2 text-sm text-stone-600">
-          Compose, preview, and refine full issues — section by section — before publishing.
+          Compose, preview, and refine issues section by section before publishing.
         </p>
       </header>
 
@@ -345,7 +345,7 @@ export function StudioWorkbench() {
           <Panel title="Live markdown editor">
             <textarea value={editorMarkdown} onChange={(e) => setEditorMarkdown(e.target.value)}
               rows={16} className={`${inputCls} font-mono text-xs leading-relaxed`} />
-            <p className="mt-2 text-xs text-stone-500">AI assist: use Generate full issue or per-section Regenerate.</p>
+            <p className="mt-2 text-xs text-stone-500">Use Generate full issue or per-section Regenerate.</p>
           </Panel>
 
           {compose?.model_comparisons && compose.model_comparisons.length > 0 && (
