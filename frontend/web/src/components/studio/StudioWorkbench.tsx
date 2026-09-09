@@ -1,5 +1,7 @@
 "use client";
 
+import { PageHeader } from '@/components/WorkspaceUI';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { platformApi } from '@/lib/api';
@@ -227,13 +229,8 @@ export function StudioWorkbench() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      <header className="mb-6">
-        <h1 className="font-display text-3xl text-stone-900">Studio</h1>
-        <p className="mt-2 text-sm text-stone-600">
-          Compose, preview, and refine issues section by section before publishing.
-        </p>
-      </header>
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+      <PageHeader eyebrow="Create" title="Studio" description="Compose, preview, and refine issues section by section before publishing." />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" onClick={runCompose} disabled={loading}

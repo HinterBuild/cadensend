@@ -509,7 +509,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="min-h-full">
-      <header className="bg-white border-b border-gray-200">
+      <header className="bg-[#faf8f5] border-b border-[#e7e0d6]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0 flex-1">
@@ -520,7 +520,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </Link>
-              <h1 className="min-w-0 flex-1 truncate text-2xl font-bold text-gray-900">{series?.topic}</h1>
+              <h1 className="min-w-0 flex-1 font-display text-2xl text-stone-900 sm:text-3xl">{series?.topic}</h1>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {nextIssue && (
@@ -650,7 +650,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             tabIndex={0}
           >
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">Issues</h2>
+              <h2 className="font-display text-2xl text-stone-900">Issues</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <label htmlFor="issue-generation-model" className="text-sm text-gray-600">
                   Model
@@ -712,7 +712,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             ) : (
               <div className="space-y-4">
                 {issues.map((issue) => (
-                  <div key={issue.id} className="bg-white rounded-lg shadow p-4">
+                  <div key={issue.id} className="bg-white rounded-lg border border-[#e7e0d6] shadow-sm p-4">
                     <div className="flex items-center justify-between gap-4">
                       <button
                         type="button"
@@ -812,7 +812,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             tabIndex={0}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Sources</h2>
+              <h2 className="font-display text-2xl text-stone-900">Sources</h2>
               <button
                 type="button"
                 aria-label="Add Source"
@@ -846,7 +846,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             ) : (
               <div className="space-y-4">
                 {sources.map((source) => (
-                  <div key={source.id} className="bg-white rounded-lg shadow p-4">
+                  <div key={source.id} className="bg-white rounded-lg border border-[#e7e0d6] shadow-sm p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <h3 className="truncate font-medium text-gray-900">{source.url || 'File source'}</h3>
@@ -930,7 +930,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             tabIndex={0}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Curriculum Plan</h2>
+              <h2 className="font-display text-2xl text-stone-900">Curriculum Plan</h2>
               {planStatus === 'generating' && (
                 <span className="px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
                   In progress
@@ -948,7 +948,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               )}
             </div>
 
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg border border-[#e7e0d6] shadow-sm p-6">
               {(planStatus === 'generating' || startingPlan) && (
                 <div className="text-center py-8" role="status" aria-live="polite">
                   <div
@@ -1045,7 +1045,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             aria-labelledby="tab-context"
             tabIndex={0}
           >
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg border border-[#e7e0d6] shadow-sm p-6">
               <h2 className="font-display text-xl text-stone-900">Preview source context</h2>
               <p className="mt-1 mb-5 text-sm text-gray-600">
                 Ask a question like the objective of your next issue. You'll see exactly which source
