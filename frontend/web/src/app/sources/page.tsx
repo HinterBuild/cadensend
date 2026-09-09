@@ -1,5 +1,7 @@
 "use client";
 
+import { SearchField, EmptyResults, SummaryCards } from '@/components/WorkspaceUI';
+
 import { useEffect, useState, useRef } from 'react';
 import { Upload, Link2, FileText, X } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
@@ -11,6 +13,7 @@ type ChunkPreview = { chunk_index: number; title?: string; heading_path: string[
 
 export default function SourcesPage() {
   const { loading: authLoading } = useRequireAuth();
+  const [query, setQuery] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -131,12 +134,14 @@ export default function SourcesPage() {
     );
   }
 
+  const visibleSources = sources.filter(source => `${source.url || ''} ${source.type} ${source.status}`.toLowerCase().includes(query.trim().toLowerCase()));
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Library</p>
-          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900">Sources</h1>
+          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Sources</h1>
           <p className="mt-2 max-w-2xl text-sm text-stone-500">
             Upload files and URLs to ground issue generation.
           </p>
@@ -145,15 +150,19 @@ export default function SourcesPage() {
             type="button"
             aria-label="Add Source"
             onClick={() => setShowAddDialog(true)}
-            className="inline-flex items-center gap-2 rounded-full bg-stone-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
+            className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
           >
             <Upload className="h-4 w-4" aria-hidden="true" />
             Add Source
           </button>
       </header>
+      <SummaryCards items={[{ label: 'Sources', value: sources.length }, { label: 'Indexed chunks', value: sources.reduce((sum, source) => sum + (source.chunk_count || 0), 0) }, { label: 'Failed', value: sources.filter(source => source.status === 'failed').length }]} />
+      <div className="mb-5"><SearchField label="Search sources" placeholder="Search by URL, type, or status…" value={query} onChange={setQuery} /></div>
+      {sources.length > 0 && visibleSources.length === 0 && <EmptyResults onClear={() => setQuery('')} />}
+
 
         {loading ? (
-          <div className="text-center py-12">
+          <div className="rounded-lg border border-dashed border-[#d8cfc2] bg-white text-center py-12">
             <div
               className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
               role="status"
@@ -162,7 +171,7 @@ export default function SourcesPage() {
             <p className="mt-4 text-gray-600">Loading sources...</p>
           </div>
         ) : sources.length === 0 ? (
-          <div className="text-center py-12">
+          <div className="rounded-lg border border-dashed border-[#d8cfc2] bg-white text-center py-12">
             <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden="true" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No sources yet</h3>
             <p className="text-gray-600 mb-4">Add your first source to start building content.</p>
@@ -189,8 +198,8 @@ export default function SourcesPage() {
               </div>
             )}
           <div className="grid gap-4">
-            {sources.map((source) => (
-              <div key={source.id} className="bg-white rounded-lg shadow p-4">
+            {visibleSources.map((source) => (
+              <div key={source.id} className="bg-white rounded-lg border border-[#e7e0d6] p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <h3 className="truncate font-medium text-gray-900">{source.url || 'File source'}</h3>
@@ -318,7 +327,7 @@ export default function SourcesPage() {
         {/* Chunk Preview Drawer */}
         {previewSourceId && (
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
             role="dialog"
             aria-modal="true"
             aria-label="Indexed content preview"
@@ -364,13 +373,13 @@ export default function SourcesPage() {
         {/* Add Source Dialog */}
         {showAddDialog && (
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
             aria-modal="true"
             role="dialog"
             aria-label="Add Source"
             aria-labelledby="dialog-title"
           >
-            <form onSubmit={handleAddSource} ref={dialogRef} className="bg-white rounded-lg p-8 w-full max-w-md">
+            <form onSubmit={handleAddSource} ref={dialogRef} className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto">
               <h3 id="dialog-title" className="text-lg font-semibold mb-4">Add Source</h3>
               {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
               <div className="space-y-3 mb-4">
@@ -399,6 +408,7 @@ export default function SourcesPage() {
               {addMethod === 'url' ? (
                 <input
                   type="url"
+                  aria-label="Source URL"
                   value={urlValue}
                   onChange={(e) => setUrlValue(e.target.value)}
                   placeholder="https://example.com/article"
@@ -408,6 +418,7 @@ export default function SourcesPage() {
               ) : (
                 <input
                   type="file"
+                  aria-label="Source file"
                   onChange={(e) => setFileValue(e.target.files?.[0] ?? null)}
                   className="w-full mb-6 text-sm"
                 />
