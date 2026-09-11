@@ -751,6 +751,7 @@ class AIWorker:
         error = result.get("error") or ""
         status = result.get("status") or ""
         content = pick_generated_issue(issues)
+        quality_eval = result.get("quality_evaluation") or {}
         if status in {"failed"} or content is None or is_stub_issue(content):
             issue_status = "failed"
             if not error:
@@ -758,6 +759,10 @@ class AIWorker:
             content = {}
         else:
             issue_status = "ready"
+            if quality_eval:
+                content = {**content, "_quality": quality_eval}
+            if status == "quality_review_needed":
+                error = error or "issue generated but did not pass quality review after revisions"
 
         try:
             pool = await self._pg_pool()
@@ -782,7 +787,8 @@ class AIWorker:
                 logger.info("Skipped persist for issue=%s (no longer generating; likely canceled)", issue_id)
                 return
             logger.info("Persisted issue status=%s for issue=%s", issue_status, issue_id)
-            if issue_status == "ready":
+            quality_passed = bool((quality_eval or {}).get("passed", True))
+            if issue_status == "ready" and status != "quality_review_needed" and quality_passed:
                 await self._auto_schedule_delivery(pool, issue_id)
             elif issue_status == "failed":
                 await pool.execute(
