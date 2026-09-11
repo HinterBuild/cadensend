@@ -28,18 +28,12 @@ from app.services.agent_tools import NewsletterTools, get_toolbox
 from app.services.model_service import ModelService
 from app.services.memory_store import LongTermMemoryStore
 from app.services.react_tools import build_react_tools
-from app.services.content_structure import (
-    analyze_content_structure,
-    normalize_issue_content_order,
-    structure_feedback,
-    structure_issue_errors,
-)
+from app.services.content_structure import normalize_issue_content_order
 from app.services.graph_policy import (
     collect_retrieval_hits,
     filter_citations,
     is_stub_issue,
     known_source_ids,
-    quality_needs_revision,
     route_after_agent,
     route_after_memory,
     route_after_plan,
@@ -173,6 +167,7 @@ class NewsletterAgent:
             {
                 "revise": "revise_issue",
                 "done": "save_memory",
+                "needs_review": "save_memory",
             },
         )
         graph.add_edge("revise_issue", "quality_check")
@@ -359,6 +354,8 @@ class NewsletterAgent:
                 "error": result.get("error"),
                 "citations": result.get("citations", []),
                 "visual_specs": result.get("visual_specs", []),
+                "quality_evaluation": result.get("quality_evaluation"),
+                "quality_feedback": result.get("quality_feedback"),
                 "usage": _aggregate_usage(result.get("messages") or []),
                 "messages": [
                     {"type": type(m).__name__, "content": m.content}
@@ -1018,28 +1015,34 @@ JSON shape:
 
     async def _quality_check_node(self, state: NewsletterState) -> NewsletterState:
         """Perform a quality check on the generated issues."""
+        from app.services.quality_guardrails import assess_issues_batch
+
         issues = state.get("issues", [])
         context = state.get("retrieved_context") or []
-        needs = quality_needs_revision(issues, context)
-        structure_messages = []
-        for issue in issues:
-            if not isinstance(issue, dict):
-                continue
-            errors = structure_issue_errors(analyze_content_structure(issue))
-            if errors:
-                needs = True
-                structure_messages.append(structure_feedback(errors))
+        prior = []
+        try:
+            history = self.tools_box.get_issue_history(
+                state.get("series_id") or "",
+                state.get("workspace_id") or "",
+            )
+            prior = history.get("issues") or []
+        except Exception:
+            prior = []
+
+        assessment = assess_issues_batch(issues, context, prior_issues=prior)
+        needs = assessment["needs_revision"]
         state["needs_revision"] = needs
-        if needs and structure_messages:
+        state["quality_evaluation"] = assessment.get("evaluation")
+        state["quality_feedback"] = assessment.get("feedback") or []
+
+        if needs and state["quality_feedback"]:
             state["messages"] = list(state.get("messages") or []) + [
-                AIMessage(content="Quality: " + " ".join(structure_messages[:2]))
-            ]
-        elif needs:
-            state["messages"] = list(state.get("messages") or []) + [
-                AIMessage(content="Quality: retrieved sources exist but the issue has no valid citations.")
+                AIMessage(content="Quality: " + " ".join(state["quality_feedback"][:3]))
             ]
         if not issues:
             state["status"] = "failed"
+        elif needs and (state.get("revision_count") or 0) >= settings.MAX_REVISION_LOOPS:
+            state["status"] = "quality_review_needed"
         else:
             state["status"] = "quality_checked"
         return state
@@ -1072,6 +1075,11 @@ JSON shape:
             "visual_specs": [{"type": "mermaid", "content": "string", "alt_text": "string"}],
         }
 
+        quality_notes = state.get("quality_feedback") or []
+        feedback_block = ""
+        if quality_notes:
+            feedback_block = "Fix these quality issues:\n- " + "\n- ".join(quality_notes[:5]) + "\n\n"
+
         revised_issues = []
         for index, issue in enumerate(issues):
             module_idx = issue.get("module_index", index)
@@ -1088,6 +1096,7 @@ JSON shape:
                 {
                     "role": "user",
                     "content": (
+                        f"{feedback_block}"
                         "Revise this issue so claims are grounded and citations use retrieved sources. "
                         "Also fix content flow: add intro prose before diagrams/code, avoid back-to-back diagrams, "
                         "and close with a takeaway after technical sections.\n"
