@@ -45,8 +45,11 @@ class TestRevision:
     def test_revises_when_flagged_under_cap(self):
         assert should_revise(0, 2, True) == "revise"
 
-    def test_stops_at_cap(self):
-        assert should_revise(2, 2, True) == "done"
+    def test_needs_review_at_cap_when_still_failing(self):
+        assert should_revise(2, 2, True) == "needs_review"
+
+    def test_done_at_cap_when_quality_ok(self):
+        assert should_revise(2, 2, False) == "done"
 
     def test_done_when_quality_ok(self):
         assert should_revise(0, 2, False) == "done"
