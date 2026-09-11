@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 
 from app.services.model_service import ModelService
 from app.services.graph_policy import coverage_report
+from app.services.prompt_injection import sanitize_source_text
 from app.services.series_catalog import PostgresSeriesCatalog
 from app.core.config import settings
 
@@ -63,6 +64,28 @@ class NewsletterTools:
         """Return all registered tools as a list for LangGraph."""
         return list(self._tools.values())
 
+    def _format_retrieval_hits(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        formatted: List[Dict[str, Any]] = []
+        for r in results:
+            payload = r.get("payload", {}) or {}
+            raw_text = payload.get("text_preview", payload.get("content", "")) or ""
+            safe_text = sanitize_source_text(str(raw_text))
+            source_id = payload.get("source_id", "")
+            section_path = payload.get("section_path", []) or []
+            formatted.append(
+                {
+                    "score": r.get("score"),
+                    "content": safe_text[:500],
+                    "source_id": source_id,
+                    "chunk_id": payload.get("chunk_id", ""),
+                    "section_path": section_path,
+                    "heading": section_path[-1] if section_path else "Unknown",
+                    "title": payload.get("title", source_id),
+                    "preview": safe_text[:200],
+                }
+            )
+        return formatted
+
     def retrieve_context(
         self,
         query: str,
@@ -91,20 +114,9 @@ class NewsletterTools:
                 series_id=series_id,
                 source_id=source_id,
                 top_k=top_k or settings.TOP_K_RETRIEVAL,
+                score_threshold=settings.COVERAGE_MIN_SCORE,
             )
-
-            formatted = []
-            for r in results:
-                payload = r.get("payload", {})
-                formatted.append({
-                    "score": r["score"],
-                    "content": payload.get("text_preview", payload.get("content", ""))[:500],
-                    "source_id": payload.get("source_id", ""),
-                    "chunk_id": payload.get("chunk_id", ""),
-                    "section_path": payload.get("section_path", []),
-                    "heading": payload.get("section_path", ["Unknown"])[-1] if payload.get("section_path") else "Unknown",
-                })
-            return formatted
+            return self._format_retrieval_hits(results)
         except Exception as e:
             logger.error("Context retrieval failed: %s", e)
             return []
@@ -132,23 +144,12 @@ class NewsletterTools:
                 workspace_id=workspace_id,
                 series_id=series_id,
                 top_k=top_k or 10,
+                score_threshold=settings.COVERAGE_MIN_SCORE,
             )
+            return self._format_retrieval_hits(results)
         except Exception as e:
             logger.error("Source search failed: %s", e)
             return []
-
-        formatted = []
-        for r in results:
-            payload = r.get("payload", {})
-            source_id = payload.get("source_id", "")
-            formatted.append({
-                "source_id": source_id,
-                "score": r["score"],
-                "title": payload.get("title", source_id),
-                "section": payload.get("section_path", []),
-                "preview": payload.get("text_preview", payload.get("content", ""))[:200],
-            })
-        return formatted
 
     def generate_visual(
         self,
@@ -290,6 +291,7 @@ Output the refined {diagram_type} code only.
             warnings.append(f"Plan has {len(modules)} modules - consider splitting")
 
         titles = []
+        seen_objectives: set[str] = set()
         for i, module in enumerate(modules):
             title = str(module.get("title") or "").strip()
             titles.append(title.lower())
@@ -297,8 +299,16 @@ Output the refined {diagram_type} code only.
                 issues.append(f"Module {i + 1} missing a title")
             elif re.fullmatch(r"module\s+\d+", title, re.IGNORECASE):
                 issues.append(f"Module {i + 1} has a placeholder title")
-            if not module.get("learning_objectives"):
+            objectives = module.get("learning_objectives") or []
+            if not objectives:
                 issues.append(f"Module {i + 1} has no learning objectives")
+            for raw_obj in objectives:
+                objective = str(raw_obj or "").strip().lower()
+                if not objective:
+                    continue
+                if objective in seen_objectives:
+                    issues.append(f"Duplicate learning objective: {raw_obj}")
+                seen_objectives.add(objective)
             duration = module.get("duration_weeks", 1)
             if duration is not None and duration <= 0:
                 issues.append(f"Module {i + 1} has invalid duration")

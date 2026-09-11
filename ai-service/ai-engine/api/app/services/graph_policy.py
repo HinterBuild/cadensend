@@ -34,7 +34,7 @@ def route_after_plan(workflow: str, status: str) -> str:
 
 def should_revise(revision_count: int, max_loops: int, needs_revision: bool) -> str:
     if revision_count >= max_loops:
-        return "done"
+        return "needs_review" if needs_revision else "done"
     if needs_revision:
         return "revise"
     return "done"
