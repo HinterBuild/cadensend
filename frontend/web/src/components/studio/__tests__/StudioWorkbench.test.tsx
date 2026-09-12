@@ -22,3 +22,14 @@ it('keeps an existing draft when generation fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Provider unavailable');
   expect(editor).toHaveValue('My carefully edited draft');
 });
+
+it('reorders outline sections with the keyboard', async () => {
+  render(<StudioWorkbench />);
+  const rows = await screen.findAllByRole('listitem');
+  expect(rows.length).toBeGreaterThan(1);
+  const firstTitle = rows[0].textContent;
+  rows[0].focus();
+  fireEvent.keyDown(rows[0], { key: 'ArrowDown', shiftKey: true });
+  const rowsAfter = screen.getAllByRole('listitem');
+  expect(rowsAfter[1].textContent).toContain(firstTitle!.trim().split(/\s/)[0]);
+});
