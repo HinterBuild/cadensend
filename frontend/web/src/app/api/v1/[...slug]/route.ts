@@ -108,10 +108,10 @@ function clearSessionCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
 }
 
-function extractToken(path: string, method: string, body: any, responseHeaders: Headers): string | null {
+function extractToken(path: string, method: string, body: unknown, responseHeaders: Headers): string | null {
   for (const route of AUTH_ROUTES) {
     if (route.method === method && route.pattern.test(path)) {
-      if (typeof body?.token === 'string' && body.token.length > 20) return body.token
+      if (body && typeof body === 'object' && 'token' in body && typeof body.token === 'string' && body.token.length > 20) return body.token
       break
     }
   }
@@ -126,7 +126,11 @@ async function proxyRequest(request: NextRequest) {
 
   const url = new URL(request.url)
   const path = url.pathname.replace('/api/v1/', '')
-  const targetUrl = `${BACKEND_URL}/v1/${path}`
+  if (path === 'users/logout' && request.method === 'POST') {
+    return NextResponse.json({ message: 'Signed out' }, { headers: { 'set-cookie': clearSessionCookie(), 'cache-control': 'no-store' } })
+  }
+
+  const targetUrl = `${BACKEND_URL}/v1/${path}${url.search}`
 
   let sessionToken = request.cookies.get(SESSION_COOKIE)?.value || ''
 
@@ -152,7 +156,7 @@ async function proxyRequest(request: NextRequest) {
   }
 
   let body: BodyInit | undefined
-  let parsedBody: any = null
+  let parsedBody: unknown = null
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     if (incomingContentType.includes('multipart/form-data')) {
       headers['Content-Type'] = incomingContentType
@@ -196,7 +200,7 @@ async function proxyRequest(request: NextRequest) {
     return passthrough
   }
 
-  let data: any
+  let data: unknown
   try {
     data = await response.json()
   } catch {
