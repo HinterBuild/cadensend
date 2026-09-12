@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ContentPreferences, CustomGoal, CustomVoice } from '@/types/contentPreferences';
 
@@ -22,10 +22,12 @@ export function ContentPreferencesEditor({ prefs, saving, onSave }: ContentPrefe
   const [goalText, setGoalText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const [previousPrefs, setPreviousPrefs] = useState(prefs);
+  if (prefs !== previousPrefs) {
+    setPreviousPrefs(prefs);
     setVoices(prefs.custom_voices);
     setGoals(prefs.custom_goals);
-  }, [prefs]);
+  }
 
   const addVoice = () => {
     const label = voiceLabel.trim();
