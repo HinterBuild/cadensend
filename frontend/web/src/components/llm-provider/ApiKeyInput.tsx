@@ -1,5 +1,6 @@
 "use client";
 
+import { errorMessage } from '@/lib/errors';
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { modelsApi } from "@/lib/api";
@@ -25,8 +26,8 @@ export function ApiKeyInput({ provider, hasExistingKey, onSaved }: ApiKeyInputPr
         configs: { api_key: apiKey },
       });
       onSaved?.();
-    } catch (e: any) {
-      setError(e.message || "Failed to save API key");
+    } catch (e: unknown) {
+      setError(errorMessage(e) || "Failed to save API key");
     } finally {
       setSaving(false);
     }
