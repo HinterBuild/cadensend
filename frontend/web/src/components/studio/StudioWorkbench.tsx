@@ -1,6 +1,8 @@
 "use client";
 
-import { PageHeader } from '@/components/WorkspaceUI';
+import { ArrowUp, ArrowDown, Wand2 } from 'lucide-react';
+import { markdownToHtml, replaceSection } from '@/lib/studioContent';
+import { PageHeader, PageSkeleton, ErrorNotice } from '@/components/WorkspaceUI';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -53,20 +55,6 @@ function terminologySuggestions(text: string, preferred: Record<string, string>)
     .map(([from, to]) => ({ from, to }));
 }
 
-function markdownToHtml(md: string) {
-  let out = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  out = out.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  out = out.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  out = out.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  return out
-    .split(/\n\n+/)
-    .filter((p) => p.trim())
-    .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
-    .join('\n');
-}
-
 const DEFAULT_BANNED = ['synergy', 'leverage', 'disrupt', 'game-changer'];
 const DEFAULT_PREFERRED: Record<string, string> = {
   newsletter: 'briefing',
@@ -96,6 +84,8 @@ export function StudioWorkbench() {
   const [previewMode, setPreviewMode] = useState<PreviewMode>('html');
   const [selectedSubject, setSelectedSubject] = useState('');
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [error, setError] = useState('');
   const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -125,17 +115,27 @@ export function StudioWorkbench() {
 
   useEffect(() => {
     if (authLoading) return;
-    platformApi.skills().then((r) => setSkills(r.data ?? []));
-    platformApi.studioMeta().then((r) => setMeta(r.data)).catch(() => null);
-  }, [authLoading]);
-
-  useEffect(() => {
-    const skill = skills.find((s) => s.id === skillId) ?? skills[0];
-    if (skill) initOutlineFromSkill(skill);
-  }, [skillId, skills, initOutlineFromSkill]);
+    let cancelled = false;
+    platformApi.skills().then((response) => {
+      if (cancelled) return;
+      const items = response.data ?? [];
+      setSkills(items);
+      const skill = items.find(item => item.id === searchParams.get('skill')) ?? items[0];
+      if (skill) { setSkillId(skill.id); initOutlineFromSkill(skill); }
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load Studio.');
+    }).finally(() => { if (!cancelled) setInitializing(false); });
+    platformApi.studioMeta().then(response => { if (!cancelled) setMeta(response.data); }).catch(() => null);
+    return () => { cancelled = true; };
+  }, [authLoading, searchParams, initOutlineFromSkill]);
 
   const runCompose = async () => {
+    if (!topic.trim() || !goal.trim() || wordTarget < 40 || wordTarget > 400) {
+      setError('Enter a topic and goal, and choose between 40 and 400 words per section.');
+      return;
+    }
     setLoading(true);
+    setError('');
     try {
       const res = await platformApi.studioCompose({
         skill_id: skillId,
@@ -164,8 +164,7 @@ export function StudioWorkbench() {
         })),
       );
     } catch (e) {
-      setCompose(null);
-      setEditorMarkdown(e instanceof Error ? `Error: ${e.message}` : 'Compose failed');
+      setError(e instanceof Error ? e.message : 'Could not compose this issue. Your draft has been kept.');
     } finally {
       setLoading(false);
     }
@@ -173,6 +172,7 @@ export function StudioWorkbench() {
 
   const regenerateSection = async (section: OutlineSection) => {
     setRegeneratingSection(section.id);
+    setError('');
     try {
       const res = await platformApi.studioSection({
         section_id: section.id,
@@ -186,13 +186,9 @@ export function StudioWorkbench() {
       });
       const text = res.data.text;
       setOutline((prev) => prev.map((s) => (s.id === section.id ? { ...s, text } : s)));
-      setEditorMarkdown((prev) => {
-        const header = `## ${section.title}`;
-        if (prev.includes(header)) {
-          return prev.replace(new RegExp(`## ${section.title}[\\s\\S]*?(?=\\n## |$)`), `## ${section.title}\n\n${text}\n\n`);
-        }
-        return `${prev}\n\n## ${section.title}\n\n${text}`;
-      });
+      setEditorMarkdown(prev => replaceSection(prev, section.title, text));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not regenerate this section. Your draft has been kept.');
     } finally {
       setRegeneratingSection(null);
     }
@@ -217,31 +213,37 @@ export function StudioWorkbench() {
     setDragIndex(null);
   };
 
+  const moveOutline = (from: number, to: number) => {
+    if (busy || from === to || to < 0 || to >= outline.length) return;
+    setOutline((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next.map((s, i) => ({ ...s, order: i }));
+    });
+  };
+
   const previewHtml = useMemo(() => {
-    const body = compose?.html ?? markdownToHtml(editorMarkdown);
+    const body = markdownToHtml(editorMarkdown);
     const subject = selectedSubject || compose?.issue.subject || topic;
     const preheader = compose?.preheader.text ?? '';
     return { body, subject, preheader };
   }, [compose, editorMarkdown, selectedSubject, topic]);
 
-  if (authLoading) {
-    return <div className="p-8 text-stone-500">Loading studio…</div>;
-  }
+  if (authLoading || initializing) return <PageSkeleton label="Loading studio" />;
+  const busy = loading || regeneratingSection !== null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-      <PageHeader eyebrow="Create" title="Studio" description="Compose, preview, and refine issues section by section before publishing." />
+      <PageHeader eyebrow="Create" title="Studio" description="Give your ideas structure, find the right voice, and preview every edit."
+        actions={<button type="button" onClick={runCompose} disabled={busy || !skills.length} className="button-primary"><Wand2 className="h-4 w-4" aria-hidden="true" />{loading ? 'Composing…' : 'Generate full issue'}</button>} />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        <button type="button" onClick={runCompose} disabled={loading}
-          className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {loading ? 'Composing…' : 'Generate full issue'}
-        </button>
-      </div>
+      {error && <ErrorNotice>{error}</ErrorNotice>}
+      {busy && <p role="status" className="mb-5 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-900">{loading ? 'Composing your issue…' : 'Refining this section…'} Your current draft stays available if the request fails.</p>}
 
       <div className="grid gap-6 xl:grid-cols-12">
         {/* Controls */}
-        <aside className="space-y-4 xl:col-span-3">
+        <aside className="min-w-0 space-y-4 xl:col-span-3"><fieldset disabled={busy} className="space-y-4">
           <Panel title="Brief">
             <Field label="Skill">
               <select value={skillId} onChange={(e) => {
@@ -318,18 +320,33 @@ export function StudioWorkbench() {
               </div>
             ))}
           </Panel>
-        </aside>
+        </fieldset></aside>
 
         {/* Outline + editor */}
-        <section className="space-y-4 xl:col-span-5">
-          <Panel title="Outline board (drag to reorder)">
+        <section className="space-y-4 min-w-0 xl:col-span-5">
+          <Panel title="Outline">
+            <p className="mb-3 text-xs leading-5 text-stone-500">Drag sections, use the arrows, or press Shift+↑/↓ while a row is focused.</p>
             <ul className="space-y-2">
               {outline.map((section, index) => (
-                <li key={section.id} draggable onDragStart={() => onDragStart(index)}
-                  onDragOver={(e) => e.preventDefault()} onDrop={() => onDrop(index)}
-                  className="flex cursor-grab items-center justify-between rounded-xl border border-[#e7e0d6] bg-[#faf8f5] px-3 py-2 text-sm active:cursor-grabbing">
-                  <span>{section.title}</span>
-                  <button type="button" disabled={regeneratingSection === section.id}
+                <li key={section.id} tabIndex={busy ? -1 : 0} draggable={!busy} onDragStart={() => onDragStart(index)}
+                  onDragOver={(e) => e.preventDefault()} onDrop={() => { if (!busy) onDrop(index); }} onDragEnd={() => setDragIndex(null)}
+                  onKeyDown={(e) => {
+                    if (busy) return;
+                    if (e.key === 'ArrowUp' && e.shiftKey) {
+                      e.preventDefault();
+                      moveOutline(index, index - 1);
+                    }
+                    if (e.key === 'ArrowDown' && e.shiftKey) {
+                      e.preventDefault();
+                      moveOutline(index, index + 1);
+                    }
+                  }}
+                  className="flex cursor-grab flex-wrap items-center justify-between gap-2 rounded-xl border border-[#e7e0d6] bg-[#faf8f5] px-3 py-2 text-sm active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                  <span className="min-w-0 flex-1 break-words capitalize">{section.title}</span>
+                  <div className="flex shrink-0 items-center">
+                    {[-1, 1].map(direction => <button key={direction} type="button" className="icon-button !min-w-8" disabled={busy || index + direction < 0 || index + direction >= outline.length} aria-label={`Move ${section.title} ${direction < 0 ? 'up' : 'down'}`} onClick={() => moveOutline(index, index + direction)}>{direction < 0 ? <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" /> : <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />}</button>)}
+                  </div>
+                  <button type="button" disabled={busy}
                     onClick={() => regenerateSection(section)}
                     className="text-xs text-stone-600 underline disabled:opacity-50">
                     {regeneratingSection === section.id ? '…' : 'Regenerate'}
@@ -340,9 +357,9 @@ export function StudioWorkbench() {
           </Panel>
 
           <Panel title="Live markdown editor">
-            <textarea value={editorMarkdown} onChange={(e) => setEditorMarkdown(e.target.value)}
+            <textarea aria-label="Issue Markdown" readOnly={busy} placeholder="Write your draft here, or generate an issue from your brief." spellCheck value={editorMarkdown} onChange={(e) => setEditorMarkdown(e.target.value)}
               rows={16} className={`${inputCls} font-mono text-xs leading-relaxed`} />
-            <p className="mt-2 text-xs text-stone-500">Use Generate full issue or per-section Regenerate.</p>
+            <p className="mt-2 text-xs text-stone-500">{liveAnalysis.reading.words} words · Edits appear in the preview as you type.</p>
           </Panel>
 
           {compose?.model_comparisons && compose.model_comparisons.length > 0 && (
@@ -360,7 +377,7 @@ export function StudioWorkbench() {
         </section>
 
         {/* Preview column */}
-        <section className="space-y-4 xl:col-span-4">
+        <section className="space-y-4 min-w-0 xl:col-span-4">
           {compose?.subject_variants && (
             <Panel title="Subject lines (A/B/C)">
               <div className="space-y-2">
@@ -397,13 +414,13 @@ export function StudioWorkbench() {
           <Panel title="Issue preview">
             <div className="mb-2 flex flex-wrap gap-1">
               {(['html', 'plain', 'gmail', 'apple', 'outlook'] as PreviewMode[]).map((mode) => (
-                <button key={mode} type="button" onClick={() => setPreviewMode(mode)}
+                <button key={mode} type="button" aria-pressed={previewMode === mode} onClick={() => setPreviewMode(mode)}
                   className={`rounded-lg px-2 py-1 text-xs capitalize ${previewMode === mode ? 'bg-stone-900 text-white' : 'border border-[#e7e0d6]'}`}>
                   {mode}
                 </button>
               ))}
             </div>
-            <EmailPreview mode={previewMode} subject={previewHtml.subject} preheader={previewHtml.preheader} body={previewHtml.body} />
+            <EmailPreview mode={previewMode} subject={previewHtml.subject} preheader={previewHtml.preheader} body={previewHtml.body} plainText={editorMarkdown} />
           </Panel>
         </section>
       </div>
@@ -413,8 +430,8 @@ export function StudioWorkbench() {
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-[#e7e0d6] bg-white p-4">
-      <h2 className="font-display mb-3 text-sm text-stone-900">{title}</h2>
+    <div className="surface p-5">
+      <h2 className="mb-4 text-sm font-semibold tracking-tight text-stone-900">{title}</h2>
       {children}
     </div>
   );
@@ -429,13 +446,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-const inputCls = 'w-full rounded-xl border border-[#e7e0d6] px-3 py-2 text-sm';
+const inputCls = 'field-input';
 
-function EmailPreview({ mode, subject, preheader, body }: { mode: PreviewMode; subject: string; preheader: string; body: string }) {
+function EmailPreview({ mode, subject, preheader, body, plainText }: { mode: PreviewMode; subject: string; preheader: string; body: string; plainText: string }) {
   const inner = mode === 'plain' ? (
-    <pre className="whitespace-pre-wrap p-4 text-xs text-stone-700">{body.replace(/<[^>]+>/g, '')}</pre>
+    <pre className="whitespace-pre-wrap p-4 text-xs text-stone-700">{plainText}</pre>
   ) : (
-    <div className="prose prose-sm max-w-none p-4" dangerouslySetInnerHTML={{ __html: body }} />
+    <div className="email-content p-5" dangerouslySetInnerHTML={{ __html: body }} />
   );
 
   const frameCls =
@@ -443,7 +460,7 @@ function EmailPreview({ mode, subject, preheader, body }: { mode: PreviewMode; s
     mode === 'apple' ? 'border-t-4 border-blue-500 rounded-2xl' :
     mode === 'outlook' ? 'border-t-4 border-sky-600' : 'border border-[#e7e0d6]';
 
-  const clientLabel = mode === 'html' || mode === 'plain' ? 'Preview' : `${mode} client`;
+  const clientLabel = mode === 'html' || mode === 'plain' ? 'Preview' : `${mode} style preview`;
 
   return (
     <div className={`overflow-hidden rounded-xl bg-white shadow-sm ${frameCls}`}>
@@ -452,7 +469,7 @@ function EmailPreview({ mode, subject, preheader, body }: { mode: PreviewMode; s
         <p className="font-medium text-stone-900">{subject}</p>
         <p className="text-xs text-stone-500">{preheader}</p>
       </div>
-      {inner}
+      {plainText.trim() ? inner : <p className="px-5 py-12 text-center text-sm leading-6 text-stone-500">Your issue preview will appear here as you write.</p>}
     </div>
   );
 }
