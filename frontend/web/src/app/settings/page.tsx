@@ -1,5 +1,6 @@
 "use client";
 
+import { errorMessage } from '@/lib/errors';
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
@@ -13,11 +14,12 @@ import { useContentPreferences } from '@/hooks/useContentPreferences';
 
 export default function SettingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
+  const router = useRouter();
   const { logout, refreshUser } = useAuth();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [timezone, setTimezone] = useState('');
-  const [preferredModel, setPreferredModel] = useState('');
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [timezone, setTimezone] = useState(user?.timezone || 'UTC');
+  const [preferredModel, setPreferredModel] = useState(user?.preferred_model || '');
   const [llmProvider, setLlmProvider] = useState('openrouter');
   const [workspaceDefaultModel, setWorkspaceDefaultModel] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -46,14 +48,16 @@ export default function SettingsPage() {
   const [savingContentPrefs, setSavingContentPrefs] = useState(false);
   const { prefs: contentPrefs, loading: contentPrefsLoading, save: saveContentPrefs } = useContentPreferences();
 
-  useEffect(() => {
+  const [previousUser, setPreviousUser] = useState(user);
+  if (user !== previousUser) {
+    setPreviousUser(user);
     if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
       setTimezone(user.timezone || 'UTC');
       setPreferredModel(user.preferred_model || '');
     }
-  }, [user]);
+  }
 
   useEffect(() => {
     modelsApi.getProviderConfig().then((res) => {
@@ -95,7 +99,7 @@ export default function SettingsPage() {
       const refreshed = await emailProviderApi.get();
       setEmailConfig(refreshed.data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save email provider');
+      setError(err instanceof Error ? errorMessage(err) : 'Failed to save email provider');
     } finally {
       setSavingEmail(false);
     }
@@ -108,7 +112,7 @@ export default function SettingsPage() {
       const res = await emailProviderApi.test();
       setSuccess(res.message || 'Test email sent.');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Test email failed');
+      setError(err instanceof Error ? errorMessage(err) : 'Test email failed');
     } finally {
       setTestingEmail(false);
     }
@@ -127,8 +131,8 @@ export default function SettingsPage() {
       });
       await refreshUser();
       setSuccess('Settings updated successfully.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to update settings.');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to update settings.');
     } finally {
       setSaving(false);
     }
@@ -156,11 +160,11 @@ export default function SettingsPage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (err: any) {
-      if (err.message?.includes('current password is incorrect')) {
+    } catch (err: unknown) {
+      if (errorMessage(err)?.includes('current password is incorrect')) {
         setError('Current password is incorrect. Please try again.');
       } else {
-        setError(err.message || 'Failed to change password.');
+        setError(errorMessage(err) || 'Failed to change password.');
       }
     } finally {
       setChangingPassword(false);
@@ -173,8 +177,8 @@ export default function SettingsPage() {
     try {
       const response = await authApi.revokeSessions();
       setSuccess(response.message || 'All other sessions were signed out.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to revoke sessions.');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to revoke sessions.');
     } finally {
       setRevokingSessions(false);
     }
@@ -189,10 +193,11 @@ export default function SettingsPage() {
     setError(null);
     try {
       await authApi.deleteAccount(user.id);
-      localStorage.clear();
-      window.location.href = '/login';
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete account.');
+      await authApi.logout();
+      router.replace('/login');
+      router.refresh();
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to delete account.');
       setDeletingAccount(false);
     }
   };
@@ -234,7 +239,7 @@ export default function SettingsPage() {
 
         <nav aria-label="Settings sections" className="mb-6 flex flex-wrap gap-2">{[
           ['profile', 'Profile'], ['voices', 'Voices & goals'], ['models', 'Models'], ['sending', 'Send inbox'], ['password', 'Password'], ['security', 'Security']
-        ].map(([id, label]) => <a key={id} href={`#${id}`} className="rounded-lg border border-[#e7e0d6] bg-white px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 hover:no-underline">{label}</a>)}</nav>
+        ].map(([id, label]) => <a key={id} href={`#${id}`} className="surface px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-100 hover:no-underline">{label}</a>)}</nav>
 
         {error && (
           <div
@@ -384,7 +389,7 @@ export default function SettingsPage() {
                     await saveContentPrefs(next);
                     setSuccess('Voices and goals saved.');
                   } catch (err: unknown) {
-                    setError(err instanceof Error ? err.message : 'Failed to save voices and goals');
+                    setError(err instanceof Error ? errorMessage(err) : 'Failed to save voices and goals');
                   } finally {
                     setSavingContentPrefs(false);
                   }
@@ -394,7 +399,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Model provider */}
-          <div className="rounded-lg border border-[#e7e0d6] bg-white p-6">
+          <div className="surface p-6">
             <div className="mb-4 flex items-center gap-3">
               <Sparkles className="h-5 w-5 text-stone-600" aria-hidden="true" />
               <h2 id="models" className="scroll-mt-20 font-display text-2xl text-stone-900">Model provider</h2>
@@ -414,7 +419,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Email Provider / Send Inbox */}
-          <div className="rounded-lg border border-[#e7e0d6] bg-white p-6">
+          <div className="surface p-6">
             <div className="mb-4 flex items-center gap-3">
               <Mail className="h-5 w-5 text-stone-600" aria-hidden="true" />
               <h2 id="sending" className="scroll-mt-20 font-display text-2xl text-stone-900">Send inbox</h2>
