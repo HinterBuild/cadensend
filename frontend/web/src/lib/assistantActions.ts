@@ -1,7 +1,8 @@
 import { issueApi, platformApi, seriesApi, sourceApi } from '@/lib/api';
 import type { AssistantPermission } from '@/types/assistant';
 
-function parseIssueContent(issue: Record<string, unknown>) {
+function parseIssueContent(issue: { content_json?: string | Record<string, unknown> | null }) {
+  if (issue.content_json && typeof issue.content_json === 'object') return issue.content_json;
   if (issue.content_json) {
     try {
       return JSON.parse(String(issue.content_json)) as Record<string, unknown>;
@@ -9,8 +10,7 @@ function parseIssueContent(issue: Record<string, unknown>) {
       return {};
     }
   }
-  const content = issue.content as Record<string, unknown> | undefined;
-  return content || {};
+  return {};
 }
 
 export async function executeAssistantAction(
@@ -167,7 +167,7 @@ export async function executeAssistantAction(
         const issueId = String(payload.issue_id || '');
         const sectionId = String(payload.section_id || '');
         const issueRes = await issueApi.get(issueId);
-        const issue = issueRes.data as Record<string, unknown>;
+        const issue = issueRes.data;
         const content = parseIssueContent(issue);
         const blocks = (content.content_blocks as Array<Record<string, unknown>>) || [];
         const target = blocks.find((b) => String(b.id) === sectionId);
@@ -186,7 +186,7 @@ export async function executeAssistantAction(
             : block,
         );
         const updated = await issueApi.update(issueId, {
-          subject: String(content.subject || issue.title || ''),
+          subject: String(content.subject || issue.objective || ''),
           preheader: String(content.preheader || ''),
           content_blocks: nextBlocks,
         });
