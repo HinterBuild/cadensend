@@ -10,3 +10,15 @@ it('preserves query parameters when proxying filters and verification links', as
   expect(response.status).toBe(200);
   expect(upstream.mock.calls[0][0]).toBe('http://localhost:8080/v1/runs?kind=plan&status=failed');
 });
+
+it('clears the httpOnly session cookie without depending on backend availability', async () => {
+  const upstream = jest.spyOn(global, 'fetch');
+  const response = await POST(new NextRequest('http://localhost:3000/api/v1/users/logout', {
+    method: 'POST', headers: { origin: 'http://localhost:3000', host: 'localhost:3000', cookie: 'cadensend_session=demo' },
+  }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('cadensend_session=;');
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  expect(response.headers.get('set-cookie')).toContain('HttpOnly');
+  expect(upstream).not.toHaveBeenCalled();
+});
