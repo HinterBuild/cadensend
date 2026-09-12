@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef, use } from 'react';
+import { errorMessage } from '@/lib/errors';
+import { useCallback, useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Send, RefreshCw, Trash2, Pause, Play, Settings2, X } from 'lucide-react';
@@ -10,6 +11,9 @@ import { ContentStructurePanel } from '@/components/issues/ContentStructurePanel
 import { Series, Issue, Source, RetrievedChunk } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
+import { ConfirmDialog } from '@/components/Modal';
+
+type SeriesPlan = { modules?: { title?: string; summary?: string; learning_objectives?: string[] }[] };
 
 type SeriesDetail = Series & {
   issues?: Issue[];
@@ -100,14 +104,19 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
   const [savingSettings, setSavingSettings] = useState(false);
   const [formError, setFormError] = useState('');
   const [planStatus, setPlanStatus] = useState<string>('');
-  const [plan, setPlan] = useState<Record<string, any> | null>(null);
+  const [plan, setPlan] = useState<SeriesPlan | null>(null);
   const [planError, setPlanError] = useState<string>('');
   const [startingPlan, setStartingPlan] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [seriesDeleteOpen, setSeriesDeleteOpen] = useState(false);
+  const [seriesDeleteError, setSeriesDeleteError] = useState('');
+  const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
+  const [sourceDeleteError, setSourceDeleteError] = useState('');
+  const [deletingSource, setDeletingSource] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [testNotice, setTestNotice] = useState('');
   const [testEmail, setTestEmail] = useState('');
-  const [generationModel, setGenerationModel] = useState('');
+  const [generationModel, setGenerationModel] = useState(user?.preferred_model || '');
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
   const [defaultModel, setDefaultModel] = useState('poolside/laguna-s-2.1:free');
   const [retryingIssueId, setRetryingIssueId] = useState<string | null>(null);
@@ -144,13 +153,9 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     };
   }, [showEditDialog]);
 
-  useEffect(() => {
-    if (id) {
-      loadSeriesData();
-    }
-  }, [id]);
-
-  useEffect(() => {
+  const [previousSeries, setPreviousSeries] = useState(series);
+  if (series !== previousSeries) {
+    setPreviousSeries(series);
     if (series) {
       setEditTopic(series.topic || '');
       setEditGoal(series.goal || '');
@@ -161,13 +166,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       setEditSendTime(series.send_time || '09:00');
       setEditSendDays((series.send_days || '').split(',').map((d) => d.trim()).filter(Boolean));
     }
-  }, [series]);
+  }
 
-  useEffect(() => {
+  const [previousModel, setPreviousModel] = useState(user?.preferred_model);
+  if (previousModel !== user?.preferred_model) {
+    setPreviousModel(user?.preferred_model);
     if (user?.preferred_model) {
       setGenerationModel(user.preferred_model);
     }
-  }, [user?.preferred_model]);
+  }
 
   useEffect(() => {
     modelsApi.list().then((res) => {
@@ -180,11 +187,15 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     });
   }, []);
 
-  const loadSeriesData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const seriesRes = await seriesApi.get(id);
+  const refreshPlan = useCallback(() => seriesApi.getPlan(id).then(planRes => {
+    setPlanStatus(planRes.status || '');
+    setPlan(planRes.plan || null);
+    setPlanError(planRes.error || '');
+    return planRes.status;
+  }), [id]);
+
+  const loadSeriesData = useCallback(() => seriesApi.get(id).then(async seriesRes => {
+      setError(null);
       setSeries(seriesRes.data);
 
       try {
@@ -208,20 +219,13 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       } catch (err) {
         console.error('Failed to load plan:', err);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load series data');
-    } finally {
+    }).catch((err: unknown) => {
+      setError(errorMessage(err) || 'Failed to load series data');
+    }).finally(() => {
       setLoading(false);
-    }
-  };
+    }), [id, refreshPlan]);
 
-  const refreshPlan = async () => {
-    const planRes = await seriesApi.getPlan(id);
-    setPlanStatus(planRes.status || '');
-    setPlan(planRes.plan || null);
-    setPlanError(planRes.error || '');
-    return planRes.status;
-  };
+  useEffect(() => { if (id) void loadSeriesData(); }, [id, loadSeriesData]);
 
   useEffect(() => {
     const moduleCount = Array.isArray((plan as { modules?: unknown[] } | null)?.modules)
@@ -241,7 +245,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [id, planStatus, issues.length, plan]);
+  }, [id, planStatus, issues.length, plan, refreshPlan]);
 
   const issuesBusy = issues.some((issue) => isIssueBusy(issue.status));
   const sourcesBusy = sources.some((source) => isSourceBusy(source.status));
@@ -274,24 +278,39 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       await seriesApi.generatePlan(id, generationModel || user?.preferred_model);
       setPlanStatus('generating');
       setActiveTab('plan');
-    } catch (err: any) {
-      setPlanError(err.message || 'Failed to start plan generation');
+    } catch (err: unknown) {
+      setPlanError(errorMessage(err) || 'Failed to start plan generation');
     } finally {
       setStartingPlan(false);
     }
   };
 
-  const handleDeleteSeries = async () => {
-    if (!window.confirm(`Delete “${series?.topic}”? This cannot be undone.`)) {
-      return;
-    }
+  const confirmDeleteSeries = async () => {
     setDeleting(true);
+    setSeriesDeleteError('');
     try {
       await seriesApi.delete(id);
+      setSeriesDeleteOpen(false);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete series');
+    } catch (err: unknown) {
+      setSeriesDeleteError(errorMessage(err) || 'Failed to delete series');
       setDeleting(false);
+    }
+  };
+
+  const confirmDeleteSource = async () => {
+    if (!sourceToDelete) return;
+    setDeletingSource(true);
+    setSourceDeleteError('');
+    try {
+      await sourceApi.delete(sourceToDelete.id);
+      setSourceToDelete(null);
+      const sourcesRes = await seriesApi.getSources(id);
+      setSources(sourcesRes.data ?? []);
+    } catch (err: unknown) {
+      setSourceDeleteError(errorMessage(err) || 'Failed to delete source');
+    } finally {
+      setDeletingSource(false);
     }
   };
 
@@ -308,8 +327,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       );
       const email = (result as { email?: string }).email || user?.email || 'your inbox';
       setTestNotice(`Test email sent to ${email}.`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send test email');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to send test email');
     } finally {
       setSendingTest(false);
     }
@@ -326,8 +345,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
         await seriesApi.resume(id);
         setSeries({ ...series, status: 'active' });
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to change series status');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to change series status');
     }
   };
 
@@ -350,8 +369,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
         setSeries(response.data);
       }
       setShowEditDialog(false);
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to update series');
+    } catch (err: unknown) {
+      setFormError(errorMessage(err) || 'Failed to update series');
     } finally {
       setSavingSettings(false);
     }
@@ -372,8 +391,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       if ((response.results ?? []).length === 0) {
         setContextError('No indexed content matched this query. Add or reindex sources.');
       }
-    } catch (err: any) {
-      setContextError(err.message || 'Retrieval preview failed');
+    } catch (err: unknown) {
+      setContextError(errorMessage(err) || 'Retrieval preview failed');
       setContextChunks([]);
     } finally {
       setContextLoading(false);
@@ -415,8 +434,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       setActiveTab('issues');
       const issuesRes = await seriesApi.getIssues(id);
       setIssues(issuesRes.data ?? []);
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to add issue');
+    } catch (err: unknown) {
+      setFormError(errorMessage(err) || 'Failed to add issue');
     } finally {
       setSavingIssue(false);
     }
@@ -432,8 +451,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       await issueApi.generate(issueId, chosenIssueModel ? { model: chosenIssueModel } : {});
       const issuesRes = await seriesApi.getIssues(id);
       setIssues(issuesRes.data ?? []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate issue');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to generate issue');
     } finally {
       setRetryingIssueId(null);
     }
@@ -466,8 +485,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
       setActiveTab('sources');
       const sourcesRes = await seriesApi.getSources(id);
       setSources(sourcesRes.data ?? []);
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to add source');
+    } catch (err: unknown) {
+      setFormError(errorMessage(err) || 'Failed to add source');
     } finally {
       setSavingSource(false);
     }
@@ -590,7 +609,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               <button
                 type="button"
                 aria-label="Delete series"
-                onClick={handleDeleteSeries}
+                onClick={() => { setSeriesDeleteError(''); setSeriesDeleteOpen(true); }}
                 disabled={deleting}
                 className="rounded-lg p-2 text-gray-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
               >
@@ -763,8 +782,8 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                               const result = await issueApi.testSend(issue.id);
                               const email = (result as { email?: string }).email || user?.email || 'your inbox';
                               setTestNotice(`Test email sent to ${email}.`);
-                            } catch (err: any) {
-                              setError(err.message || 'Failed to send test email');
+                            } catch (err: unknown) {
+                              setError(errorMessage(err) || 'Failed to send test email');
                             } finally {
                               setSendingTest(false);
                             }
@@ -879,18 +898,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
                       <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (!window.confirm(
-                              `Remove “${source.url || 'this file'}”? Future issue generation will no longer use it as context (already generated issues keep their citations).`,
-                            )) return;
-                            try {
-                              await sourceApi.delete(source.id);
-                              const sourcesRes = await seriesApi.getSources(id);
-                              setSources(sourcesRes.data ?? []);
-                            } catch (err: any) {
-                              setError(err.message || 'Failed to delete source');
-                            }
-                          }}
+                          onClick={() => { setSourceDeleteError(''); setSourceToDelete(source); }}
                           aria-label={`Delete source ${source.url || ''}`}
                           className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-700"
                         >
@@ -979,7 +987,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
               {planStatus === 'ready' && plan && (
                 <div className="space-y-4 mb-6">
                   {Array.isArray(plan.modules) && plan.modules.length > 0 ? (
-                    plan.modules.map((module: any, index: number) => (
+                    plan.modules.map((module, index: number) => (
                       <div key={index} className="border border-gray-200 rounded-lg p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -1048,7 +1056,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             <div className="bg-white rounded-lg border border-[#e7e0d6] shadow-sm p-6">
               <h2 className="font-display text-xl text-stone-900">Preview source context</h2>
               <p className="mt-1 mb-5 text-sm text-gray-600">
-                Ask a question like the objective of your next issue. You'll see exactly which source
+                Ask a question like the objective of your next issue. You&apos;ll see exactly which source
                 chunks generation would retrieve as context.
               </p>
               <form onSubmit={handleContextPreview} className="flex flex-col gap-3 sm:flex-row">
@@ -1364,6 +1372,28 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
             </div>
           </form>
         </div>
+      )}
+      {seriesDeleteOpen && series && (
+        <ConfirmDialog
+          title="Delete series?"
+          description={`“${series.topic}” will be permanently deleted. This cannot be undone.`}
+          confirmLabel="Delete series"
+          busy={deleting}
+          error={seriesDeleteError}
+          onConfirm={() => void confirmDeleteSeries()}
+          onClose={() => setSeriesDeleteOpen(false)}
+        />
+      )}
+      {sourceToDelete && (
+        <ConfirmDialog
+          title="Delete source?"
+          description={`Remove “${sourceToDelete.url || 'this file'}” from future generation? Existing issues will keep their citations.`}
+          confirmLabel="Delete source"
+          busy={deletingSource}
+          error={sourceDeleteError}
+          onConfirm={() => void confirmDeleteSource()}
+          onClose={() => setSourceToDelete(null)}
+        />
       )}
     </div>
   );
