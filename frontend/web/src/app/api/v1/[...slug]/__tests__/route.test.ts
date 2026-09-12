@@ -43,3 +43,22 @@ it('forwards X-Forwarded-For to the backend for rate limiting', async () => {
   const init = upstream.mock.calls[0][1] as RequestInit;
   expect((init.headers as Record<string, string>)['X-Forwarded-For']).toBe('203.0.113.44');
 });
+
+it('clears the session cookie when a protected route returns 401', async () => {
+  jest.spyOn(global, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
+  const response = await GET(new NextRequest('http://localhost:3000/api/v1/series', {
+    headers: {
+      origin: 'http://localhost:3000',
+      host: 'localhost:3000',
+      cookie: 'cadensend_session=eyJhbGciOiJub25lIn0.eyJleHAiOjk5OTk5OTk5OTl9.',
+    },
+  }));
+  expect(response.status).toBe(401);
+  expect(response.headers.get('set-cookie')).toContain('cadensend_session=;');
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+});
