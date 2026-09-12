@@ -10,19 +10,16 @@ export function useContentPreferences() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await contentPreferencesApi.get();
-      setPrefs(res.data ?? EMPTY_CONTENT_PREFERENCES);
-    } catch (e: unknown) {
+  const load = useCallback(() => contentPreferencesApi.get()
+    .then(res => {
+      setPrefs({ custom_voices: res.data?.custom_voices ?? [], custom_goals: res.data?.custom_goals ?? [] });
+      setError(null);
+    })
+    .catch((e: unknown) => {
       setError(e instanceof Error ? e.message : 'Failed to load preferences');
       setPrefs(EMPTY_CONTENT_PREFERENCES);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    })
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => {
     load();
@@ -31,7 +28,7 @@ export function useContentPreferences() {
   const save = useCallback(async (next: ContentPreferences) => {
     setError(null);
     const res = await contentPreferencesApi.update(next);
-    setPrefs(res.data ?? next);
+    setPrefs({ custom_voices: res.data?.custom_voices ?? next.custom_voices, custom_goals: res.data?.custom_goals ?? next.custom_goals });
     return res.data ?? next;
   }, []);
 
