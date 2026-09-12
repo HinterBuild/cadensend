@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, BookOpen, CalendarDays, CheckCircle2, FlaskConical, Plus, RefreshCw, Search } from 'lucide-react';
+import { PageSkeleton, EmptyResults } from '@/components/WorkspaceUI';
 import { platformApi } from '@/lib/api';
 import { useRequireAuth } from '@/contexts/AuthContext';
 import type { PlatformSkill } from '@/types';
@@ -131,30 +132,14 @@ export default function SkillsPage() {
   const sectionCount = skills.reduce((total, skill) => total + (skill.sections?.length ?? 0), 0);
   const cadenceCount = new Set(skills.map((skill) => skill.cadence).filter(Boolean)).size;
 
-  if (authLoading || (loading && skills.length === 0)) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-8 h-8 w-48 animate-pulse rounded-md bg-stone-200" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="rounded-lg border border-[#e7e0d6] bg-white p-5">
-              <div className="h-5 w-2/3 animate-pulse rounded bg-stone-200" />
-              <div className="mt-4 h-4 w-full animate-pulse rounded bg-stone-100" />
-              <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-stone-100" />
-              <div className="mt-5 h-8 w-full animate-pulse rounded bg-stone-100" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (authLoading || (loading && skills.length === 0)) return <PageSkeleton label="Loading skills" />;
 
   if (!user) {
     return null;
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
       <header className="mb-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -165,15 +150,15 @@ export default function SkillsPage() {
             </p>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:min-w-[28rem]">
-            <div className="rounded-lg border border-[#e7e0d6] bg-white p-3">
+            <div className="surface p-3">
               <p className="text-xs text-stone-500">Skills</p>
               <p className="mt-1 text-2xl font-semibold text-stone-900">{skills.length}</p>
             </div>
-            <div className="rounded-lg border border-[#e7e0d6] bg-white p-3">
+            <div className="surface p-3">
               <p className="text-xs text-stone-500">Sections</p>
               <p className="mt-1 text-2xl font-semibold text-stone-900">{sectionCount}</p>
             </div>
-            <div className="rounded-lg border border-[#e7e0d6] bg-white p-3">
+            <div className="surface p-3">
               <p className="text-xs text-stone-500">Cadences</p>
               <p className="mt-1 text-2xl font-semibold text-stone-900">{cadenceCount}</p>
             </div>
@@ -210,13 +195,14 @@ export default function SkillsPage() {
             placeholder="Search by name, section, category, cadence..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="w-full rounded-lg border border-[#e7e0d6] bg-white py-2.5 pl-9 pr-3 text-sm text-stone-900 outline-none transition focus:border-stone-400 focus:ring-2 focus:ring-stone-200"
+            className="w-full surface py-2.5 pl-9 pr-3 text-sm text-stone-900 outline-none transition focus:border-stone-400 focus:ring-2 focus:ring-stone-200"
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button
             type="button"
             onClick={() => setSelectedCategory('all')}
+            aria-pressed={selectedCategory === 'all'}
             className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold capitalize ${
               selectedCategory === 'all'
                 ? 'bg-stone-900 text-white'
@@ -230,6 +216,7 @@ export default function SkillsPage() {
               type="button"
               key={category}
               onClick={() => setSelectedCategory(category)}
+              aria-pressed={selectedCategory === category}
               className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold capitalize ${
                 selectedCategory === category
                   ? 'bg-stone-900 text-white'
@@ -254,17 +241,14 @@ export default function SkillsPage() {
       </div>
 
       {!error && filtered.length === 0 && (
-        <div className="rounded-lg border border-dashed border-[#d8cfc2] bg-white px-5 py-10 text-center">
-          <p className="font-medium text-stone-900">No skills match this view.</p>
-          <p className="mt-1 text-sm text-stone-500">Clear the search or choose a different category.</p>
-        </div>
+        <EmptyResults onClear={() => { setFilter(''); setSelectedCategory('all'); }} />
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((skill) => (
           <article
             key={skill.id}
-            className="flex min-h-[20rem] flex-col rounded-lg border border-[#e7e0d6] bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            className="flex min-h-[20rem] flex-col surface p-5 shadow-sm transition-shadow hover:shadow-md"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
