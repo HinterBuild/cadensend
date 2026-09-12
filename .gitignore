@@ -6,6 +6,11 @@ __pycache__/
 
 # Environment files with secrets
 .env
+.env.*
+
+# Local agent editor notes (not for the repo)
+frontend/web/AGENTS.md
+frontend/web/CLAUDE.md
 
 # Logs
 logs/
