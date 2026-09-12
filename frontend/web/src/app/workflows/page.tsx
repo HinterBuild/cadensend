@@ -232,7 +232,7 @@ export default function WorkflowsPage() {
 
   if (authLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
         <div className="h-8 w-64 animate-pulse rounded-lg bg-stone-200" />
         <div className="mt-4 h-4 w-full max-w-xl animate-pulse rounded bg-stone-100" />
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -247,7 +247,7 @@ export default function WorkflowsPage() {
   if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
       <header className="mb-8">
         <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Production</p>
         <h1 className="font-display mt-1 text-3xl text-stone-900 sm:text-4xl">Workflows</h1>
@@ -257,11 +257,11 @@ export default function WorkflowsPage() {
           Pick a workflow below, then assign it to a series.
         </p>
         <div className="mt-4 flex flex-wrap gap-3 text-sm">
-          <Link href="/skills" className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 !text-stone-700 no-underline hover:bg-[#faf8f5]">
+          <Link href="/skills" className="inline-flex items-center gap-1.5 surface px-3 py-1.5 !text-stone-700 no-underline hover:bg-[#faf8f5]">
             <Wand2 className="h-4 w-4" aria-hidden="true" />
             Browse skills
           </Link>
-          <Link href="/series/create" className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 !text-stone-700 no-underline hover:bg-[#faf8f5]">
+          <Link href="/series/create" className="inline-flex items-center gap-1.5 surface px-3 py-1.5 !text-stone-700 no-underline hover:bg-[#faf8f5]">
             <GitBranch className="h-4 w-4" aria-hidden="true" />
             Create series
           </Link>
@@ -296,7 +296,7 @@ export default function WorkflowsPage() {
         </div>
       </section>
 
-      <section className="mb-10 rounded-lg border border-[#e7e0d6] bg-white p-6">
+      <section className="mb-10 surface p-6">
         <h2 className="font-display text-lg text-stone-900">Assign to a series</h2>
         <p className="mt-1 text-sm text-stone-600">
           Selected: <strong>{selected?.name ?? selectedId}</strong>
@@ -428,7 +428,7 @@ export default function WorkflowsPage() {
         })
       )}
 
-      <section className="mt-10 rounded-lg border border-[#e7e0d6] bg-white p-6">
+      <section className="mt-10 surface p-6">
         <h2 className="font-display text-lg text-stone-900">Optional: preview before assigning</h2>
         <p className="mt-1 text-sm text-stone-600">
           Runs a sample generation (can take 10–30s). You can assign a workflow without previewing.
