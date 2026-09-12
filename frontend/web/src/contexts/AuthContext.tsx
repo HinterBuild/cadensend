@@ -24,16 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // The JWT lives in an httpOnly cookie managed by the /api proxy; the
   // browser only asks "who am I?" and gets a clean answer or a 401.
-  const loadSession = useCallback(async () => {
-    try {
-      const response = await authApi.me();
-      setUser(response.data);
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadSession = useCallback(() => authApi.me()
+    .then(response => setUser(response.data))
+    .catch(() => setUser(null))
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => {
     loadSession();
@@ -51,9 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const logout = useCallback(async () => {
+    await authApi.logout();
     setUser(null);
-    await fetch('/api/v1/users/me').catch(() => null);
-    router.push('/login');
+    router.replace('/login');
+    router.refresh();
   }, [router]);
 
   const sendMagicLink = useCallback(async (email: string) => {
