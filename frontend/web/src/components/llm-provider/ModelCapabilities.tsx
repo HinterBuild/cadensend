@@ -69,7 +69,7 @@ const CAPABILITIES: Record<string, Capability[]> = {
   ],
 };
 
-export function ModelCapabilities({ provider, model }: ModelCapabilitiesProps) {
+export function ModelCapabilities({ provider }: ModelCapabilitiesProps) {
   const caps = CAPABILITIES[provider] || [];
 
   return (
