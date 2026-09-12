@@ -1,13 +1,13 @@
 'use client';
 
-import { PageHeader } from '@/components/WorkspaceUI';
+import { PageHeader, PageSkeleton } from '@/components/WorkspaceUI';
 
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Save, Calendar, Clock, CheckCircle, Plus, X, Link2, Rss, FileUp, Wand2 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { seriesApi, modelsApi, sourceApi, OpenRouterModel } from '@/lib/api';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, useRequireAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RadioGroup } from '@/components/RadioGroup';
 import type { ExtractedBrief } from '@/types';
@@ -155,8 +155,9 @@ function previewSendDates(startDate: string, cadence: string, sendDays: string[]
   return out;
 }
 
-export default function CreateSeriesPage() {
+function CreateSeriesForm() {
   const router = useRouter();
+  const params = useSearchParams();
   const { user } = useAuth();
   const { prefs: contentPrefs } = useContentPreferences();
 
@@ -193,12 +194,12 @@ export default function CreateSeriesPage() {
   const [extractedBrief, setExtractedBrief] = useState<ExtractedBrief | null>(null);
 
   const [formData, setFormData] = useState<FormValues>({
-    topic: '',
-    goal: '',
-    level: 'beginner',
+    topic: params.get('topic') || '',
+    goal: params.get('goal') || '',
+    level: params.get('level') || 'beginner',
     tone: 'instructor',
     length: '10 min',
-    timezone: 'UTC',
+    timezone: user?.timezone || 'UTC',
     startDate: tomorrowISODate(),
     duration: '1 month',
     cadence: 'weekly',
@@ -206,9 +207,9 @@ export default function CreateSeriesPage() {
     sendTime: '14:00',
     verifyRecipient: true,
     manualApproval: false,
-    model: '',
-    skillId: '',
-    workflowMode: '',
+    model: user?.preferred_model || '',
+    skillId: params.get('skill') || '',
+    workflowMode: params.get('workflow') || '',
   });
 
   const updateField = <K extends keyof FormValues>(field: K, value: FormValues[K]) => {
@@ -216,35 +217,6 @@ export default function CreateSeriesPage() {
     setError(null);
     setFieldError(null);
   };
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const topic = params.get('topic');
-    const goal = params.get('goal');
-    const level = params.get('level');
-    const skill = params.get('skill');
-    const workflow = params.get('workflow');
-    if (!topic && !goal && !level && !skill && !workflow) {
-      return;
-    }
-    setFormData((prev) => ({
-      ...prev,
-      topic: topic || prev.topic,
-      goal: goal || prev.goal,
-      level: level || prev.level,
-      skillId: skill || prev.skillId,
-      workflowMode: workflow || prev.workflowMode,
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (user?.preferred_model) {
-      setFormData((prev) => ({ ...prev, model: user.preferred_model || '' }));
-    }
-    if (user?.timezone) {
-      setFormData((prev) => ({ ...prev, timezone: user.timezone }));
-    }
-  }, [user?.preferred_model, user?.timezone]);
 
   useEffect(() => {
     modelsApi.list().then((res) => {
@@ -942,4 +914,10 @@ export default function CreateSeriesPage() {
       </div>
     </div>
   );
+}
+
+export default function CreateSeriesPage() {
+  const { loading, user } = useRequireAuth();
+  if (loading || !user) return <PageSkeleton label="Loading series form" />;
+  return <Suspense fallback={<PageSkeleton label="Loading series form" />}><CreateSeriesForm /></Suspense>;
 }
