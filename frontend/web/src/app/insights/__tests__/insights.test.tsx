@@ -1,3 +1,4 @@
+import * as AuthContext from '@/contexts/AuthContext';
 import { render, screen, waitFor } from '@testing-library/react';
 import InsightsPage from '@/app/insights/page';
 import { analyticsApi } from '@/lib/api';
@@ -32,7 +33,7 @@ const overview = {
 describe('InsightsPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (require('@/contexts/AuthContext') as { useRequireAuth: jest.Mock }).useRequireAuth.mockReturnValue({
+    (AuthContext as { useRequireAuth: jest.Mock }).useRequireAuth.mockReturnValue({
       user: { id: '1', email: 'test@example.com' },
       loading: false,
     });
