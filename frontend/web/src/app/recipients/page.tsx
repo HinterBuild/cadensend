@@ -1,9 +1,10 @@
 "use client";
 
-import { SearchField, SummaryCards } from '@/components/WorkspaceUI';
+import { SearchField, SummaryCards, PageHeader, PageSkeleton, ErrorNotice, EmptyResults } from '@/components/WorkspaceUI';
 
 import { useCallback, useEffect, useState } from 'react';
 import { UserPlus, MailCheck, Trash2, Ban, RotateCw } from 'lucide-react';
+import { ConfirmDialog } from '@/components/Modal';
 import { recipientApi } from '@/lib/api';
 import { Recipient } from '@/types';
 import { useRequireAuth } from '@/contexts/AuthContext';
@@ -17,19 +18,14 @@ export default function RecipientsPage() {
   const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<Recipient | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await recipientApi.list();
-      setRecipients(response.data ?? []);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load recipients');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(() => recipientApi.list()
+    .then(response => { setRecipients(response.data ?? []); setError(null); })
+    .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load recipients'))
+    .finally(() => setLoading(false)), []);
 
   useEffect(() => {
     if (!authLoading) load();
@@ -54,13 +50,14 @@ export default function RecipientsPage() {
   };
 
   const handleRemove = async (rcpt: Recipient) => {
-    if (!window.confirm(`Remove ${rcpt.email} from the audience?`)) return;
+    setDeleteError('');
     setBusyId(rcpt.id);
     try {
       await recipientApi.remove(rcpt.id);
+      setSelected(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove recipient');
+      setDeleteError(err instanceof Error ? err.message : 'Failed to remove recipient');
     } finally {
       setBusyId(null);
     }
@@ -91,33 +88,14 @@ export default function RecipientsPage() {
     }
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="mx-auto max-w-4xl px-6 py-16 text-center">
-        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800" role="status" aria-label="Loading recipients" />
-        <p className="mt-4 text-stone-500">Loading recipients…</p>
-      </div>
-    );
-  }
+  if (authLoading || loading) return <PageSkeleton label="Loading recipients" />;
 
   const deliverable = recipients.filter((r) => r.verified && !r.suppressed).length;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-2">
-        <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Audience</p>
-        <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Recipients</h1>
-        <p className="mt-2 max-w-2xl text-sm text-stone-500">
-          Issues are delivered to verified recipients of your workspace. Unverified or unsubscribed
-          addresses are skipped automatically.
-        </p>
-      </div>
-
-      {error && (
-        <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
+      <PageHeader eyebrow="Audience" title="Recipients" description="Manage the people who receive your series. Only verified, subscribed addresses receive email." />
+      {error && <ErrorNotice onRetry={() => void load()}>{error}</ErrorNotice>}
       {notice && (
         <div role="status" className="mt-6 rounded-xl border border-green-200 bg-green-50 px-5 py-3 text-sm text-green-800">
           {notice}
@@ -125,20 +103,22 @@ export default function RecipientsPage() {
       )}
 
       <div className="mt-6"><SummaryCards items={[{ label: 'Recipients', value: recipients.length }, { label: 'Ready to receive', value: deliverable }, { label: 'Awaiting verification', value: recipients.filter(r => !r.verified && !r.suppressed).length }]} /></div>
-      <form onSubmit={handleAdd} className="mt-8 flex flex-col gap-3 sm:flex-row">
+      <form onSubmit={handleAdd} className="surface mt-6 flex flex-col gap-3 p-5 sm:flex-row">
         <input
           type="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="reader@example.com"
+          autoComplete="email"
+          disabled={adding}
           aria-label="Recipient email"
-          className="flex-1 rounded-lg border border-stone-300 px-3 py-2.5 text-stone-900 bg-white focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:border-transparent"
+          className="field-input min-w-0 flex-1"
         />
         <button
           type="submit"
           disabled={adding}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+          className="button-primary"
         >
           <UserPlus className="h-4 w-4" aria-hidden="true" />
           {adding ? 'Adding…' : 'Add recipient'}
@@ -150,16 +130,16 @@ export default function RecipientsPage() {
       </p>
 
       <div className="mt-6"><SearchField label="Search recipients" placeholder="Find an email address…" value={query} onChange={setQuery} /></div>
-      {recipients.length > 0 && !recipients.some(r => r.email.toLowerCase().includes(query.trim().toLowerCase())) && <p role="status" className="mt-4 text-sm text-stone-600">No recipients match. <button type="button" onClick={() => setQuery('')} className="underline">Clear search</button></p>}
-      <ul className="mt-6 divide-y divide-[#efe8dc] rounded-lg border border-[#e7e0d6] bg-white">
+      {recipients.length > 0 && !recipients.some(r => r.email.toLowerCase().includes(query.trim().toLowerCase())) && <div className="mt-5"><EmptyResults onClear={() => setQuery('')} /></div>}
+      <ul className="surface mt-6 divide-y divide-stone-100 empty:hidden">
         {recipients.length === 0 ? (
           <li className="px-6 py-12 text-center text-sm text-stone-500">
             No recipients yet. Add the people who should receive your series.
           </li>
         ) : (
           recipients.filter(r => r.email.toLowerCase().includes(query.trim().toLowerCase())).map((rcpt) => (
-            <li key={rcpt.id} className="flex items-center gap-4 px-5 py-4">
-              <div className="min-w-0 flex-1">
+            <li key={rcpt.id} className="flex flex-wrap items-center gap-2 px-4 py-4 sm:gap-3 sm:px-5">
+              <div className="min-w-0 basis-full sm:flex-1">
                 <p className="truncate text-sm font-medium text-stone-900">{rcpt.email}</p>
                 <p className="mt-0.5 text-xs text-stone-500">
                   {rcpt.suppressed ? (
@@ -175,10 +155,10 @@ export default function RecipientsPage() {
                 <button
                   type="button"
                   onClick={() => handleResend(rcpt)}
-                  disabled={busyId === rcpt.id}
+                  disabled={busyId !== null}
                   title="Resend verification email"
                   aria-label={`Resend verification to ${rcpt.email}`}
-                  className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-50"
+                  className="icon-button"
                 >
                   <MailCheck className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -186,10 +166,10 @@ export default function RecipientsPage() {
               <button
                 type="button"
                 onClick={() => toggleSuppressed(rcpt)}
-                disabled={busyId === rcpt.id}
+                disabled={busyId !== null}
                 title={rcpt.suppressed ? 'Resume sending' : 'Stop sending (unsubscribe)'}
                 aria-label={rcpt.suppressed ? `Resume sending to ${rcpt.email}` : `Unsubscribe ${rcpt.email}`}
-                className={`rounded-lg p-2 disabled:opacity-50 ${
+                className={`icon-button ${
                   rcpt.suppressed ? 'text-emerald-700 hover:bg-emerald-50' : 'text-amber-700 hover:bg-amber-50'
                 }`}
               >
@@ -197,11 +177,11 @@ export default function RecipientsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => handleRemove(rcpt)}
-                disabled={busyId === rcpt.id}
+                onClick={() => { setDeleteError(''); setSelected(rcpt); }}
+                disabled={busyId !== null}
                 title="Remove recipient"
                 aria-label={`Remove ${rcpt.email}`}
-                className="rounded-lg p-2 text-stone-400 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                className="icon-button hover:!bg-red-50 hover:!text-red-700"
               >
                 <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -209,6 +189,7 @@ export default function RecipientsPage() {
           ))
         )}
       </ul>
+      {selected && <ConfirmDialog title="Remove recipient?" description={`Remove ${selected.email} from your audience? They will no longer receive your series.`} confirmLabel="Remove recipient" busy={busyId !== null} error={deleteError} onConfirm={() => void handleRemove(selected)} onClose={() => setSelected(null)} />}
     </div>
   );
 }
