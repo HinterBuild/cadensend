@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Calendar, Check, ClipboardList } from 'lucide-react';
 import type { AssistantSeriesSetupForm, AssistantSeriesSetupValues } from '@/types/assistant';
 import {
@@ -43,7 +43,9 @@ export function SeriesSetupFormCard({ form, onSubmit, busy }: SeriesSetupFormCar
     timezone: defaults.timezone || 'UTC',
   });
 
-  useEffect(() => {
+  const [previousDefaults, setPreviousDefaults] = useState(defaults);
+  if (defaults !== previousDefaults) {
+    setPreviousDefaults(defaults);
     setValues({
       topic: defaults.topic || '',
       goal: defaults.goal || '',
@@ -54,7 +56,7 @@ export function SeriesSetupFormCard({ form, onSubmit, busy }: SeriesSetupFormCar
       send_days: normalizeSendDays(defaults.send_days),
       timezone: defaults.timezone || 'UTC',
     });
-  }, [defaults]);
+  }
 
   const submitted = form.status === 'submitted';
   const showDayPicker = values.cadence === 'weekly' || values.cadence === 'biweekly';
