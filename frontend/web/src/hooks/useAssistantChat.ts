@@ -144,7 +144,7 @@ export function useAssistantChat() {
   const messagesRef = useRef<AssistantMessage[]>([]);
   const syncChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  messagesRef.current = messages;
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const enableLocalMode = useCallback((id?: string) => {
     const nextId = id || localThreadId();
@@ -195,11 +195,8 @@ export function useAssistantChat() {
     [persistenceEnabled, threadId],
   );
 
-  const initThreads = useCallback(async () => {
-    setLoadingThread(true);
-    setError(null);
-    try {
-      const listed = await assistantApi.listThreads();
+  const initThreads = useCallback(() => assistantApi.listThreads().then(async listed => {
+      setError(null);
       setPersistenceEnabled(true);
       const items = (listed.threads || []).map((t) => ({
         id: t.id,
@@ -252,7 +249,7 @@ export function useAssistantChat() {
       } catch {
         // ignore
       }
-    } catch (err) {
+    }).catch((err: unknown) => {
       const status = apiStatus(err);
       if (status === 404 || status === 502) {
         enableLocalMode();
@@ -260,10 +257,9 @@ export function useAssistantChat() {
         setError(apiErrorMessage(err, 'Failed to load assistant'));
         enableLocalMode();
       }
-    } finally {
+    }).finally(() => {
       setLoadingThread(false);
-    }
-  }, [enableLocalMode]);
+    }), [enableLocalMode]);
 
   const loadThread = useCallback(
     async (id: string) => {
