@@ -1,16 +1,21 @@
-import { Geist, Newsreader } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 
-const geist = Geist({
-  subsets: ['latin'],
+const geist = localFont({
+  src: './fonts/geist-latin.woff2',
   variable: '--font-geist',
+  weight: '100 900',
+  display: 'swap',
 });
 
-const newsreader = Newsreader({
-  subsets: ['latin'],
+const newsreader = localFont({
+  src: [
+    { path: './fonts/newsreader-latin.woff2', weight: '200 800', style: 'normal' },
+    { path: './fonts/newsreader-latin-italic.woff2', weight: '200 800', style: 'italic' },
+  ],
   variable: '--font-newsreader',
-  style: ['normal', 'italic'],
+  display: 'swap',
 });
 
 export const metadata = {
@@ -31,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${geist.variable} ${newsreader.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${geist.variable} ${newsreader.variable}`}>
       <body className="font-sans antialiased">
         <AuthProvider>
           <a href="#main-content" className="skip-link">
