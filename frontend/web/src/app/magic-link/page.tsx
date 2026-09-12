@@ -1,46 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrandLogo } from '@/components/BrandLogo';
 
-export default function MagicLinkPage() {
+function MagicLinkInner() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token') || '';
   const { verifyMagicLink } = useAuth();
   const [status, setStatus] = useState<'verifying' | 'error'>('verifying');
   const [error, setError] = useState('');
-  const attempted = useRef(false);
-
+  const request = useRef<{ token: string; promise: Promise<void> } | null>(null);
   useEffect(() => {
-    if (attempted.current) {
-      return;
-    }
-    attempted.current = true;
-
-    if (!token) {
-      setStatus('error');
-      setError('This sign-in link is missing its token. Request a new magic link.');
-      return;
-    }
-
+    if (!token) return;
     let cancelled = false;
-
-    verifyMagicLink(token).catch((err: unknown) => {
+    if (request.current?.token !== token) request.current = { token, promise: verifyMagicLink(token) };
+    request.current.promise.catch((err: unknown) => {
       if (cancelled) return;
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Could not verify this sign-in link.');
     });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token, verifyMagicLink]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f6f3ee] px-4 py-12">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[#f6f3ee] px-4 py-12">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-lg">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-4 flex items-center gap-3">
@@ -50,7 +36,7 @@ export default function MagicLinkPage() {
           <p className="text-sm text-gray-600">Magic link sign-in</p>
         </div>
 
-        {status === 'verifying' ? (
+        {token && status === 'verifying' ? (
           <div className="space-y-3 text-center">
             <h2 className="text-lg font-semibold text-gray-900">Signing you in</h2>
             <p className="text-sm text-gray-600">Verifying your one-time link and starting a session.</p>
@@ -58,7 +44,7 @@ export default function MagicLinkPage() {
         ) : (
           <div className="space-y-4 text-center">
             <h2 className="text-lg font-semibold text-gray-900">Link could not be used</h2>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-red-700">{!token ? 'This sign-in link is missing its token. Request a new magic link.' : error}</p>
             <Link
               href="/login"
               className="inline-flex rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800"
@@ -70,4 +56,8 @@ export default function MagicLinkPage() {
       </div>
     </main>
   );
+}
+
+export default function MagicLinkPage() {
+  return <Suspense fallback={<p role="status" className="p-8">Loading sign-in link…</p>}><MagicLinkInner /></Suspense>;
 }
