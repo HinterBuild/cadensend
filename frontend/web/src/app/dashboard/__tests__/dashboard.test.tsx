@@ -2,6 +2,7 @@
  * Tests for dashboard page
  */
 
+import * as AuthContext from '@/contexts/AuthContext';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DashboardPage from '@/app/dashboard/page';
 import { seriesApi } from '@/lib/api';
@@ -51,14 +52,14 @@ const mockSeries = [
 describe('DashboardPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (require('@/contexts/AuthContext') as any).useRequireAuth.mockReturnValue(mockRequireAuth);
-    (require('@/contexts/AuthContext') as any).useAuth.mockReturnValue(mockAuth);
+    (AuthContext.useRequireAuth as jest.Mock).mockReturnValue(mockRequireAuth);
+    (AuthContext.useAuth as jest.Mock).mockReturnValue(mockAuth);
     (seriesApi.list as jest.Mock).mockResolvedValue({ series: mockSeries });
   });
 
   it('renders the dashboard title', async () => {
     render(<DashboardPage />);
-    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Good day/ })).toBeInTheDocument();
   });
 
   it('shows create new series button', async () => {
