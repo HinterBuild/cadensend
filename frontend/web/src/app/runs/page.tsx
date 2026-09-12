@@ -1,6 +1,6 @@
 "use client";
 
-import { EmptyResults } from '@/components/WorkspaceUI';
+import { EmptyResults, EmptyState, ErrorNotice, PageHeader, PageSkeleton, SummaryCards } from '@/components/WorkspaceUI';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -48,31 +48,22 @@ export default function RunCenterPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
 
-  const loadRuns = useCallback(async () => {
-    try {
-      const response = await runsApi.list({
-        kind: kind || undefined,
-        status: status || undefined,
-      });
+  const loadRuns = useCallback(() => runsApi.list({ kind: kind || undefined, status: status || undefined })
+    .then(response => {
       setRuns(response.data ?? []);
       setSummary(response.summary ?? { queued: 0, running: 0, failed: 0, completed: 0 });
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load runs');
-    } finally {
-      setLoading(false);
-    }
-  }, [kind, status]);
+    }).catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load runs'))
+    .finally(() => setLoading(false)), [kind, status]);
 
   useEffect(() => {
     if (authLoading) return;
-    setLoading(true);
-    loadRuns();
+    void loadRuns();
   }, [authLoading, loadRuns]);
 
   useEffect(() => {
     if (authLoading || !autoRefresh) return;
-    const timer = window.setInterval(loadRuns, 8000);
+    const timer = window.setInterval(() => { if (!document.hidden) void loadRuns(); }, 8000);
     return () => window.clearInterval(timer);
   }, [authLoading, autoRefresh, loadRuns]);
 
@@ -102,58 +93,36 @@ export default function RunCenterPage() {
     }
   };
 
-  if (authLoading || (loading && runs.length === 0)) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-16 text-center">
-        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800" role="status" aria-label="Loading runs" />
-        <p className="mt-4 text-stone-500">Loading runs...</p>
-      </div>
-    );
-  }
+  if (authLoading || (loading && runs.length === 0)) return <PageSkeleton label="Loading runs" />;
+
+  const refreshAction = (
+    <div className="flex flex-wrap items-center gap-3">
+      <label className="flex items-center gap-2 text-sm text-stone-600">
+        <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
+        Auto-refresh
+      </label>
+      <button type="button" onClick={() => void loadRuns()} className="button-primary">
+        <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        Refresh
+      </button>
+    </div>
+  );
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Operations</p>
-          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Run Center</h1>
-          <p className="mt-2 max-w-2xl text-sm text-stone-500">
-            Live plans, ingest jobs, and issue generations for this workspace.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-stone-600">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-            />
-            Auto-refresh
-          </label>
-          <button
-            type="button"
-            onClick={loadRuns}
-            className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ['Queued', summary.queued],
-          ['Running', summary.running],
-          ['Failed', summary.failed],
-          ['Completed', summary.completed],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="rounded-lg border border-[#e7e0d6] bg-white px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{label}</p>
-            <p className="font-display mt-1 text-3xl text-stone-900">{value}</p>
-          </div>
-        ))}
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
+      <PageHeader
+        eyebrow="Operations"
+        title="Run Center"
+        description="Live plans, ingest jobs, and issue generations for this workspace."
+        actions={refreshAction}
+      />
+      {error && <ErrorNotice onRetry={() => void loadRuns()}>{error}</ErrorNotice>}
+      <SummaryCards items={[
+        { label: 'Queued', value: summary.queued },
+        { label: 'Running', value: summary.running },
+        { label: 'Failed', value: summary.failed },
+        { label: 'Completed', value: summary.completed },
+      ]} />
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <label className="relative min-w-[220px] flex-1">
@@ -164,14 +133,14 @@ export default function RunCenterPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search title, status, or error"
-            className="w-full rounded-lg border border-[#e7e0d6] bg-white py-2 pl-9 pr-4 text-sm"
+            className="w-full surface py-2 pl-9 pr-4 text-sm"
           />
         </label>
         <select
           aria-label="Filter by run type"
           value={kind}
           onChange={(e) => setKind(e.target.value)}
-          className="rounded-lg border border-[#e7e0d6] bg-white px-3 py-2 text-sm"
+          className="surface px-3 py-2 text-sm"
         >
           <option value="">All types</option>
           <option value="issue">Issues</option>
@@ -183,7 +152,7 @@ export default function RunCenterPage() {
           aria-label="Filter by run status"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="rounded-lg border border-[#e7e0d6] bg-white px-3 py-2 text-sm"
+          className="surface px-3 py-2 text-sm"
         >
           <option value="">All statuses</option>
           <option value="generating">Generating</option>
@@ -195,18 +164,12 @@ export default function RunCenterPage() {
         </select>
       </div>
 
-      {error ? (
-        <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}<button type="button" onClick={loadRuns} className="ml-3 underline">Retry</button>
-        </div>
-      ) : null}
-
-      {visible.length === 0 ? (
+      {!error && runs.length === 0 && !kind && !status && !query.trim() ? <EmptyState title="Your work will appear here" description="Generate a plan, create an issue, or add a source to track its progress here." /> : !error && visible.length === 0 ? (
         <EmptyResults onClear={() => { setQuery(''); setKind(''); setStatus(''); }} />
       ) : (
         <ul className="space-y-3">
           {visible.map((run) => (
-            <li key={run.id} className="rounded-lg border border-[#e7e0d6] bg-white p-5">
+            <li key={run.id} className="surface p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
