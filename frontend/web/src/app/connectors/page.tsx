@@ -76,7 +76,7 @@ export default function ConnectorsPage() {
   const visible = connectors.filter(c => (!configuredOnly || c.configured) && `${c.name} ${c.description} ${c.sync || ''}`.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
       <PageHeader eyebrow="Library" title="Connectors" description="Connect your apps, then sync content into your source library." />
       <SummaryCards items={[{ label: 'Available apps', value: connectors.length }, { label: 'Configured', value: connectors.filter(c => c.configured).length }]} />
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -117,7 +117,7 @@ export default function ConnectorsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((c) => (
-          <article key={c.id} className="flex flex-col rounded-lg border border-[#e7e0d6] bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+          <article key={c.id} className="flex flex-col surface p-5 shadow-sm transition-shadow hover:shadow-md">
             <div className="mb-3 flex items-start gap-3">
               <ConnectorLogo id={c.id} name={c.name} domain={c.domain} logoUrl={c.logo_url} />
               <div className="min-w-0 flex-1">
