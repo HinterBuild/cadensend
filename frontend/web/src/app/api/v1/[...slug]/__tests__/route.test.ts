@@ -22,3 +22,11 @@ it('clears the httpOnly session cookie without depending on backend availability
   expect(response.headers.get('set-cookie')).toContain('HttpOnly');
   expect(upstream).not.toHaveBeenCalled();
 });
+
+it('rejects a cross-origin sign-out request', async () => {
+  const response = await POST(new NextRequest('http://localhost:3000/api/v1/users/logout', {
+    method: 'POST', headers: { origin: 'https://other.example.com', host: 'localhost:3000' },
+  }));
+  expect(response.status).toBe(403);
+  expect(response.headers.get('set-cookie')).toBeNull();
+});
