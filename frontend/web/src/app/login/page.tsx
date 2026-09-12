@@ -1,5 +1,6 @@
 "use client";
 
+import { errorMessage } from '@/lib/errors';
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { Mail, Lock, Send, Eye, EyeOff, ArrowRight } from 'lucide-react';
@@ -36,9 +37,9 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await login(email, password);
-    } catch (err: any) {
-      const backendError = err.message || '';
+      await login(email.trim(), password);
+    } catch (err: unknown) {
+      const backendError = errorMessage(err) || '';
       if (backendError.includes('user not found')) {
         setError('We could not find an account with that email. Check the address or ask your workspace admin for access.');
       } else if (backendError.includes('incorrect password')) {
@@ -62,19 +63,26 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await sendMagicLink(email);
+      await sendMagicLink(email.trim());
       setMagicLinkSent(true);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send magic link. Please try again.');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to send magic link. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[#f6f3ee] py-12 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-xl shadow-lg p-8">
+    <main id="main-content" className="flex min-h-screen items-center justify-center bg-[var(--background)] py-12 px-4 sm:px-6 lg:px-8">
+      <div className="grid w-full max-w-5xl items-center gap-12 lg:grid-cols-2">
+        <section className="hidden py-12 pr-8 lg:block" aria-label="About Cadensend">
+          <p className="mb-6 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-800">A little knowledge. A lasting habit.</p>
+          <h2 className="font-display text-5xl leading-[1.12] tracking-tight text-stone-900">Good ideas deserve<br />a thoughtful delivery.</h2>
+          <p className="mt-6 max-w-sm text-base leading-7 text-stone-600">Bring your sources, shape your story, and turn what you know into an email series worth opening.</p>
+          <ol className="mt-10 space-y-5">{['Plan a series with purpose', 'Write with your sources in reach', 'Send on a schedule that fits'].map((step, index) => <li key={step} className="flex items-center gap-4 text-sm text-stone-700"><span className="flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800">0{index + 1}</span>{step}</li>)}</ol>
+        </section>
+        <div className="mx-auto w-full max-w-md">
+        <div className="surface p-6 shadow-sm sm:p-8">
           <div className="mb-8 flex flex-col items-center text-center">
             <div className="mb-4 flex items-center gap-3">
               <BrandLogo className="h-10 w-10" />
@@ -234,6 +242,7 @@ export default function LoginPage() {
         <p className="mt-8 text-center text-xs text-stone-500">
           Sign in with the account provided by your workspace.
         </p>
+      </div>
       </div>
     </main>
   );
