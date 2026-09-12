@@ -33,3 +33,17 @@ it('reorders outline sections with the keyboard', async () => {
   const rowsAfter = screen.getAllByRole('listitem');
   expect(rowsAfter[1].textContent).toContain(firstTitle!.trim().split(/\s/)[0]);
 });
+
+it('updates the preview after editing a generated draft', async () => {
+  (platformApi.studioCompose as jest.Mock).mockResolvedValue({ data: {
+    issue: { markdown: 'Original draft', subject: 'Subject', content_blocks: [] },
+    html: '<p>Stale server preview</p>', preheader: { text: '', length: 0 },
+  } });
+  render(<StudioWorkbench />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Generate full issue' }));
+  const editor = screen.getByRole('textbox', { name: 'Issue Markdown' });
+  await waitFor(() => expect(editor).toHaveValue('Original draft'));
+  fireEvent.change(editor, { target: { value: '# Updated heading' } });
+  expect(screen.getByRole('heading', { name: 'Updated heading' })).toBeInTheDocument();
+  expect(screen.queryByText('Stale server preview')).not.toBeInTheDocument();
+});
