@@ -26,21 +26,12 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
-    loadConfig();
+    let cancelled = false;
+    modelsApi.getProviderConfig().then(response => { if (!cancelled) setConfig(response.data ?? EMPTY_CONFIG); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load provider settings.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
-
-  const loadConfig = async () => {
-    setLoading(true);
-    try {
-      const res = await modelsApi.getProviderConfig();
-      setConfig(res.data ?? EMPTY_CONFIG);
-    } catch (e) {
-      console.error("Failed to load provider config:", e);
-      setConfig(EMPTY_CONFIG);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const updateProvider = async (provider: string) => {
     setSaving(true);
@@ -98,6 +89,7 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
           Default model
         </label>
         <ModelPicker
+          disabled={saving}
           provider={config.provider}
           value={config.default_model}
           onChange={updateModel}
@@ -109,7 +101,9 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
           Embedding model
         </label>
         <ModelPicker
+          disabled={saving}
           provider={config.provider}
+          label="Embedding model"
           value={config.embedding_model || ""}
           onChange={async (model) => {
             setSaving(true);
@@ -134,12 +128,12 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
       <ProviderCredentials
         activeProvider={config.provider}
         configs={config.configs}
-        onSaved={loadConfig}
+        onSaved={() => { void modelsApi.getProviderConfig().then(response => setConfig(response.data ?? EMPTY_CONFIG)).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not refresh settings.")); }}
       />
 
       <ModelCapabilities provider={config.provider} model={config.default_model} />
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       {saving && <p className="text-sm text-gray-500">Saving…</p>}
 
       <div>
@@ -167,7 +161,7 @@ export function ProviderConfigForm({ onUpdate }: ProviderConfigFormProps) {
                     provider: config.provider,
                     configs: { ...config.configs, base_url: nextBaseUrl },
                   });
-                  await loadConfig();
+                  await modelsApi.getProviderConfig().then(response => setConfig(response.data ?? EMPTY_CONFIG)).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not refresh settings."));
                   onUpdate?.();
                 }}
               />
