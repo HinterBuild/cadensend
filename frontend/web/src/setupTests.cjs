@@ -2,6 +2,7 @@
 // TS transformer for Jest setup files.
 require('@testing-library/jest-dom');
 
+if (typeof window !== 'undefined') {
 // Mock window.matchMedia for Tailwind CSS components
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -28,3 +29,9 @@ global.IntersectionObserver = class IntersectionObserver {
     return [];
   }
 };
+
+// jsdom does not implement the native dialog lifecycle.
+HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+
+}
