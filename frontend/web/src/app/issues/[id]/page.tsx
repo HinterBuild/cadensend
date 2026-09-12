@@ -1,5 +1,7 @@
 "use client";
 
+import type { IssueContent } from '@/types';
+import { errorMessage } from '@/lib/errors';
 import { useCallback, useEffect, useRef, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -53,9 +55,9 @@ function parseIssueContent(issue: Issue): {
   presentation: IssuePresentation;
 } {
   const raw = issue.content_json;
-  let parsed: Record<string, any> | null = null;
+  let parsed: Partial<IssueContent> | null = null;
   if (raw && typeof raw === 'object') {
-    parsed = raw as Record<string, any>;
+    parsed = raw as Partial<IssueContent>;
   } else if (typeof raw === 'string' && raw) {
     try {
       parsed = JSON.parse(raw);
@@ -138,74 +140,40 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
 
   const blockTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const contentRef = useRef(content);
-  contentRef.current = content;
+  useEffect(() => { contentRef.current = content; }, [content]);
 
-  useEffect(() => {
-    if (id) {
-      loadIssue();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const loadIssue = useCallback(async () => {
-    if (!id) return;
-    setLoading(true);
+  const loadIssue = useCallback(() => issueApi.get(id).then(response => {
+    const issueData = response.data;
+    setIssue(issueData);
+    setContent(parseIssueContent(issueData));
+    setScheduledAt(toLocalInput(issueData.scheduled_at));
+    setDirty(false);
     setError(null);
-    try {
-      const response = await issueApi.get(id);
-      const issueData = response.data;
-      setIssue(issueData);
-      setContent(parseIssueContent(issueData));
-      setScheduledAt(toLocalInput(issueData.scheduled_at));
-      setDirty(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load issue');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  }).catch((err: unknown) => setError(errorMessage(err) || 'Failed to load issue'))
+    .finally(() => setLoading(false)), [id]);
 
-  const loadPreviewHtml = useCallback(async () => {
-    if (!id) return;
-    setPreviewHtmlLoading(true);
-    setPreviewHtmlError(null);
-    try {
-      const response = await fetch(issueApi.previewHtmlUrl(id), {
-        headers: { Accept: 'text/html' },
-      });
-      if (!response.ok) {
-        throw new Error('Preview HTML is not ready yet');
-      }
+  useEffect(() => { if (id) void loadIssue(); }, [id, loadIssue]);
+
+  const loadPreviewHtml = useCallback(() => fetch(issueApi.previewHtmlUrl(id), { headers: { Accept: 'text/html' } })
+    .then(async response => {
+      if (!response.ok) throw new Error('Preview HTML is not ready yet');
       setPreviewHtml(await response.text());
-    } catch (err: any) {
-      setPreviewHtml('');
-      setPreviewHtmlError(err.message || 'Failed to load rendered HTML');
-    } finally {
-      setPreviewHtmlLoading(false);
-    }
-  }, [id]);
+      setPreviewHtmlError(null);
+    }).catch((err: unknown) => { setPreviewHtml(''); setPreviewHtmlError(errorMessage(err) || 'Failed to load rendered HTML'); })
+    .finally(() => setPreviewHtmlLoading(false)), [id]);
 
-  const loadVersions = useCallback(async () => {
-    if (!id) return;
-    try {
-      const response = await issueApi.versions(id);
-      setVersions(response.data ?? []);
-    } catch {
-      setVersions([]);
-    }
-  }, [id]);
+  const loadVersions = useCallback(() => issueApi.versions(id)
+    .then(response => setVersions(response.data ?? []))
+    .catch(() => setVersions([])), [id]);
 
+  useEffect(() => { if (id && issue) void loadVersions(); }, [id, issue, loadVersions]);
+  useEffect(() => { if (issue?.content_json) void loadPreviewHtml(); }, [issue?.content_json, issue?.updated_at, loadPreviewHtml]);
+
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (id && issue) loadVersions();
-  }, [id, issue?.updated_at, loadVersions, issue]);
-
-  useEffect(() => {
-    if (!issue?.content_json) {
-      setPreviewHtml('');
-      return;
-    }
-    loadPreviewHtml();
-  }, [issue?.content_json, issue?.updated_at, loadPreviewHtml]);
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Poll while generating.
   useEffect(() => {
@@ -233,6 +201,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
   const saveIssue = useCallback(async (silent = false) => {
     if (!id || !editable) return false;
     if (!silent) setSaving(true);
+    const snapshot = contentRef.current;
     try {
       const response = await issueApi.update(id, {
         subject: contentRef.current.subject,
@@ -249,11 +218,11 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
         ...(silent ? { autosave: true } : {}),
       });
       setIssue(response.data);
-      setDirty(false);
+      if (contentRef.current === snapshot) setDirty(false);
       setLastSavedAt(new Date().toLocaleTimeString());
       return true;
-    } catch (err: any) {
-      if (!silent) setError(err.message || 'Failed to save issue');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Could not save your changes. Your edits are still in the editor.');
       return false;
     } finally {
       if (!silent) setSaving(false);
@@ -311,8 +280,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
         ...(refreshFromCurrent ? { refresh_from_current: true } : {}),
       });
       setIssue((current) => (current ? { ...current, status: 'generating' } : current));
-    } catch (err: any) {
-      setError(err.message || `Failed to ${refreshFromCurrent ? 'refresh' : 'generate'} issue`);
+    } catch (err: unknown) {
+      setError(errorMessage(err) || `Failed to ${refreshFromCurrent ? 'refresh' : 'generate'} issue`);
       setGenerating(false);
     }
   };
@@ -324,8 +293,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     try {
       await issueApi.cancelGeneration(id);
       await loadIssue();
-    } catch (err: any) {
-      setError(err.message || 'Failed to cancel generation');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to cancel generation');
       await loadIssue();
     }
   };
@@ -339,8 +308,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       const result = await issueApi.testSend(id, testEmail.trim() || undefined);
       const email = (result as { email?: string }).email || user?.email || 'your inbox';
       setTestNotice(`Test email sent to ${email}.`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to send test email');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to send test email');
     } finally {
       setSendingTest(false);
     }
@@ -367,8 +336,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       if (issue) {
         router.push(`/series/${issue.series_id}`);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to approve issue');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to approve issue');
     }
   };
 
@@ -379,8 +348,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       await issueApi.reschedule(id, new Date(scheduledAt).toISOString());
       setIssue((current) => (current ? { ...current, scheduled_at: new Date(scheduledAt).toISOString() } : current));
       setTestNotice('Send time updated.');
-    } catch (err: any) {
-      setError(err.message || 'Failed to reschedule issue');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to reschedule issue');
     }
   };
 
@@ -391,8 +360,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     try {
       await issueApi.cancelSend(id);
       await loadIssue();
-    } catch (err: any) {
-      setError(err.message || 'Failed to cancel the send');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to cancel the send');
     }
   };
 
@@ -406,8 +375,8 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       await issueApi.restoreVersion(id, version);
       await loadIssue();
       setShowVersions(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to restore version');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Failed to restore version');
     } finally {
       setRestoringVersion(null);
     }
@@ -582,7 +551,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const canReschedule = issue?.status === 'approved' && scheduledAt && new Date(scheduledAt).getTime() > Date.now();
+  const canReschedule = issue?.status === 'approved' && scheduledAt && new Date(scheduledAt).getTime() > now;
 
   return (
     <div className="flex min-h-full flex-col bg-[#f6f3ee]">
@@ -639,7 +608,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 type="button"
                 onClick={() => saveIssue()}
                 disabled={saving || !editable}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 surface px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
               >
                 <Save className="h-4 w-4" aria-hidden="true" />
                 {saving ? 'Saving…' : 'Save'}
@@ -691,7 +660,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 type="button"
                 onClick={sendTestEmail}
                 disabled={sendingTest || generating || issue?.status === 'generating'}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 surface px-3 py-1.5 text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:opacity-50"
               >
                 <Send className="h-4 w-4" aria-hidden="true" />
                 {sendingTest ? 'Sending…' : 'Test send'}
@@ -702,7 +671,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                 onChange={(e) => setTestEmail(e.target.value)}
                 placeholder="test@you.com"
                 aria-label="Custom test email address"
-                className="hidden w-40 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 lg:block"
+                className="hidden w-40 surface px-3 py-1.5 text-sm text-stone-900 placeholder:text-stone-400 lg:block"
               />
               {issue?.status !== 'approved' && issue?.status !== 'sent' && (
                 <button
@@ -718,7 +687,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
                   <button
                     type="button"
                     onClick={rescheduleIssue}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-3 py-1.5 text-sm text-stone-800 hover:bg-stone-50"
+                    className="inline-flex items-center gap-1.5 surface px-3 py-1.5 text-sm text-stone-800 hover:bg-stone-50"
                   >
                     <CalendarClock className="h-4 w-4" aria-hidden="true" />
                     Reschedule
