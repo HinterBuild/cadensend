@@ -1,448 +1,140 @@
-"use client";
+'use client';
 
-import { SearchField, EmptyResults, SummaryCards } from '@/components/WorkspaceUI';
-
-import { useEffect, useState, useRef } from 'react';
-import { Upload, Link2, FileText, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Upload, Link2, FileText, Trash2, RefreshCw, Eye } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
 import { InjectionBadge } from '@/components/InjectionBadge';
 import { useRequireAuth } from '@/contexts/AuthContext';
+import { SearchField, EmptyResults, EmptyState, ErrorNotice, PageHeader, PageSkeleton, SummaryCards } from '@/components/WorkspaceUI';
+import { Modal, ConfirmDialog } from '@/components/Modal';
 import type { Source } from '@/types';
 
 type ChunkPreview = { chunk_index: number; title?: string; heading_path: string[]; preview: string };
+const BUSY_STATUSES = ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'];
+const message = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
 export default function SourcesPage() {
   const { loading: authLoading } = useRequireAuth();
   const [query, setQuery] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [addMethod, setAddMethod] = useState('url');
-  const [urlValue, setUrlValue] = useState('');
-  const [fileValue, setFileValue] = useState<File | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [method, setMethod] = useState('url');
+  const [url, setUrl] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [error, setError] = useState('');
-  const [previewSourceId, setPreviewSourceId] = useState<string | null>(null);
-  const [previewChunks, setPreviewChunks] = useState<ChunkPreview[] | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<Source | null>(null);
+  const [chunks, setChunks] = useState<ChunkPreview[] | null>(null);
   const [previewError, setPreviewError] = useState('');
-  const [reindexingId, setReindexingId] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLFormElement>(null);
-  const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
-  const lastFocusableRef = useRef<HTMLButtonElement | null>(null);
+  const previewRequest = useRef(0);
+  const [reindexing, setReindexing] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Source | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
+  const load = useCallback(() => sourceApi.list()
+    .then(response => { setSources(response.data ?? []); setError(''); })
+    .catch((err: unknown) => setError(message(err, 'Could not load sources.')))
+    .finally(() => setLoading(false)), []);
+
+  useEffect(() => { if (!authLoading) void load(); }, [authLoading, load]);
+  const busy = sources.some(source => BUSY_STATUSES.includes(source.status));
   useEffect(() => {
-    if (authLoading) return;
-    loadSources();
-  }, [authLoading]);
+    if (!busy) return;
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 2500);
+    return () => window.clearInterval(timer);
+  }, [busy, load]);
 
-  // Close dialog on Escape and trap focus
-  useEffect(() => {
-    if (!showAddDialog) return;
-
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAddDialog(false);
-      }
-    };
-    const handleFocusTrap = (e: FocusEvent) => {
-      if (!dialogRef.current?.contains(e.target as Node)) {
-        e.preventDefault();
-        firstFocusableRef.current?.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('focusin', handleFocusTrap);
-    firstFocusableRef.current?.focus();
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('focusin', handleFocusTrap);
-      previouslyFocused?.focus();
-    };
-  }, [showAddDialog]);
-
-  const loadSources = async (showSpinner = true) => {
-    if (showSpinner) {
-      setLoading(true);
-    }
-    try {
-      const response = await sourceApi.list();
-      setSources(response.data ?? []);
-    } catch (err) {
-      console.error('Failed to load sources:', err);
-    } finally {
-      if (showSpinner) {
-        setLoading(false);
-      }
-    }
-  };
-
-  const sourcesBusy = sources.some((source) =>
-    ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
-  );
-
-  useEffect(() => {
-    if (!sourcesBusy) {
-      return;
-    }
-    const timer = setInterval(() => {
-      loadSources(false);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [sourcesBusy]);
-
-  const handleAddSource = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function addSource(event: React.FormEvent) {
+    event.preventDefault();
     setFormError('');
+    setSaving(true);
     try {
-      setSaving(true);
-      if (addMethod === 'file') {
-        if (!fileValue) {
-          setFormError('Choose a file to upload');
-          return;
-        }
-        await sourceApi.upload(fileValue, 'workspace');
+      if (method === 'file') {
+        if (!file) { setFormError('Choose a file to upload.'); return; }
+        await sourceApi.upload(file, 'workspace');
       } else {
-        const url = urlValue.trim();
-        if (!url) {
-          setFormError('Enter a URL');
-          return;
-        }
-        await sourceApi.submitUrl(url, 'url', 'workspace');
+        const parsed = new URL(url.trim());
+        if (!['https:', 'http:'].includes(parsed.protocol)) { setFormError('Use an HTTP or HTTPS URL.'); return; }
+        await sourceApi.submitUrl(url.trim(), 'url', 'workspace');
       }
-      setShowAddDialog(false);
-      setUrlValue('');
-      setFileValue(null);
-      loadSources(false);
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to add source');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (authLoading) {
-    return (
-      <div className="mx-auto max-w-6xl px-6 py-16 text-center">
-        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-stone-800" role="status" aria-label="Loading" />
-        <p className="mt-4 text-stone-500">Loading sources…</p>
-      </div>
-    );
+      setShowAdd(false); setUrl(''); setFile(null);
+      await load();
+    } catch (err) { setFormError(message(err, 'Could not add source.')); }
+    finally { setSaving(false); }
   }
 
-  const visibleSources = sources.filter(source => `${source.url || ''} ${source.type} ${source.status}`.toLowerCase().includes(query.trim().toLowerCase()));
+  async function openPreview(source: Source) {
+    const request = ++previewRequest.current;
+    setPreview(source); setChunks(null); setPreviewError('');
+    try {
+      const response = await sourceApi.chunks(source.id);
+      if (request === previewRequest.current) setChunks(response.data.chunks ?? []);
+    } catch (err) { if (request === previewRequest.current) setPreviewError(message(err, 'Could not load indexed content.')); }
+  }
 
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-stone-500">Library</p>
-          <h1 className="font-display mt-1 text-3xl tracking-tight text-stone-900 sm:text-4xl">Sources</h1>
-          <p className="mt-2 max-w-2xl text-sm text-stone-500">
-            Upload files and URLs to ground issue generation.
-          </p>
-        </div>
-        <button
-            type="button"
-            aria-label="Add Source"
-            onClick={() => setShowAddDialog(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
-          >
-            <Upload className="h-4 w-4" aria-hidden="true" />
-            Add Source
-          </button>
-      </header>
-      <SummaryCards items={[{ label: 'Sources', value: sources.length }, { label: 'Indexed chunks', value: sources.reduce((sum, source) => sum + (source.chunk_count || 0), 0) }, { label: 'Failed', value: sources.filter(source => source.status === 'failed').length }]} />
-      <div className="mb-5"><SearchField label="Search sources" placeholder="Search by URL, type, or status…" value={query} onChange={setQuery} /></div>
-      {sources.length > 0 && visibleSources.length === 0 && <EmptyResults onClear={() => setQuery('')} />}
+  async function reindex(source: Source) {
+    setReindexing(source.id);
+    try { await sourceApi.reindex(source.id); await load(); }
+    catch (err) { setError(message(err, 'Could not re-ingest source.')); }
+    finally { setReindexing(null); }
+  }
 
+  async function remove() {
+    if (!selected) return;
+    setDeleting(true); setDeleteError('');
+    try { await sourceApi.delete(selected.id); setSources(current => current.filter(s => s.id !== selected.id)); setSelected(null); }
+    catch (err) { setDeleteError(message(err, 'Could not delete source.')); }
+    finally { setDeleting(false); }
+  }
 
-        {loading ? (
-          <div className="rounded-lg border border-dashed border-[#d8cfc2] bg-white text-center py-12">
-            <div
-              className="animate-spin rounded-full h-8 w-8 border-b-2 border-stone-900 mx-auto"
-              role="status"
-              aria-label="Loading sources"
-            ></div>
-            <p className="mt-4 text-gray-600">Loading sources...</p>
-          </div>
-        ) : sources.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[#d8cfc2] bg-white text-center py-12">
-            <FileText className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden="true" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No sources yet</h3>
-            <p className="text-gray-600 mb-4">Add your first source to start building content.</p>
-            <button
-              type="button"
-              aria-label="Add Source"
-              onClick={() => setShowAddDialog(true)}
-              className="bg-stone-900 text-white px-4 py-2 rounded-lg hover:bg-stone-800 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
-            >
-              Add Source
-            </button>
-          </div>
-        ) : (
-          <>
-            {sourcesBusy && (
-              <div className="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 p-4" role="status" aria-live="polite">
-                <div className="flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-700" aria-hidden="true"></div>
-                  <div>
-                    <p className="text-sm font-medium text-yellow-900">Ingesting sources</p>
-                    <p className="text-sm text-yellow-800">The backend is working on this. You can leave this page and come back.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          <div className="grid gap-4">
-            {visibleSources.map((source) => (
-              <div key={source.id} className="bg-white rounded-lg border border-[#e7e0d6] p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h3 className="truncate font-medium text-gray-900">{source.url || 'File source'}</h3>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">{source.type}</span>
-                      {source.scope === 'series' ? (
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">Series-only</span>
-                      ) : (
-                        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">Workspace-wide</span>
-                      )}
-                      {source.injection_status === 'flagged' && (
-                        <InjectionBadge status={source.injection_status} findings={source.injection_findings} />
-                      )}
-                      {!['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) &&
-                        source.status !== 'failed' && (
-                          <span>
-                            {(source.chunk_count ?? 0) > 0
-                              ? `${source.chunk_count} indexed chunks`
-                              : source.duplicate_of
-                              ? 'Duplicate content'
-                              : ''}
-                          </span>
-                        )}
-                    </div>
-                    {source.duplicate_of && (
-                      <p className="mt-1 text-xs text-amber-700">
-                        Identical content already ingested — shares the same index, no extra storage.
-                      </p>
-                    )}
-                    {source.status === 'failed' && source.ingest_error && (
-                      <p className="mt-1 text-sm text-red-600">{source.ingest_error}</p>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <span
-                      className={`inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full ${
-                        source.status === 'ready'
-                          ? 'bg-green-100 text-green-800'
-                          : source.status === 'failed'
-                          ? 'bg-red-100 text-red-800'
-                          : ['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status)
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                      aria-label={`Source status: ${source.status}`}
-                    >
-                      {['pending', 'ingesting', 'fetching', 'parsing', 'chunking', 'embedding', 'indexing'].includes(source.status) && (
-                        <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-800" aria-hidden="true"></span>
-                      )}
-                      {source.status === 'pending' || source.status === 'ingesting' ? 'In progress' : source.status}
-                    </span>
-                    <div className="flex gap-1">
-                      {source.status === 'ready' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setPreviewSourceId(source.id);
-                              setPreviewLoading(true);
-                              setPreviewChunks(null);
-                              try {
-                                const response = await sourceApi.preview(source.id);
-                                setPreviewChunks(response.data?.chunks ?? []);
-                              } catch (err: any) {
-                                setPreviewChunks([]);
-                                setPreviewError(err.message || 'Could not load preview');
-                              } finally {
-                                setPreviewLoading(false);
-                              }
-                            }}
-                            aria-label={`Preview indexed chunks of ${source.url || 'source'}`}
-                            className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-                          >
-                            Preview
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setReindexingId(source.id);
-                              try {
-                                await sourceApi.reindex(source.id);
-                                await loadSources(false);
-                              } catch (err: any) {
-                                setError(err.message || 'Reindex failed');
-                              } finally {
-                                setReindexingId(null);
-                              }
-                            }}
-                            disabled={reindexingId === source.id}
-                            aria-label={`Re-ingest ${source.url || 'source'}`}
-                            title="Re-fetch and re-index this source"
-                            className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                          >
-                            {reindexingId === source.id ? 'Queuing…' : 'Re-ingest'}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm(
-                            `Remove “${source.url || 'this file'}”? Future issue generation will no longer use it as context. Already generated issues keep their citations.`,
-                          )) return;
-                          try {
-                            await sourceApi.delete(source.id);
-                            await loadSources(false);
-                          } catch (err: any) {
-                            setError(err.message || 'Delete failed');
-                          }
-                        }}
-                        aria-label={`Delete ${source.url || 'source'}`}
-                        className="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-red-700 hover:bg-red-50"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          </>
-        )}
+  if (authLoading || loading) return <PageSkeleton label="Loading sources" />;
+  const visible = sources.filter(source => `${source.url || ''} ${source.type} ${source.status}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const addButton = <button type="button" onClick={() => { setFormError(''); setShowAdd(true); }} className="button-primary"><Upload className="h-4 w-4" aria-hidden="true" />Add source</button>;
 
-        {/* Chunk Preview Drawer */}
-        {previewSourceId && (
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Indexed content preview"
-          >
-            <div className="bg-white rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Indexed chunks</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPreviewSourceId(null);
-                    setPreviewChunks(null);
-                    setPreviewError('');
-                  }}
-                  aria-label="Close preview"
-                  className="rounded p-1 text-gray-400 hover:text-gray-700"
-                >
-                  <X className="h-5 w-5" aria-hidden="true" />
-                </button>
-              </div>
-              {previewLoading && <p className="text-sm text-gray-500" role="status">Loading…</p>}
-              {previewError && <p className="text-sm text-red-600" role="alert">{previewError}</p>}
-              {previewChunks && previewChunks.length === 0 && (
-                <p className="text-sm text-gray-500">No indexed chunks found for this source.</p>
-              )}
-              {previewChunks && previewChunks.length > 0 && (
-                <ul className="space-y-3">
-                  {previewChunks.map((chunk, index) => (
-                    <li key={index} className="rounded-xl border border-[#e7e0d6] bg-[#faf8f5] p-4">
-                      <p className="mb-1 text-xs text-stone-500">
-                        Chunk {chunk.chunk_index}
-                        {(chunk.heading_path || []).length > 0 ? ` · ${chunk.heading_path.join(' › ')}` : ''}
-                      </p>
-                      <p className="text-sm leading-relaxed text-stone-800">{chunk.preview}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
+  return <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
+    <PageHeader eyebrow="Library" title="Sources" description="Give every issue a trusted foundation. Add references and keep your knowledge library organized." actions={addButton} />
+    {error && <ErrorNotice onRetry={() => void load()}>{error}</ErrorNotice>}
+    {!error && <SummaryCards items={[{label:'Sources',value:sources.length},{label:'Indexed chunks',value:sources.reduce((sum,s) => sum + (s.chunk_count || 0),0)},{label:'Needs attention',value:sources.filter(s => s.status === 'failed').length}]} />}
+    {sources.length > 0 && <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><SearchField label="Search sources" placeholder="Search by URL, type, or status…" value={query} onChange={setQuery} /><p role="status" className="text-xs text-stone-500">{visible.length} of {sources.length} sources</p></div>}
+    {busy && <p role="status" className="mb-5 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><RefreshCw className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />Indexing your sources. You can continue working while this finishes.</p>}
+    {!error && sources.length === 0 ? <EmptyState title="Build your reference library" description="Add a URL or upload a file to ground your next issue in material you trust." icon={<FileText className="h-6 w-6" />} action={addButton} /> : sources.length > 0 && visible.length === 0 ? <EmptyResults onClear={() => setQuery('')} /> : <ul className="space-y-3">{visible.map(source => <li key={source.id} className="surface p-5">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-50 text-emerald-800">{source.type === 'url' ? <Link2 className="h-5 w-5" aria-hidden="true" /> : <FileText className="h-5 w-5" aria-hidden="true" />}</span>
+          <div className="min-w-0"><h2 className="break-words text-sm font-semibold text-stone-900">{source.url || 'Uploaded file'}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span className="capitalize">{source.type}</span><span aria-hidden="true">·</span><span>{source.scope === 'series' ? 'Series only' : 'Workspace wide'}</span>{(source.chunk_count ?? 0) > 0 && <><span aria-hidden="true">·</span><span>{source.chunk_count} indexed chunks</span></>}
+              {source.injection_status === 'flagged' && <InjectionBadge status={source.injection_status} findings={source.injection_findings} />}
             </div>
+            {source.duplicate_of && <p className="mt-2 text-xs text-amber-800">Duplicate content: uses the existing index.</p>}
+            {source.ingest_error && source.status === 'failed' && <p className="mt-2 break-words text-sm text-red-700">{source.ingest_error}</p>}
           </div>
-        )}
-
-        {/* Add Source Dialog */}
-        {showAddDialog && (
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            aria-modal="true"
-            role="dialog"
-            aria-label="Add Source"
-            aria-labelledby="dialog-title"
-          >
-            <form onSubmit={handleAddSource} ref={dialogRef} className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto">
-              <h3 id="dialog-title" className="text-lg font-semibold mb-4">Add Source</h3>
-              {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
-              <div className="space-y-3 mb-4">
-                <button
-                  ref={firstFocusableRef}
-                  type="button"
-                  onClick={() => setAddMethod('url')}
-                  className={`w-full p-3 border rounded-lg flex items-center gap-3 ${
-                    addMethod === 'url' ? 'border-stone-800 bg-stone-100' : 'border-gray-300'
-                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800`}
-                >
-                  <Link2 className="h-5 w-5" aria-hidden="true" />
-                  <span>From URL</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddMethod('file')}
-                  className={`w-full p-3 border rounded-lg flex items-center gap-3 ${
-                    addMethod === 'file' ? 'border-stone-800 bg-stone-100' : 'border-gray-300'
-                  } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800`}
-                >
-                  <Upload className="h-5 w-5" aria-hidden="true" />
-                  <span>Upload File</span>
-                </button>
-              </div>
-              {addMethod === 'url' ? (
-                <input
-                  type="url"
-                  aria-label="Source URL"
-                  value={urlValue}
-                  onChange={(e) => setUrlValue(e.target.value)}
-                  placeholder="https://example.com/article"
-                  className="w-full mb-6 px-3 py-2 border border-gray-300 rounded-lg"
-                  required
-                />
-              ) : (
-                <input
-                  type="file"
-                  aria-label="Source file"
-                  onChange={(e) => setFileValue(e.target.files?.[0] ?? null)}
-                  className="w-full mb-6 text-sm"
-                />
-              )}
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddDialog(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  ref={lastFocusableRef}
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-stone-900 text-white rounded-lg disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-stone-800"
-                >
-                  {saving ? 'Adding...' : 'Add'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-    </div>
-  );
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span className={`mr-2 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${source.status === 'ready' ? 'bg-emerald-50 text-emerald-800' : source.status === 'failed' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-800'}`}>{source.status}</span>
+          {source.status === 'ready' && <button type="button" className="icon-button" title="Preview indexed content" aria-label={`Preview ${source.url || 'source'}`} onClick={() => void openPreview(source)}><Eye className="h-4 w-4" aria-hidden="true" /></button>}
+          {['ready','failed'].includes(source.status) && <button type="button" className="icon-button" title="Re-ingest source" aria-label={`Re-ingest ${source.url || 'source'}`} disabled={reindexing !== null} onClick={() => void reindex(source)}><RefreshCw className={`h-4 w-4 ${reindexing === source.id ? 'animate-spin' : ''}`} aria-hidden="true" /></button>}
+          <button type="button" className="icon-button hover:!bg-red-50 hover:!text-red-700" title="Delete source" aria-label={`Delete ${source.url || 'source'}`} onClick={() => { setDeleteError(''); setSelected(source); }}><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
+        </div>
+      </div>
+    </li>)}</ul>}
+    {showAdd && <Modal title="Add source" onClose={() => setShowAdd(false)} busy={saving}>
+      <form onSubmit={addSource}>
+        <p className="mb-5 text-sm leading-6 text-stone-600">Workspace sources are available to all your series.</p>
+        {formError && <ErrorNotice>{formError}</ErrorNotice>}
+        <div className="mb-5 grid grid-cols-2 gap-3" role="group" aria-label="Source type">
+          {['url','file'].map(value => <button key={value} type="button" disabled={saving} aria-pressed={method === value} onClick={() => { setMethod(value); setFormError(''); }} className={`button-secondary ${method === value ? '!border-emerald-600 !bg-emerald-50 !text-emerald-900' : ''}`}>{value === 'url' ? <Link2 className="h-4 w-4" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}{value === 'url' ? 'From a URL' : 'Upload file'}</button>)}
+        </div>
+        {method === 'url' ? <label className="block text-sm font-medium">Source URL<input type="url" required disabled={saving} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com/article" className="field-input mt-2" /></label> : <label className="block text-sm font-medium">Source file<input type="file" required disabled={saving} onChange={e => setFile(e.target.files?.[0] ?? null)} className="mt-2 block w-full rounded-xl border border-dashed border-stone-300 p-4 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-emerald-800" /></label>}
+        <div className="mt-6 flex justify-end gap-3"><button type="button" disabled={saving} onClick={() => setShowAdd(false)} className="button-secondary">Cancel</button><button type="submit" disabled={saving} className="button-primary">{saving ? 'Adding…' : 'Add source'}</button></div>
+      </form>
+    </Modal>}
+    {preview && <Modal title="Indexed content" wide onClose={() => { ++previewRequest.current; setPreview(null); }}>
+      <p className="mb-4 break-words text-xs text-stone-500">{preview.url || 'Uploaded file'}</p>
+      {previewError ? <ErrorNotice onRetry={() => void openPreview(preview)}>{previewError}</ErrorNotice> : chunks === null ? <p role="status" className="py-8 text-center text-sm text-stone-600">Loading indexed content…</p> : chunks.length === 0 ? <p className="py-8 text-center text-sm text-stone-600">No indexed chunks found.</p> : <ol className="space-y-3">{chunks.map((chunk,index) => <li key={index} className="rounded-xl border border-stone-200 bg-stone-50 p-4"><p className="mb-2 text-xs text-stone-500">Chunk {chunk.chunk_index}{chunk.heading_path?.length ? ` · ${chunk.heading_path.join(' › ')}` : ''}</p><p className="break-words text-sm leading-7 text-stone-700">{chunk.preview}</p></li>)}</ol>}
+    </Modal>}
+    {selected && <ConfirmDialog title="Delete source?" description={`Remove “${selected.url || 'this file'}” from future generation? Existing issues will keep their citations.`} confirmLabel="Delete source" busy={deleting} error={deleteError} onConfirm={() => void remove()} onClose={() => setSelected(null)} />}
+  </div>;
 }
