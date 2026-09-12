@@ -17,35 +17,21 @@ export function ProviderSelector({
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [error, setError] = useState('');
   useEffect(() => {
-    loadProviders();
+    let cancelled = false;
+    modelsApi.listProviders().then(response => { if (!cancelled) setProviders(response.data); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load providers.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
-
-  const loadProviders = async () => {
-    try {
-      const res = await modelsApi.listProviders();
-      setProviders(res.data);
-    } catch (e) {
-      console.error("Failed to load providers:", e);
-      setProviders([
-        {
-          id: "openrouter",
-          name: "OpenRouter",
-          description: "Default provider",
-          supports_chat: true,
-          supports_embed: true,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const selectedProvider = providers.find(p => p.id === selected) || providers[0];
 
   return (
     <div className={`relative ${className}`}>
       <select
+        aria-label="LLM provider"
         value={selected}
         onChange={(e) => onChange(e.target.value)}
         disabled={loading}
@@ -57,6 +43,7 @@ export function ProviderSelector({
           </option>
         ))}
       </select>
+      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
       {selectedProvider && (
         <p className="mt-1 text-xs text-gray-500">{selectedProvider.description}</p>
       )}
