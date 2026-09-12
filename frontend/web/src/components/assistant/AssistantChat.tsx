@@ -70,7 +70,7 @@ type AssistantChatProps = {
 
 export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChatProps) {
   const isDock = layout === 'dock';
-  const [expanded, setExpanded] = useState(!isDock);
+  const [manuallyExpanded, setExpanded] = useState(!isDock);
   const [userMinimized, setUserMinimized] = useState(false);
   const { user } = useAuth();
   const [input, setInput] = useState('');
@@ -122,19 +122,10 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
   }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }, [messages, streaming]);
 
-  useEffect(() => {
-    if (!isDock || userMinimized) return;
-    const needsAttention = messages.some(
-      (m) => m.permission?.status === 'pending' || m.form?.status === 'pending',
-    );
-    if (needsAttention || error) {
-      setUserMinimized(false);
-      setExpanded(true);
-    }
-  }, [isDock, userMinimized, messages, error]);
+  const expanded = manuallyExpanded || (isDock && !userMinimized && (Boolean(error) || messages.some(message => message.permission?.status === 'pending' || message.form?.status === 'pending')));
 
   useEffect(() => {
     if (isDock && expanded) {
