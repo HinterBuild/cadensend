@@ -39,7 +39,7 @@ type ProviderCredentialsProps = {
   onSaved?: () => void;
 };
 
-export function ProviderCredentials({
+function ProviderCredentialsForm({
   activeProvider,
   configs,
   onSaved,
@@ -52,26 +52,12 @@ export function ProviderCredentials({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft("");
-    setShowKey(false);
-    setError(null);
-  }, [activeProvider]);
-
-  useEffect(() => {
-    if (!activeProvider) {
-      setProviderMeta(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    modelsApi
-      .listProviders()
-      .then((res) => {
-        const match = (res.data ?? []).find((p) => p.id === activeProvider);
-        setProviderMeta(match ?? null);
-      })
-      .catch(() => setProviderMeta(null))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    modelsApi.listProviders().then(response => {
+      if (!cancelled) setProviderMeta(response.data.find(provider => provider.id === activeProvider) ?? null);
+    }).catch(() => { if (!cancelled) setProviderMeta(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [activeProvider]);
 
   const saveCredential = async () => {
@@ -179,4 +165,8 @@ export function ProviderCredentials({
       </button>
     </div>
   );
+}
+
+export function ProviderCredentials(props: ProviderCredentialsProps) {
+  return <ProviderCredentialsForm key={props.activeProvider} {...props} />;
 }
