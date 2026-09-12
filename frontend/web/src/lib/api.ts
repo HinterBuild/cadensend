@@ -62,6 +62,7 @@ async function fetchApi<T>(
 
 // API client for authentication
 export const authApi = {
+  logout: () => fetchApi<{ message: string }>('/users/logout', { method: 'POST' }),
   me: () =>
     fetchApi<{ data: User }>('/users/me'),
 
