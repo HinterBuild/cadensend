@@ -25,36 +25,17 @@ export function IssueTagPicker({ tagged, onChange, disabled }: IssueTagPickerPro
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const loadOptions = useCallback(async () => {
-    setLoading(true);
-    try {
-      const seriesRes = await seriesApi.list();
-      const seriesList = seriesRes.series || [];
-      const collected: IssueOption[] = [];
-      for (const series of seriesList.slice(0, 8)) {
-        const issuesRes = await seriesApi.getIssues(series.id);
-        for (const issue of issuesRes.data || []) {
-          collected.push({
-            id: issue.id,
-            title: issue.title || `Issue ${issue.id.slice(0, 8)}`,
-            seriesTopic: series.topic,
-            seriesId: series.id,
-          });
-        }
-      }
-      setOptions(collected);
-    } catch {
-      setOptions([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (open && options.length === 0) {
-      void loadOptions();
-    }
-  }, [open, options.length, loadOptions]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState('');
+  const loadOptions = useCallback(() => seriesApi.list().then(async response => {
+    const results = await Promise.all(response.series.slice(0, 8).map(async series => {
+      const issues = await seriesApi.getIssues(series.id);
+      return (issues.data || []).map(issue => ({ id: issue.id, title: issue.objective || `Issue ${issue.sequence_no}`, seriesTopic: series.topic, seriesId: series.id }));
+    }));
+    setOptions(results.flat());
+    setError('');
+  }).catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load issues.'))
+    .finally(() => { setLoading(false); setLoaded(true); }), []);
 
   useEffect(() => {
     if (!open) return;
@@ -112,7 +93,7 @@ export function IssueTagPicker({ tagged, onChange, disabled }: IssueTagPickerPro
         <button
           type="button"
           disabled={disabled}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => { setOpen(!open); if (!open && !loaded) { setLoading(true); void loadOptions(); } }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[#e7e0d6] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:border-stone-300 disabled:opacity-50"
         >
           <Layers className="h-3.5 w-3.5" />
@@ -135,7 +116,7 @@ export function IssueTagPicker({ tagged, onChange, disabled }: IssueTagPickerPro
             <div className="max-h-56 overflow-y-auto p-1">
               {loading && <p className="px-3 py-2 text-xs text-stone-500">Loading issues…</p>}
               {!loading && filtered.length === 0 && (
-                <p className="px-3 py-2 text-xs text-stone-500">No issues found.</p>
+                <p className="px-3 py-2 text-xs text-stone-500">{error || 'No issues found'}.</p>
               )}
               {filtered.map((issue) => {
                 const selected = tagged.some((t) => t.id === issue.id);
