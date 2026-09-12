@@ -30,3 +30,16 @@ it('rejects a cross-origin sign-out request', async () => {
   expect(response.status).toBe(403);
   expect(response.headers.get('set-cookie')).toBeNull();
 });
+
+it('forwards X-Forwarded-For to the backend for rate limiting', async () => {
+  const upstream = jest.spyOn(global, 'fetch').mockResolvedValue(Response.json({ data: [] }));
+  await GET(new NextRequest('http://localhost:3000/api/v1/series', {
+    headers: {
+      origin: 'http://localhost:3000',
+      host: 'localhost:3000',
+      'x-forwarded-for': '203.0.113.44',
+    },
+  }));
+  const init = upstream.mock.calls[0][1] as RequestInit;
+  expect((init.headers as Record<string, string>)['X-Forwarded-For']).toBe('203.0.113.44');
+});
