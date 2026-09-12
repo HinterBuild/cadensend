@@ -1,5 +1,6 @@
 "use client";
 
+import type { IssueContent } from '@/types';
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRightLeft,
@@ -42,9 +43,9 @@ function formatWhen(value: string) {
 }
 
 function parseVersionContent(raw: VersionDetail["content_json"]): ParsedVersion {
-  let parsed: Record<string, any> | null = null;
+  let parsed: Partial<IssueContent> | null = null;
   if (raw && typeof raw === "object") {
-    parsed = raw as Record<string, any>;
+    parsed = raw as Partial<IssueContent>;
   } else if (typeof raw === "string" && raw) {
     try {
       parsed = JSON.parse(raw);
@@ -54,13 +55,13 @@ function parseVersionContent(raw: VersionDetail["content_json"]): ParsedVersion 
   }
 
   const blocks = Array.isArray(parsed?.content_blocks)
-    ? parsed.content_blocks.map((block: any) => ({
+    ? parsed.content_blocks.map((block: IssueContent['content_blocks'][number]) => ({
         title: block?.title,
         text: block?.text || "",
       }))
     : [];
   const visuals = Array.isArray(parsed?.visual_specs)
-    ? parsed.visual_specs.map((spec: any) => ({
+    ? parsed.visual_specs.map((spec: IssueContent['visual_specs'][number]) => ({
         type: spec?.type,
         content: spec?.content,
         alt_text: spec?.alt_text,
@@ -116,16 +117,12 @@ export function IssueVersionPanel({
   onClose: () => void;
   onRestore: (version: number) => void;
 }) {
-  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [chosenVersion, setSelectedVersion] = useState<number | null>(null);
   const [detail, setDetail] = useState<VersionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const initial = versions.find((version) => version.is_current)?.version ?? versions[0]?.version ?? null;
-    setSelectedVersion(initial);
-  }, [open, versions]);
+  const selectedVersion = chosenVersion ?? versions.find(version => version.is_current)?.version ?? versions[0]?.version ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -143,16 +140,14 @@ export function IssueVersionPanel({
 
   useEffect(() => {
     if (!open || !issueId || selectedVersion == null) {
-      setDetail(null);
       return;
     }
     let cancelled = false;
-    setLoadingDetail(true);
-    setDetailError(null);
+
     issueApi
       .getVersion(issueId, selectedVersion)
       .then((response) => {
-        if (!cancelled) setDetail(response.data);
+        if (!cancelled) { setDetail(response.data); setDetailError(null); }
       })
       .catch((err: Error) => {
         if (!cancelled) {
@@ -230,7 +225,7 @@ export function IssueVersionPanel({
                     <li key={version.version}>
                       <button
                         type="button"
-                        onClick={() => setSelectedVersion(version.version)}
+                        onClick={() => { setSelectedVersion(version.version); setLoadingDetail(true); setDetailError(null); setDetail(null); }}
                         className={`w-full px-4 py-3 text-left transition ${
                           active ? "bg-stone-900 text-white" : "hover:bg-[#faf8f5]"
                         }`}
