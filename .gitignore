@@ -3,6 +3,10 @@
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 
 # Environment files with secrets
 .env
@@ -34,6 +38,8 @@ build/
 *.bundle.js
 backend/control-api/server
 backend/control-worker/server
+.next/
+coverage/
 
 # IDE
 *.swp

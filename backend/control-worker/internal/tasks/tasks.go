@@ -23,15 +23,6 @@ func SetDeliverer(fn DeliverFunc) {
 	deliverScheduled = fn
 }
 
-func GenerateIssueTask(ctx context.Context, t *asynq.Task) error {
-	var payload TaskPayload
-	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("failed to parse task payload: %w", err)
-	}
-	log.Printf("Processing issue generation task for issue: %s", payload.IssueID)
-	return nil
-}
-
 func DeliverIssueTask(ctx context.Context, t *asynq.Task) error {
 	var payload TaskPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
@@ -45,22 +36,4 @@ func DeliverIssueTask(ctx context.Context, t *asynq.Task) error {
 	}
 	log.Printf("Delivering scheduled issue %s (schedule %s)", payload.IssueID, payload.ScheduleID)
 	return deliverScheduled(ctx, payload.IssueID, payload.ScheduleID)
-}
-
-func IngestSourceTask(ctx context.Context, t *asynq.Task) error {
-	var payload TaskPayload
-	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("failed to parse task payload: %w", err)
-	}
-	log.Printf("Processing source ingestion task")
-	return nil
-}
-
-func ScheduleRunTask(ctx context.Context, t *asynq.Task) error {
-	var payload TaskPayload
-	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("failed to parse task payload: %w", err)
-	}
-	log.Printf("Processing scheduled task for schedule: %s", payload.ScheduleID)
-	return nil
 }

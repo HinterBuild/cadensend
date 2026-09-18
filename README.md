@@ -21,6 +21,7 @@
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
+  <a href="#production-deployment">Production deployment</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -86,7 +87,7 @@ Edit `.env` before starting:
 | `BREVO_API_KEY` | Required when sending email through Brevo. |
 | `SMTP_FROM` / `SMTP_FROM_NAME` | Sender address and display name for email delivery. |
 
-See [`.env.example`](.env.example) for the full configuration reference, including storage and additional provider settings. The default stack is intended for local development; review exposed ports and replace default database and storage credentials before hosting it on a shared server.
+See [`.env.example`](.env.example) for the full configuration reference, including storage and additional provider settings. The default stack is intended for local development; review exposed ports and replace default database and storage credentials before hosting it on a shared server. See [Production deployment](#production-deployment) before exposing any environment beyond your own machine.
 
 ### 2. Start the stack
 
@@ -155,7 +156,20 @@ The control API manages authentication, application data, and orchestration. Lon
 | [`db/migrations/`](db/migrations/) | Database migrations. |
 | [`observability/`](observability/) | Optional monitoring configuration. |
 
-Read the [architecture guide](docs/architecture.md) for more detail.
+Read the [architecture guide](docs/architecture.md) for service-level detail and the [product plan](docs/product-plan.md) for the longer-term roadmap and design rationale.
+
+## Production deployment
+
+The default `docker-compose.yml` stack is tuned for local development (bind-mounted source, permissive CORS, dev-only secrets). Before running Cadensend anywhere reachable by other people:
+
+- **Replace every default credential.** `JWT_SECRET`, `INTERNAL_API_TOKEN`, `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, and `GRAFANA_ADMIN_PASSWORD` all ship with obvious placeholder values in `.env.example`. `control-api` and `control-worker` refuse to start with a default `JWT_SECRET`/`INTERNAL_API_TOKEN` when `ENVIRONMENT=production`, but the data-store credentials are not enforced in code — you must change them yourself.
+- **Set `ENVIRONMENT=production`** (and `DEBUG=false`) so the services apply production-safe defaults, including the secret checks above.
+- **Terminate TLS in front of the stack.** Nothing in this repo handles HTTPS directly; put a reverse proxy (Caddy, Nginx, your platform's load balancer) in front of the web app and API, and set `FRONTEND_ORIGIN` to the public HTTPS origin so CSRF/session checks match.
+- **Don't expose internal ports publicly.** Only the web app (and, if you need direct API access, `control-api`) should be reachable from outside your network. PostgreSQL, Redis, Qdrant, and MinIO are meant to stay on a private network between services.
+- **Choose a build path**: `docker-compose.yml` builds and runs each service as a separate container (recommended — matches how the services are designed to scale independently). [`Dockerfile.cadensend`](Dockerfile.cadensend) builds all four services into a single image instead, which is convenient for platforms that expect one container/one process group (e.g. a single-dyno PaaS deploy) but loses independent scaling and rolling restarts.
+- **Point AI generation and embeddings at production-grade models.** The bundled defaults (`DEFAULT_MODEL`, `EMBEDDING_MODEL`) are OpenRouter's free tier, which is rate-limited and not intended for production traffic.
+
+See [SECURITY.md](SECURITY.md) for the secrets-handling policy and how to report a vulnerability.
 
 ## Development
 
@@ -170,6 +184,12 @@ Use the same Compose file when checking logs or stopping that stack:
 ```bash
 docker compose -f docker-compose.dev.yml logs -f control-api ai-worker frontend
 docker compose -f docker-compose.dev.yml down
+```
+
+If you only need frontend hot reload against backend services that are already running elsewhere, use the lighter override instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.frontend-dev.yml up frontend
 ```
 
 ### Tests
@@ -209,6 +229,12 @@ These commands refer to the default `docker-compose.yml` stack.
 Bug reports, documentation improvements, tests, and feature contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md) before opening a pull request. Include relevant tests and ensure CI checks pass.
 
 Use the [issue tracker](https://github.com/HinterBuild/cadensend/issues) to report a reproducible bug or discuss a proposed feature.
+
+## Support
+
+- **Bugs and feature requests:** [GitHub Issues](https://github.com/HinterBuild/cadensend/issues)
+- **Questions and discussion:** [Discord](https://discord.gg/cadensend)
+- **Security issues:** see [SECURITY.md](SECURITY.md) — please do not open a public issue for vulnerabilities
 
 ## License
 

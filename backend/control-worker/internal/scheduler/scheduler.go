@@ -73,10 +73,7 @@ func StartScheduler(cfg *config.Config) {
 
 	// Register task handlers with Asynq mux
 	mux := asynq.NewServeMux()
-	mux.HandleFunc("issue:generate", tasks.GenerateIssueTask)
 	mux.HandleFunc("issue:deliver", tasks.DeliverIssueTask)
-	mux.HandleFunc("source:ingest", tasks.IngestSourceTask)
-	mux.HandleFunc("schedule:run", tasks.ScheduleRunTask)
 
 	asynqConcurrency := cfg.AsynqConcurrency
 	if asynqConcurrency <= 0 {
@@ -141,12 +138,8 @@ func (s *Scheduler) processDueJobs(ctx context.Context) error {
 
 func (s *Scheduler) processSchedule(ctx context.Context, schedule *Schedule) error {
 	switch schedule.JobType {
-	case "generation":
-		return s.enqueueTask(ctx, "issue:generate", schedule)
 	case "delivery":
 		return s.enqueueTask(ctx, "issue:deliver", schedule)
-	case "ingestion":
-		return s.enqueueTask(ctx, "source:ingest", schedule)
 	default:
 		log.Printf("Unknown job type: %s", schedule.JobType)
 		return nil
