@@ -306,6 +306,7 @@ class IngestionWorker:
 				    duplicate_of = $6::uuid,
 				    injection_status = $7,
 				    injection_findings = $8::jsonb,
+				    last_verified_at = CASE WHEN $2 = 'ready' THEN NOW() ELSE last_verified_at END,
 				    updated_at = NOW()
 				WHERE id = $1::uuid
 				""",
