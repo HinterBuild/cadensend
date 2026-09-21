@@ -116,6 +116,7 @@ type Source struct {
 	ChunkCount        int             `json:"chunk_count" gorm:"not null;default:0"`
 	InjectionStatus   string          `json:"injection_status" gorm:"not null;default:'clean'"`
 	InjectionFindings json.RawMessage `json:"injection_findings,omitempty" gorm:"column:injection_findings;type:jsonb"`
+	LastVerifiedAt    *time.Time      `json:"last_verified_at,omitempty"`
 	CreatedBy         string          `json:"created_by" gorm:"not null"`
 	CreatedAt         time.Time       `json:"created_at" gorm:"not null"`
 	UpdatedAt         time.Time       `json:"updated_at" gorm:"not null"`

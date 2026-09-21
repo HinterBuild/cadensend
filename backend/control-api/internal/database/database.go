@@ -135,6 +135,8 @@ func EnsureAppSchema() error {
 		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS injection_status VARCHAR(20) NOT NULL DEFAULT 'clean'`,
 		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS injection_findings JSONB`,
 		`CREATE INDEX IF NOT EXISTS idx_sources_injection_status ON sources(workspace_id, injection_status)`,
+		`ALTER TABLE sources ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMPTZ`,
+		`CREATE INDEX IF NOT EXISTS idx_sources_last_verified_at ON sources(workspace_id, last_verified_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_schedules_issue ON schedules(issue_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_deliveries_recipient_status ON deliveries(recipient_id, status)`,
 		`CREATE INDEX IF NOT EXISTS idx_deliveries_issue_status ON deliveries(issue_id, status)`,
