@@ -112,11 +112,12 @@ func (h *recipientsHandler) setSuppressed(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "suppressed boolean is required"})
 		return
 	}
+	reason := map[bool]string{true: "manual", false: ""}[req.Suppressed]
 	result := h.db.Model(&service.Recipient{}).
 		Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
 		Updates(map[string]interface{}{
 			"suppressed":         req.Suppressed,
-			"suppression_reason": map[bool]string{true: "manual", false: ""}[req.Suppressed],
+			"suppression_reason": reason,
 		})
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
@@ -126,6 +127,12 @@ func (h *recipientsHandler) setSuppressed(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "recipient not found"})
 		return
 	}
+	action := service.AuditRecipientRestored
+	if req.Suppressed {
+		action = service.AuditRecipientSuppressed
+	}
+	service.WriteAudit(h.db, c.Request.Context(), c.GetString("user_id"), action, "recipient", id,
+		map[string]interface{}{"reason": reason}, c.ClientIP())
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 
@@ -233,8 +240,8 @@ func (h *recipientsHandler) publicUnsubscribeConfirm(c *gin.Context) {
 		"suppression_reason": "unsubscribed",
 	})
 	service.WriteAudit(h.db, c.Request.Context(), rcpt.ID,
-		"recipient.unsubscribed", "recipient", rcpt.ID,
-		map[string]interface{}{"email": rcpt.Email}, c.ClientIP())
+		service.AuditRecipientSuppressed, "recipient", rcpt.ID,
+		map[string]interface{}{"reason": "unsubscribed", "email": rcpt.Email}, c.ClientIP())
 
 	renderSimplePage(c, http.StatusOK, "You are unsubscribed", html.EscapeString(rcpt.Email)+" will not receive further issues.")
 }

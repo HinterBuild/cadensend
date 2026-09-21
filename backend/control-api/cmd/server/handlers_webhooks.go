@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -103,7 +104,7 @@ func emailWebhookHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		processErr := applyProviderEvent(db, eventType, email, body.IssueID)
+		processErr := applyProviderEvent(c.Request.Context(), db, eventType, email, body.IssueID)
 		now := time.Now().UTC()
 		updates := map[string]interface{}{"processed_at": now}
 		if processErr != nil {
@@ -136,7 +137,7 @@ type providerEvent struct {
 func (providerEvent) TableName() string { return "provider_events" }
 
 // applyProviderEvent updates delivery state and suppression for one event.
-func applyProviderEvent(db *gorm.DB, eventType, email, issueHint string) error {
+func applyProviderEvent(ctx context.Context, db *gorm.DB, eventType, email, issueHint string) error {
 	deliveryStatus, known := providerEventStatus[eventType]
 	if !known {
 		return nil // informational event types are recorded but need no state change
@@ -181,6 +182,9 @@ func applyProviderEvent(db *gorm.DB, eventType, email, issueHint string) error {
 			}).Error; err != nil {
 			return err
 		}
+		service.WriteAudit(db, ctx, "system:webhook", service.AuditRecipientSuppressed,
+			"recipient", rcpt.ID,
+			map[string]interface{}{"reason": reason, "provider_event": eventType}, "")
 	}
 	return nil
 }
