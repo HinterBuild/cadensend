@@ -207,6 +207,7 @@ export interface Source {
   chunk_count?: number;
   injection_status?: 'clean' | 'flagged';
   injection_findings?: InjectionFinding[];
+  last_verified_at?: string;
   created_by: string;
   created_at: string;
   updated_at: string;

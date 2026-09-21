@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Upload, Link2, FileText, Trash2, RefreshCw, Eye } from 'lucide-react';
 import { sourceApi } from '@/lib/api';
 import { InjectionBadge } from '@/components/InjectionBadge';
+import { StaleBadge } from '@/components/StaleBadge';
 import { useRequireAuth } from '@/contexts/AuthContext';
 import { SearchField, EmptyResults, EmptyState, ErrorNotice, PageHeader, PageSkeleton, SummaryCards } from '@/components/WorkspaceUI';
 import { Modal, ConfirmDialog } from '@/components/Modal';
@@ -107,6 +108,7 @@ export default function SourcesPage() {
           <div className="min-w-0"><h2 className="break-words text-sm font-semibold text-stone-900">{source.url || 'Uploaded file'}</h2>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span className="capitalize">{source.type}</span><span aria-hidden="true">·</span><span>{source.scope === 'series' ? 'Series only' : 'Workspace wide'}</span>{(source.chunk_count ?? 0) > 0 && <><span aria-hidden="true">·</span><span>{source.chunk_count} indexed chunks</span></>}
               {source.injection_status === 'flagged' && <InjectionBadge status={source.injection_status} findings={source.injection_findings} />}
+              {source.status === 'ready' && <StaleBadge lastVerifiedAt={source.last_verified_at} />}
             </div>
             {source.duplicate_of && <p className="mt-2 text-xs text-amber-800">Duplicate content: uses the existing index.</p>}
             {source.ingest_error && source.status === 'failed' && <p className="mt-2 break-words text-sm text-red-700">{source.ingest_error}</p>}
