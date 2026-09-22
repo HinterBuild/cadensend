@@ -1029,7 +1029,8 @@ JSON shape:
         except Exception:
             prior = []
 
-        assessment = assess_issues_batch(issues, context, prior_issues=prior)
+        target_length = (state.get("brief") or {}).get("length")
+        assessment = assess_issues_batch(issues, context, prior_issues=prior, target_length=target_length)
         needs = assessment["needs_revision"]
         state["needs_revision"] = needs
         state["quality_evaluation"] = assessment.get("evaluation")

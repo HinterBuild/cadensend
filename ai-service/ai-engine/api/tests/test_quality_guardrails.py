@@ -1,7 +1,7 @@
 """Tests for generation-time quality guardrails."""
 
 from app.platform.editorial.tools import EvaluationHarness
-from app.services.quality_guardrails import assess_issue_quality
+from app.services.quality_guardrails import _length_mismatch, assess_issue_quality
 
 
 def _issue(**overrides):
@@ -59,3 +59,37 @@ class TestAssessIssueQuality:
         )
         assert result["needs_revision"] is True
         assert "missing_citations" in result["reasons"]
+
+    def test_flags_issue_far_shorter_than_target_length(self):
+        result = assess_issue_quality(
+            _issue(),
+            [{"source_id": "src-1", "score": 0.8, "content": "paging"}],
+            target_length="10 min",
+        )
+        assert result["needs_revision"] is True
+        assert "length_out_of_range" in result["reasons"]
+
+    def test_no_target_length_never_flags_length(self):
+        result = assess_issue_quality(
+            _issue(),
+            [{"source_id": "src-1", "score": 0.8, "content": "paging"}],
+        )
+        assert "length_out_of_range" not in result["reasons"]
+
+
+class TestLengthMismatch:
+    def test_unknown_label_never_flags(self):
+        assert _length_mismatch("however long", 5) is False
+        assert _length_mismatch(None, 5) is False
+
+    def test_zero_word_count_never_flags(self):
+        # A stub/empty issue is caught by is_stub_issue upstream; this guard
+        # just avoids a false positive if word_count is ever unset.
+        assert _length_mismatch("10 min", 0) is False
+
+    def test_within_range_does_not_flag(self):
+        assert _length_mismatch("10 min", 1500) is False
+
+    def test_outside_range_flags(self):
+        assert _length_mismatch("10 min", 50) is True
+        assert _length_mismatch("5 min", 5000) is True
