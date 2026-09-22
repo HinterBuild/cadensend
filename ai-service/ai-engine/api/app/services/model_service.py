@@ -30,6 +30,41 @@ _EMBED_CACHE_MAX = 512
 register_all_providers()
 
 
+class SchemaMismatchError(ValueError):
+    """Raised when structured LLM output doesn't match the requested shape."""
+
+
+def _shape_mismatch(value: Any, example: Any, path: str) -> Optional[str]:
+    """Compare a parsed JSON value against a schema hint (an example-shaped
+    dict/list/scalar, as used throughout this codebase — not JSON Schema).
+    Returns a description of the first mismatch found, or None if the
+    top-level type structure matches. Only checks container types (dict vs
+    list vs scalar) and required top-level keys; it deliberately does not
+    enforce exact scalar types or reject extra keys, since models legitimately
+    vary string content and callers only rely on the container shape.
+    """
+    if isinstance(example, dict):
+        if not isinstance(value, dict):
+            return f"{path}: expected object, got {type(value).__name__}"
+        for key, sub_example in example.items():
+            if key not in value:
+                return f"{path}.{key}: missing required key"
+            mismatch = _shape_mismatch(value[key], sub_example, f"{path}.{key}")
+            if mismatch:
+                return mismatch
+        return None
+    if isinstance(example, list):
+        if not isinstance(value, list):
+            return f"{path}: expected array, got {type(value).__name__}"
+        if example and value:
+            # Check the first element's shape only; lists are heterogeneous
+            # enough in practice (optional sub-fields) that checking every
+            # element would reject valid output.
+            return _shape_mismatch(value[0], example[0], f"{path}[0]")
+        return None
+    return None  # scalars: presence already checked by the parent dict case
+
+
 class GatedChatOpenAI(ChatOpenAI):
     """ChatOpenAI that shares the process-wide OpenRouter free-tier gate."""
 
@@ -297,6 +332,9 @@ class ModelService:
                 )
                 result = response.choices[0].message.content
                 parsed = json.loads(result)
+                mismatch = _shape_mismatch(parsed, schema, "root")
+                if mismatch:
+                    raise SchemaMismatchError(mismatch)
                 logger.debug("Generated structured output (attempt %d) using %s", attempt + 1, model_id)
                 return parsed
             except Exception as e:
