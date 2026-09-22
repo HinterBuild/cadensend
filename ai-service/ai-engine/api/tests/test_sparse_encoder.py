@@ -1,6 +1,6 @@
 """Tests for the dependency-free sparse (lexical) vector encoder."""
 
-from app.rag.sparse import encode_sparse, tokenize
+from app.rag.sparse import encode_sparse, reciprocal_rank_fusion, tokenize
 from app.rag.sparse.encoder import VOCAB_SIZE, _token_index
 
 
@@ -85,3 +85,43 @@ class TestEncodeSparse:
     def test_stopword_only_text_is_empty_vector(self):
         vector = encode_sparse("the a an of to")
         assert vector.indices == []
+
+
+class TestReciprocalRankFusion:
+    def test_single_list_preserves_order(self):
+        assert reciprocal_rank_fusion([["a", "b", "c"]]) == ["a", "b", "c"]
+
+    def test_agreement_across_lists_boosts_rank(self):
+        dense = ["a", "b", "c"]
+        sparse = ["b", "a", "d"]
+        fused = reciprocal_rank_fusion([dense, sparse])
+        # "a" (ranks 1,2) and "b" (ranks 2,1) both appear near the top of
+        # both lists and should out-rank "c"/"d", which appear in only one.
+        assert fused.index("a") < fused.index("c")
+        assert fused.index("b") < fused.index("d")
+
+    def test_id_present_in_only_one_list_still_included(self):
+        fused = reciprocal_rank_fusion([["a"], ["b"]])
+        assert set(fused) == {"a", "b"}
+
+    def test_empty_lists_produce_empty_result(self):
+        assert reciprocal_rank_fusion([]) == []
+        assert reciprocal_rank_fusion([[], []]) == []
+
+    def test_duplicate_id_across_lists_is_not_duplicated_in_output(self):
+        fused = reciprocal_rank_fusion([["a", "b"], ["a", "c"]])
+        assert fused.count("a") == 1
+
+    def test_higher_k_reduces_effect_of_exact_rank_difference(self):
+        # With a very large k, 1/(k+1) and 1/(k+2) are nearly identical, so
+        # the fused order should be driven almost entirely by which lists
+        # an id appears in, not its precise rank within them.
+        dense = ["a", "b"]
+        sparse = ["b", "a"]
+        fused_large_k = reciprocal_rank_fusion([dense, sparse], k=100000)
+        scores = {}
+        for ranked_list in (dense, sparse):
+            for rank, doc_id in enumerate(ranked_list, start=1):
+                scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (100000 + rank)
+        assert abs(scores["a"] - scores["b"]) < 1e-9
+        assert set(fused_large_k) == {"a", "b"}

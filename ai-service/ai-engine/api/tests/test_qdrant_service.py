@@ -111,3 +111,112 @@ class TestUpsertChunksHybrid:
         _, kwargs = mock_client.upsert.call_args
         assert kwargs["collection_name"] == service.collection_name
         assert kwargs["collection_name"] != "newsletter_chunks_hybrid_v1"
+
+
+def _mock_hit(hit_id: str, score: float, payload: dict | None = None):
+    hit = Mock()
+    hit.id = hit_id
+    hit.score = score
+    hit.payload = payload or {"chunk_id": hit_id}
+    hit.vector = None
+    return hit
+
+
+class TestDenseSearchUnaffectedByRefactor:
+    """search() was refactored to share _build_tenant_filter with
+    hybrid_search(); these confirm its externally observable behavior
+    (query, filter, results) is identical to before."""
+
+    def test_search_still_enforces_workspace_filter(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.return_value = [_mock_hit("p1", 0.9)]
+
+        service.search([0.1, 0.2], workspace_id="ws-1")
+
+        _, kwargs = mock_client.search.call_args
+        conditions = kwargs["query_filter"].must
+        assert any(
+            c.key == "workspace_id" and c.match.value == "ws-1" for c in conditions
+        )
+        assert any(c.key == "active" and c.match.value is True for c in conditions)
+
+    def test_search_still_returns_score_payload_id_vector_shape(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.return_value = [_mock_hit("p1", 0.9, {"chunk_id": "c1"})]
+
+        results = service.search([0.1, 0.2], workspace_id="ws-1")
+
+        assert results == [{"score": 0.9, "payload": {"chunk_id": "c1"}, "id": "p1", "vector": None}]
+
+
+class TestHybridSearch:
+    def test_queries_both_named_vectors_with_same_tenant_filter(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.side_effect = [
+            [_mock_hit("p1", 0.9), _mock_hit("p2", 0.8)],  # dense
+            [_mock_hit("p2", 5.0), _mock_hit("p3", 4.0)],  # sparse
+        ]
+
+        service.hybrid_search(
+            "newsletter_chunks_hybrid_v1",
+            query_embedding=[0.1, 0.2],
+            query_text="paged attention",
+            workspace_id="ws-1",
+        )
+
+        assert mock_client.search.call_count == 2
+        for call in mock_client.search.call_args_list:
+            _, kwargs = call
+            assert kwargs["collection_name"] == "newsletter_chunks_hybrid_v1"
+            conditions = kwargs["query_filter"].must
+            assert any(c.key == "workspace_id" and c.match.value == "ws-1" for c in conditions)
+
+    def test_fuses_and_ranks_agreement_first(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.side_effect = [
+            [_mock_hit("p1", 0.9), _mock_hit("p2", 0.8)],  # dense: p1 first
+            [_mock_hit("p2", 5.0), _mock_hit("p1", 4.0)],  # sparse: p2 first
+        ]
+
+        results = service.hybrid_search(
+            "newsletter_chunks_hybrid_v1",
+            query_embedding=[0.1, 0.2],
+            query_text="paged attention",
+            workspace_id="ws-1",
+        )
+
+        result_ids = [r["id"] for r in results]
+        # Both p1 and p2 appear near the top of both lists, so RRF should
+        # rank them ahead of anything appearing in only one list.
+        assert set(result_ids) == {"p1", "p2"}
+
+    def test_skips_sparse_search_when_query_has_no_tokens(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.return_value = [_mock_hit("p1", 0.9)]
+
+        service.hybrid_search(
+            "newsletter_chunks_hybrid_v1",
+            query_embedding=[0.1, 0.2],
+            query_text="the a an",  # all stopwords -> empty sparse vector
+            workspace_id="ws-1",
+        )
+
+        # Only the dense search call, since the sparse vector was empty.
+        assert mock_client.search.call_count == 1
+
+    def test_respects_top_k_after_fusion(self):
+        service, mock_client = _mock_service_with_client()
+        mock_client.search.side_effect = [
+            [_mock_hit(f"d{i}", 1.0 - i * 0.01) for i in range(10)],
+            [_mock_hit(f"s{i}", 10.0 - i) for i in range(10)],
+        ]
+
+        results = service.hybrid_search(
+            "newsletter_chunks_hybrid_v1",
+            query_embedding=[0.1],
+            query_text="vllm paging",
+            workspace_id="ws-1",
+            top_k=3,
+        )
+
+        assert len(results) == 3

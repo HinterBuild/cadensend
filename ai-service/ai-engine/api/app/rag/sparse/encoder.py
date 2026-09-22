@@ -65,6 +65,28 @@ def _token_index(token: str) -> int:
     return int.from_bytes(digest[:4], "big") % VOCAB_SIZE
 
 
+def reciprocal_rank_fusion(
+    ranked_lists: List[List[str]], k: int = 60
+) -> List[str]:
+    """Fuse multiple ranked ID lists into one ranking via Reciprocal Rank
+    Fusion: score(id) = sum(1 / (k + rank)) across every list the id
+    appears in (1-indexed rank; absent from a list contributes nothing).
+
+    RRF is plan.md's stated default for combining dense and sparse
+    retrieval ("Fuse with Reciprocal Rank Fusion as the safe initial
+    default") — it needs no score normalization across the two search
+    types, which matters here because dense cosine similarity and sparse
+    term-frequency scores are on incomparable scales. k=60 is the
+    RRF paper's standard constant; it dampens the influence of any single
+    list's exact rank ordering versus simply "did this appear near the top."
+    """
+    scores: Dict[str, float] = {}
+    for ranked_list in ranked_lists:
+        for rank, doc_id in enumerate(ranked_list, start=1):
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.keys(), key=lambda doc_id: scores[doc_id], reverse=True)
+
+
 def encode_sparse(text: str) -> SparseVector:
     """Build a term-frequency sparse vector for one chunk of text.
 

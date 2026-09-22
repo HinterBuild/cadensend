@@ -11,7 +11,7 @@ import logging
 import time
 
 from app.core.config import settings
-from app.rag.sparse import SparseVector as LocalSparseVector, encode_sparse
+from app.rag.sparse import SparseVector as LocalSparseVector, encode_sparse, reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -241,15 +241,14 @@ class QdrantService:
         logger.info("Upserted %d hybrid points to %s", len(points), collection_name)
         return result
 
-    def search(
+    def _build_tenant_filter(
         self,
-        query_embedding: List[float],
         workspace_id: str,
         series_id: Optional[str] = None,
         source_id: Optional[str] = None,
-        top_k: int = 20,
-    ) -> List[Dict]:
-        """Search for similar chunks with mandatory workspace filter."""
+    ) -> rest.Filter:
+        """Mandatory workspace/active filter, shared by search and
+        hybrid_search so both enforce tenant isolation identically."""
         must_conditions = [
             rest.FieldCondition(
                 key="workspace_id",
@@ -277,10 +276,21 @@ class QdrantService:
                 )
             )
 
+        return rest.Filter(must=must_conditions)
+
+    def search(
+        self,
+        query_embedding: List[float],
+        workspace_id: str,
+        series_id: Optional[str] = None,
+        source_id: Optional[str] = None,
+        top_k: int = 20,
+    ) -> List[Dict]:
+        """Search for similar chunks with mandatory workspace filter."""
         search_result = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_embedding,
-            query_filter=rest.Filter(must=must_conditions),
+            query_filter=self._build_tenant_filter(workspace_id, series_id, source_id),
             limit=top_k,
         )
 
@@ -294,6 +304,68 @@ class QdrantService:
                 "vector": hit.vector,
             })
 
+        return results
+
+    def hybrid_search(
+        self,
+        collection_name: str,
+        query_embedding: List[float],
+        query_text: str,
+        workspace_id: str,
+        series_id: Optional[str] = None,
+        source_id: Optional[str] = None,
+        top_k: int = 20,
+        candidate_k: int = 40,
+    ) -> List[Dict]:
+        """Dense + sparse search against a hybrid collection, fused with
+        Reciprocal Rank Fusion (see plan.md's Update 1 retrieval section).
+
+        Runs both named-vector searches with the same mandatory tenant
+        filter as `search`, fuses their rankings by point ID, then returns
+        full point payloads in fused order. candidate_k controls how many
+        candidates each individual search contributes before fusion — wider
+        than top_k so RRF has enough overlap to work with.
+        """
+        query_filter = self._build_tenant_filter(workspace_id, series_id, source_id)
+
+        dense_hits = self.client.search(
+            collection_name=collection_name,
+            query_vector=rest.NamedVector(name=DENSE_VECTOR_NAME, vector=query_embedding),
+            query_filter=query_filter,
+            limit=candidate_k,
+        )
+        sparse_vector = encode_sparse(query_text)
+        sparse_hits = []
+        if sparse_vector.indices:
+            sparse_hits = self.client.search(
+                collection_name=collection_name,
+                query_vector=rest.NamedSparseVector(
+                    name=SPARSE_VECTOR_NAME,
+                    vector=self.to_qdrant_sparse_vector(sparse_vector),
+                ),
+                query_filter=query_filter,
+                limit=candidate_k,
+            )
+
+        by_id = {str(hit.id): hit for hit in dense_hits}
+        by_id.update({str(hit.id): hit for hit in sparse_hits})
+
+        fused_ids = reciprocal_rank_fusion(
+            [
+                [str(hit.id) for hit in dense_hits],
+                [str(hit.id) for hit in sparse_hits],
+            ]
+        )
+
+        results = []
+        for point_id in fused_ids[:top_k]:
+            hit = by_id[point_id]
+            results.append({
+                "score": hit.score,
+                "payload": hit.payload,
+                "id": hit.id,
+                "vector": hit.vector,
+            })
         return results
 
     def delete_by_source_version(self, source_version_id: str) -> bool:
