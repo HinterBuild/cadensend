@@ -11,10 +11,15 @@ import logging
 import time
 
 from app.core.config import settings
+from app.rag.sparse import SparseVector as LocalSparseVector
 
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "newsletter_chunks_dense_v1"
+
+# Named vector keys inside the hybrid collection (a point carries both).
+DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
 
 
 class QdrantService:
@@ -58,8 +63,60 @@ class QdrantService:
 
         raise last_error or RuntimeError("Failed to connect to Qdrant")
 
-    def _create_payload_indexes(self):
+    def ensure_hybrid_collection(
+        self, collection_name: str, embedding_dim: int = 2048, retries: int = 15, delay_seconds: float = 2.0
+    ) -> bool:
+        """Create a hybrid (dense + sparse) collection if it doesn't exist.
+
+        Separate from ensure_collection/COLLECTION_NAME on purpose: an
+        existing single-dense-vector collection can't be altered in place
+        to add a named sparse vector, so hybrid search ships as a new,
+        independently versioned collection per plan.md's "dual-write/
+        reindex migration rather than in-place silent mutation." Ingestion
+        and query wiring to actually populate/query this collection are
+        follow-up work — this method only establishes the schema.
+        """
+        last_error: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                collections = self.client.get_collections()
+                collection_names = [c.name for c in collections.collections]
+
+                if collection_name not in collection_names:
+                    self.client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config={
+                            DENSE_VECTOR_NAME: VectorParams(
+                                size=embedding_dim,
+                                distance=Distance.COSINE,
+                            ),
+                        },
+                        sparse_vectors_config={
+                            SPARSE_VECTOR_NAME: rest.SparseVectorParams(
+                                index=rest.SparseIndexParams(on_disk=False),
+                            ),
+                        },
+                    )
+                    logger.info("Created hybrid collection: %s", collection_name)
+                    self._create_payload_indexes(collection_name=collection_name)
+
+                return True
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Qdrant not ready at %s (attempt %d/%d): %s",
+                    self.qdrant_url,
+                    attempt,
+                    retries,
+                    e,
+                )
+                time.sleep(delay_seconds)
+
+        raise last_error or RuntimeError("Failed to connect to Qdrant")
+
+    def _create_payload_indexes(self, collection_name: Optional[str] = None):
         """Create payload indexes for efficient filtering."""
+        target = collection_name or self.collection_name
         indexes = [
             ("workspace_id", "keyword"),
             ("series_id", "keyword"),
@@ -72,7 +129,7 @@ class QdrantService:
         for field, schema in indexes:
             try:
                 self.client.create_payload_index(
-                    collection_name=self.collection_name,
+                    collection_name=target,
                     field_name=field,
                     field_schema=rest.PayloadSchemaType.KEYWORD,
                 )
@@ -224,6 +281,11 @@ class QdrantService:
         """Generate a deterministic point ID."""
         raw = f"{source_version_id}:{chunk_index}:{embedding_version}"
         return hashlib.sha256(raw.encode()).hexdigest()
+
+    @staticmethod
+    def to_qdrant_sparse_vector(vector: LocalSparseVector) -> rest.SparseVector:
+        """Convert app.rag.sparse.SparseVector to the Qdrant client's type."""
+        return rest.SparseVector(indices=vector.indices, values=vector.values)
 
     def _list_chunk_ids(self, source_version_id: str) -> List[str]:
         """List chunk IDs for a given source version."""
