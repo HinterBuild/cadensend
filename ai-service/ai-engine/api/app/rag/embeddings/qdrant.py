@@ -11,7 +11,7 @@ import logging
 import time
 
 from app.core.config import settings
-from app.rag.sparse import SparseVector as LocalSparseVector
+from app.rag.sparse import SparseVector as LocalSparseVector, encode_sparse
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,66 @@ class QdrantService:
         )
 
         logger.info("Upserted %d points to Qdrant", len(points))
+        return result
+
+    def upsert_chunks_hybrid(
+        self, collection_name: str, chunks: List[Dict], embeddings: List[List[float]]
+    ) -> Any:
+        """Upsert chunks with both dense and sparse vectors into a hybrid
+        collection (see ensure_hybrid_collection). Point IDs and payload
+        mirror upsert_chunks so the same chunk is addressable the same way
+        in either collection; embedding_version is tagged "hybrid-v1" to
+        distinguish these points from the dense-only collection's.
+
+        Callers control whether this runs at all (see
+        settings.HYBRID_SEARCH_ENABLED) — this method itself always writes
+        when called, it doesn't check the flag.
+        """
+        points = []
+
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            point_id = self._generate_deterministic_id(
+                chunk.get("source_version_id", ""),
+                chunk.get("index", i),
+                "hybrid-v1",
+            )
+            text = chunk.get("content") or chunk.get("text") or ""
+            sparse_vector = encode_sparse(text)
+
+            point = rest.PointStruct(
+                id=point_id,
+                vector={
+                    DENSE_VECTOR_NAME: embedding,
+                    SPARSE_VECTOR_NAME: self.to_qdrant_sparse_vector(sparse_vector),
+                },
+                payload={
+                    "workspace_id": chunk.get("workspace_id", ""),
+                    "series_id": chunk.get("series_id", ""),
+                    "source_id": chunk.get("source_id", ""),
+                    "source_version_id": chunk.get("source_version_id", ""),
+                    "chunk_id": chunk.get("id", ""),
+                    "chunk_index": chunk.get("index", i),
+                    "title": chunk.get("title", ""),
+                    "section_path": chunk.get("heading_path", []),
+                    "language": chunk.get("language", "en"),
+                    "source_type": chunk.get("source_type", ""),
+                    "published_at": chunk.get("published_at", ""),
+                    "content_hash": chunk.get("checksum", ""),
+                    "embedding_version": "hybrid-v1",
+                    "visibility": chunk.get("visibility", "series"),
+                    "active": True,
+                    "text_preview": text[:500],
+                    "content": text[:2000],
+                },
+            )
+            points.append(point)
+
+        result = self.client.upsert(
+            collection_name=collection_name,
+            points=points,
+        )
+
+        logger.info("Upserted %d hybrid points to %s", len(points), collection_name)
         return result
 
     def search(

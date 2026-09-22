@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://localhost:6333"
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "newsletter_chunks_dense_v1"
+
+    # Hybrid (dense + sparse) retrieval — Update 1. Off by default: dual-
+    # write only starts once this is explicitly enabled, so existing
+    # deployments are unaffected until someone opts in.
+    HYBRID_SEARCH_ENABLED: bool = False
+    QDRANT_HYBRID_COLLECTION_NAME: str = "newsletter_chunks_hybrid_v1"
     
     # MinIO settings
     MINIO_ENDPOINT: str = "localhost:9000"

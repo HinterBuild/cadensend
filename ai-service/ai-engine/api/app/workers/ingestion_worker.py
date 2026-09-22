@@ -220,6 +220,8 @@ class IngestionWorker:
 			await self._update_source_version_status(version.id, STATUS_INDEXING)
 			await self._update_source_status(source.id, STATUS_INDEXING)
 			qdrant_service.upsert_chunks(chunks, embeddings)
+			if settings.HYBRID_SEARCH_ENABLED:
+				self._dual_write_hybrid(chunks, embeddings)
 
 			await self._finalize_source(
 				source.id,
@@ -244,6 +246,24 @@ class IngestionWorker:
 			logger.error("Source ingestion failed for %s: %s", source.identifier, e)
 			await self._update_source_status(source.id, STATUS_FAILED, str(e))
 			raise
+
+	def _dual_write_hybrid(self, chunks: List[Dict[str, Any]], embeddings: List[List[float]]) -> None:
+		"""Best-effort write into the hybrid (dense+sparse) collection.
+
+		Gated by settings.HYBRID_SEARCH_ENABLED (off by default). The
+		dense-only collection written just above is still the source of
+		truth for retrieval until hybrid search's query path is wired up,
+		so a failure here is logged and swallowed rather than failing the
+		whole ingestion run — a source should never be marked failed
+		because of the experimental hybrid index.
+		"""
+		try:
+			collection_name = settings.QDRANT_HYBRID_COLLECTION_NAME
+			dim = len(embeddings[0]) if embeddings and embeddings[0] else 2048
+			qdrant_service.ensure_hybrid_collection(collection_name, embedding_dim=dim)
+			qdrant_service.upsert_chunks_hybrid(collection_name, chunks, embeddings)
+		except Exception as exc:
+			logger.warning("Hybrid dual-write failed (dense index is unaffected): %s", exc)
 
 	def _content_hash(self, text: str) -> str:
 		"""SHA-256 of whitespace-normalized text for duplicate detection."""

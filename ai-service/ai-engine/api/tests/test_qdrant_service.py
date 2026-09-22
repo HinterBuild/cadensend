@@ -61,3 +61,53 @@ class TestSparseVectorConversion:
 
         assert list(qdrant_vector.indices) == local_vector.indices
         assert list(qdrant_vector.values) == local_vector.values
+
+
+class TestUpsertChunksHybrid:
+    def test_points_carry_named_dense_and_sparse_vectors(self):
+        service, mock_client = _mock_service_with_client()
+        chunks = [
+            {
+                "id": "chk-1",
+                "content": "vLLM pages KV cache blocks for throughput.",
+                "source_version_id": "sv-1",
+                "source_id": "src-1",
+                "workspace_id": "ws-1",
+                "index": 0,
+            }
+        ]
+        embeddings = [[0.1, 0.2, 0.3]]
+
+        service.upsert_chunks_hybrid("newsletter_chunks_hybrid_v1", chunks, embeddings)
+
+        mock_client.upsert.assert_called_once()
+        _, kwargs = mock_client.upsert.call_args
+        assert kwargs["collection_name"] == "newsletter_chunks_hybrid_v1"
+        points = kwargs["points"]
+        assert len(points) == 1
+        point = points[0]
+        assert DENSE_VECTOR_NAME in point.vector
+        assert SPARSE_VECTOR_NAME in point.vector
+        assert point.vector[DENSE_VECTOR_NAME] == [0.1, 0.2, 0.3]
+        assert point.payload["embedding_version"] == "hybrid-v1"
+        assert point.payload["chunk_id"] == "chk-1"
+        assert point.payload["source_id"] == "src-1"
+
+    def test_point_id_differs_from_dense_only_collection(self):
+        # Same chunk indexed into both collections must get different point
+        # IDs (they're tagged with different embedding_version strings),
+        # otherwise deleting one collection's points by ID could collide
+        # with the other's.
+        service, _ = _mock_service_with_client()
+        dense_id = service._generate_deterministic_id("sv-1", 0, "dense-v1")
+        hybrid_id = service._generate_deterministic_id("sv-1", 0, "hybrid-v1")
+        assert dense_id != hybrid_id
+
+    def test_hybrid_collection_is_untouched_by_dense_only_upsert(self):
+        service, mock_client = _mock_service_with_client()
+        chunks = [{"content": "x", "source_version_id": "sv-1", "index": 0}]
+        service.upsert_chunks(chunks, [[0.1, 0.2]])
+
+        _, kwargs = mock_client.upsert.call_args
+        assert kwargs["collection_name"] == service.collection_name
+        assert kwargs["collection_name"] != "newsletter_chunks_hybrid_v1"
