@@ -59,10 +59,29 @@ def known_source_ids(context: Sequence[Dict[str, Any]]) -> set[str]:
     return {str(item.get("source_id")) for item in context if item.get("source_id")}
 
 
-def filter_citations(issue: Dict[str, Any], allowed_ids: Iterable[str]) -> Dict[str, Any]:
+def known_chunk_ids(context: Sequence[Dict[str, Any]]) -> set[str]:
+    return {str(item.get("chunk_id")) for item in context if item.get("chunk_id")}
+
+
+def filter_citations(
+    issue: Dict[str, Any],
+    allowed_ids: Iterable[str],
+    allowed_chunk_ids: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    """Drop citations that don't point at retrieved evidence.
+
+    A citation must reference a retrieved source_id; when allowed_chunk_ids
+    is given (the retrieval pass returned chunk-level IDs), it must also
+    reference an actually-retrieved chunk_id — otherwise the model may have
+    fabricated a plausible-looking chunk_id within a real source, or cited
+    a chunk that was never shown to it. allowed_chunk_ids is optional so
+    older callers without chunk-level context keep prior (source-only)
+    behavior rather than dropping every citation.
+    """
     allowed = set(allowed_ids)
     if not allowed:
         return issue
+    allowed_chunks = set(allowed_chunk_ids) if allowed_chunk_ids is not None else None
     blocks = []
     for block in issue.get("content_blocks") or []:
         if not isinstance(block, dict):
@@ -73,8 +92,13 @@ def filter_citations(issue: Dict[str, Any], allowed_ids: Iterable[str]) -> Dict[
             if not isinstance(citation, dict):
                 continue
             source_id = str(citation.get("source_id") or "")
-            if source_id and source_id in allowed:
-                citations.append(citation)
+            if not source_id or source_id not in allowed:
+                continue
+            if allowed_chunks is not None:
+                chunk_id = str(citation.get("chunk_id") or "")
+                if not chunk_id or chunk_id not in allowed_chunks:
+                    continue
+            citations.append(citation)
         blocks.append({**block, "citations": citations})
     return {**issue, "content_blocks": blocks}
 

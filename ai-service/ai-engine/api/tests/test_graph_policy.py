@@ -7,6 +7,7 @@ from app.services.graph_policy import (
     collect_retrieval_hits,
     filter_citations,
     is_stub_issue,
+    known_chunk_ids,
     pick_generated_issue,
     quality_needs_revision,
     route_after_agent,
@@ -89,6 +90,39 @@ class TestStubAndCitations:
         filtered = filter_citations(issue, {"real"})
         assert citation_count(filtered) == 1
         assert filtered["content_blocks"][0]["citations"][0]["source_id"] == "real"
+
+    def test_drops_citations_with_fabricated_chunk_id_when_chunks_checked(self):
+        issue = {
+            "subject": "x",
+            "preheader": "y",
+            "content_blocks": [
+                {
+                    "text": "fact",
+                    "citations": [
+                        {"source_id": "real", "chunk_id": "c1", "text": "ok"},
+                        {"source_id": "real", "chunk_id": "fabricated", "text": "nope"},
+                    ],
+                }
+            ],
+        }
+        filtered = filter_citations(issue, {"real"}, {"c1"})
+        assert citation_count(filtered) == 1
+        assert filtered["content_blocks"][0]["citations"][0]["chunk_id"] == "c1"
+
+    def test_chunk_check_skipped_when_allowed_chunk_ids_omitted(self):
+        # Callers without chunk-level context (allowed_chunk_ids=None) keep
+        # the prior source-only behavior instead of dropping everything.
+        issue = {
+            "content_blocks": [
+                {"text": "fact", "citations": [{"source_id": "real", "chunk_id": "anything"}]}
+            ]
+        }
+        filtered = filter_citations(issue, {"real"})
+        assert citation_count(filtered) == 1
+
+    def test_known_chunk_ids_collects_present_chunk_ids(self):
+        context = [{"chunk_id": "c1"}, {"chunk_id": "c2"}, {"no_chunk": True}, {"chunk_id": ""}]
+        assert known_chunk_ids(context) == {"c1", "c2"}
 
     def test_quality_flags_missing_citations_when_context_exists(self):
         issue = {

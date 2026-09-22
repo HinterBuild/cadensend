@@ -33,6 +33,7 @@ from app.services.graph_policy import (
     collect_retrieval_hits,
     filter_citations,
     is_stub_issue,
+    known_chunk_ids,
     known_source_ids,
     route_after_agent,
     route_after_memory,
@@ -597,8 +598,9 @@ When done, do not call tools. Return ONLY the plan JSON.
                 state["error"] = None
             return state
 
-        allowed = known_source_ids(state.get("retrieved_context") or [])
-        issue = filter_citations(parsed, allowed) if isinstance(parsed, dict) else {}
+        retrieved = state.get("retrieved_context") or []
+        allowed = known_source_ids(retrieved)
+        issue = filter_citations(parsed, allowed, known_chunk_ids(retrieved)) if isinstance(parsed, dict) else {}
         if is_stub_issue(issue):
             state["issues"] = []
             state["status"] = "failed"
@@ -902,6 +904,9 @@ JSON shape:
             ]
             if not module_context:
                 module_context = [c for c in context if isinstance(c, dict)]
+            # Only chunks actually shown to the model in this prompt count as
+            # "retrieved" for citation verification below.
+            shown_chunk_ids = known_chunk_ids(module_context[:8])
 
             system_prompt = (
                 "You write a single email lesson for a professional learning series. "
@@ -941,7 +946,7 @@ JSON shape:
                 )
                 if not isinstance(issue, dict) or "subject" not in issue:
                     raise ValueError("Issue JSON missing subject")
-                issue = filter_citations(issue, allowed_ids)
+                issue = filter_citations(issue, allowed_ids, shown_chunk_ids)
                 if is_stub_issue(issue):
                     raise ValueError("Model returned a stub issue")
 
@@ -959,7 +964,7 @@ JSON shape:
                     )
                     parsed = self._parse_json_object(raw)
                     if parsed and not is_stub_issue(parsed):
-                        parsed = filter_citations(parsed, allowed_ids)
+                        parsed = filter_citations(parsed, allowed_ids, shown_chunk_ids)
                         parsed["module_index"] = i
                         parsed["module_title"] = module.get("title", "")
                         issues.append(parsed)
@@ -999,12 +1004,14 @@ JSON shape:
     async def _assemble_issue_node(self, state: NewsletterState) -> NewsletterState:
         """Assemble the final issue structure with citations and visuals."""
         issues = state.get("issues", [])
-        allowed = known_source_ids(state.get("retrieved_context") or [])
+        retrieved = state.get("retrieved_context") or []
+        allowed = known_source_ids(retrieved)
+        allowed_chunks = known_chunk_ids(retrieved)
         cleaned = []
         for issue in issues:
             if not isinstance(issue, dict):
                 continue
-            issue = filter_citations(issue, allowed)
+            issue = filter_citations(issue, allowed, allowed_chunks)
             issue = normalize_issue_content_order(issue)
             if not issue.get("visual_specs"):
                 issue["visual_specs"] = state.get("visual_specs") or []
@@ -1061,6 +1068,9 @@ JSON shape:
         issues = state.get("issues", [])
         context = state.get("retrieved_context", [])
         allowed = known_source_ids(context)
+        # Only chunks actually shown to the model in this prompt (context[:6]
+        # below) count as "retrieved" for citation verification.
+        shown_chunk_ids = known_chunk_ids(context[:6])
         modules = (state.get("plan") or {}).get("modules") or []
         issue_schema = {
             "subject": "string",
@@ -1118,7 +1128,7 @@ JSON shape:
                 if not isinstance(revised, dict) or is_stub_issue(revised):
                     revised_issues.append(issue)
                     continue
-                revised = filter_citations(revised, allowed)
+                revised = filter_citations(revised, allowed, shown_chunk_ids)
                 revised["module_index"] = issue.get("module_index", index)
                 revised["module_title"] = issue.get("module_title", "")
                 revised["revision_number"] = state["revision_count"]
