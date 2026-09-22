@@ -147,6 +147,24 @@ export interface ContentCheck {
   block_index?: number;
 }
 
+export interface IssueQualityScores {
+  grounding: number;
+  novelty: number;
+  structure: number;
+  cta: number;
+  tone_safety: number;
+  editorial: number;
+}
+
+export interface IssueQuality {
+  passed: boolean;
+  overall_score: number;
+  scores: IssueQualityScores;
+  word_count: number;
+  section_count: number;
+  banned_hits: string[];
+}
+
 export interface IssueContent {
   subject: string;
   preheader: string;
@@ -154,6 +172,7 @@ export interface IssueContent {
   visual_specs: VisualSpec[];
   citations: Citation[];
   presentation?: IssuePresentation;
+  _quality?: IssueQuality;
 }
 
 export interface ContentBlock {

@@ -22,6 +22,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { IssueDeliveryChecklist } from '@/components/issues/IssueDeliveryChecklist';
 import { ContentStructurePanel } from '@/components/issues/ContentStructurePanel';
+import { IssueQualityPanel } from '@/components/issues/IssueQualityPanel';
 import { IssueEditorPreview, type PreviewTab } from '@/components/issues/IssueEditorPreview';
 import { IssueStylePanel } from '@/components/issues/IssueStylePanel';
 import { IssueVersionPanel } from '@/components/issues/IssueVersionPanel';
@@ -94,6 +95,12 @@ function parseIssueContent(issue: Issue): {
     visuals,
     presentation: normalizeIssuePresentation(parsed?.presentation),
   };
+}
+
+function parseIssueQuality(issue: Issue | null): IssueContent['_quality'] {
+  const raw = issue?.content_json;
+  const parsed = raw && typeof raw === 'object' ? (raw as Partial<IssueContent>) : null;
+  return parsed?._quality;
 }
 
 function toLocalInput(value?: string | null) {
@@ -878,6 +885,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
               <ContentStructurePanel
                 content={{ content_blocks: content.blocks, visual_specs: content.visuals }}
               />
+              <IssueQualityPanel quality={parseIssueQuality(issue)} />
               <div className="rounded-2xl border border-[#e7e0d6] bg-white p-5 space-y-6">
               <div className="mb-4 flex items-center justify-between">
                 <label className="block text-sm font-semibold text-stone-900">
