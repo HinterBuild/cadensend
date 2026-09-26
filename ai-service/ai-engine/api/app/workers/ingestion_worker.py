@@ -351,9 +351,18 @@ class IngestionWorker:
 		source_version_id: str,
 		source_type: str,
 	):
-		"""Annotate chunk dicts with pipeline metadata in place."""
+		"""Annotate chunk dicts with pipeline metadata in place.
+
+		`id` must be set here: it becomes the `chunk_id` payload that
+		citations reference and that citation filtering and retrieval
+		dedupe key on. It is derived from (source_version_id, index) so
+		re-ingesting the same version yields the same IDs.
+		"""
 		visibility = "series" if series_id else "workspace"
-		for chunk in chunks:
+		for index, chunk in enumerate(chunks):
+			chunk["index"] = index
+			chunk["id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, f"chunk:{source_version_id}:{index}"))
+			chunk["checksum"] = hashlib.sha256(chunk.get("content", "").encode("utf-8")).hexdigest()
 			chunk["workspace_id"] = workspace_id
 			chunk["series_id"] = series_id
 			chunk["source_id"] = source_id

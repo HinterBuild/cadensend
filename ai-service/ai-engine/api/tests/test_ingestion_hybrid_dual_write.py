@@ -57,3 +57,19 @@ class TestFeatureFlagGating:
         guard_index = source.index("if settings.HYBRID_SEARCH_ENABLED:")
         call_index = source.index("_dual_write_hybrid")
         assert guard_index < call_index
+
+
+class TestAnnotateChunks:
+    def test_assigns_stable_unique_chunk_ids_and_indexes(self):
+        # chunk["id"] becomes the chunk_id payload that citation filtering
+        # and retrieval dedupe key on; it must be set and unique.
+        worker = _worker()
+        chunks = [{"content": "alpha"}, {"content": "beta"}]
+        worker._annotate_chunks(chunks, "ws-1", None, "src-1", "sv-1", "text")
+        ids = [c["id"] for c in chunks]
+        assert all(ids) and len(set(ids)) == 2
+        assert [c["index"] for c in chunks] == [0, 1]
+
+        again = [{"content": "alpha"}, {"content": "beta"}]
+        worker._annotate_chunks(again, "ws-1", None, "src-1", "sv-1", "text")
+        assert [c["id"] for c in again] == ids

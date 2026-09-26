@@ -120,6 +120,26 @@ class TestStubAndCitations:
         filtered = filter_citations(issue, {"real"})
         assert citation_count(filtered) == 1
 
+    def test_empty_chunk_set_falls_back_to_source_check(self):
+        # Retrieval hits without chunk_id payloads must not wipe every
+        # citation (this was a real regression before chunks got IDs).
+        issue = {
+            "content_blocks": [
+                {"text": "fact", "citations": [{"source_id": "real", "chunk_id": "c9"}]}
+            ]
+        }
+        filtered = filter_citations(issue, {"real"}, set())
+        assert citation_count(filtered) == 1
+
+    def test_drops_all_citations_when_nothing_was_retrieved(self):
+        issue = {
+            "content_blocks": [
+                {"text": "fact", "citations": [{"source_id": "invented", "chunk_id": "c1"}]}
+            ]
+        }
+        filtered = filter_citations(issue, set())
+        assert citation_count(filtered) == 0
+
     def test_known_chunk_ids_collects_present_chunk_ids(self):
         context = [{"chunk_id": "c1"}, {"chunk_id": "c2"}, {"no_chunk": True}, {"chunk_id": ""}]
         assert known_chunk_ids(context) == {"c1", "c2"}

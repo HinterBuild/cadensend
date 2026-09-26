@@ -66,6 +66,11 @@ class NewsletterState(TypedDict):
     needs_revision: bool
     tool_rounds: int
     force_final: bool
+    # LangGraph silently drops keys not declared here, so these must stay
+    # listed: the revise node reads the feedback, and the worker persists
+    # the evaluation to issues.content_json._quality.
+    quality_evaluation: Optional[Dict[str, Any]]
+    quality_feedback: List[str]
 
 
 def _aggregate_usage(messages: Sequence[Any]) -> Dict[str, int]:

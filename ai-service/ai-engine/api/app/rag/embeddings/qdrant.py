@@ -6,9 +6,9 @@ from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 from qdrant_client.http.models import Distance, VectorParams
-import hashlib
 import logging
 import time
+import uuid
 
 from app.core.config import settings
 from app.rag.sparse import SparseVector as LocalSparseVector, encode_sparse, reciprocal_rank_fusion
@@ -30,7 +30,7 @@ class QdrantService:
         self.client = QdrantClient(url=self.qdrant_url, api_key=api_key or settings.QDRANT_API_KEY)
         self.collection_name = settings.QDRANT_COLLECTION_NAME or COLLECTION_NAME
 
-    def ensure_collection(self, embedding_dim: int = 2048, retries: int = 15, delay_seconds: float = 2.0) -> bool:
+    def ensure_collection(self, embedding_dim: Optional[int] = None, retries: int = 15, delay_seconds: float = 2.0) -> bool:
         """Create collection if it doesn't exist, retrying until Qdrant is reachable."""
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):
@@ -39,6 +39,7 @@ class QdrantService:
                 collection_names = [c.name for c in collections.collections]
 
                 if self.collection_name not in collection_names:
+                    embedding_dim = embedding_dim or settings.EMBEDDING_DIMENSION
                     self.client.recreate_collection(
                         collection_name=self.collection_name,
                         vectors_config=VectorParams(
@@ -123,7 +124,7 @@ class QdrantService:
             ("source_id", "keyword"),
             ("source_version_id", "keyword"),
             ("chunk_id", "keyword"),
-            ("active", "boolean"),
+            ("active", "bool"),
         ]
 
         for field, schema in indexes:
@@ -131,7 +132,7 @@ class QdrantService:
                 self.client.create_payload_index(
                     collection_name=target,
                     field_name=field,
-                    field_schema=rest.PayloadSchemaType.KEYWORD,
+                    field_schema=rest.PayloadSchemaType(schema),
                 )
                 logger.info("Created payload index: %s", field)
             except Exception as e:
@@ -410,9 +411,11 @@ class QdrantService:
     def _generate_deterministic_id(
         self, source_version_id: str, chunk_index: int, embedding_version: str
     ) -> str:
-        """Generate a deterministic point ID."""
+        """Deterministic point ID, so re-ingesting a version overwrites its
+        points instead of duplicating them. Qdrant only accepts unsigned
+        ints or UUIDs as IDs, hence uuid5 rather than a raw hash digest."""
         raw = f"{source_version_id}:{chunk_index}:{embedding_version}"
-        return hashlib.sha256(raw.encode()).hexdigest()
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
 
     @staticmethod
     def to_qdrant_sparse_vector(vector: LocalSparseVector) -> rest.SparseVector:

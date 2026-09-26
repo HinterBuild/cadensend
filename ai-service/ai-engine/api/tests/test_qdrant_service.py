@@ -220,3 +220,20 @@ class TestHybridSearch:
         )
 
         assert len(results) == 3
+
+
+class TestPointIds:
+    def test_point_id_is_a_valid_uuid(self):
+        # Qdrant rejects IDs that aren't unsigned ints or UUIDs; a raw hash
+        # digest here made every upsert (and so every ingestion) fail.
+        import uuid
+
+        service, _ = _mock_service_with_client()
+        point_id = service._generate_deterministic_id("sv-1", 0, "dense-v1")
+        assert str(uuid.UUID(point_id)) == point_id
+
+    def test_point_id_is_deterministic(self):
+        service, _ = _mock_service_with_client()
+        assert service._generate_deterministic_id("sv-1", 3, "dense-v1") == service._generate_deterministic_id(
+            "sv-1", 3, "dense-v1"
+        )
