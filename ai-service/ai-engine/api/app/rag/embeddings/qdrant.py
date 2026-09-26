@@ -73,9 +73,10 @@ class QdrantService:
         existing single-dense-vector collection can't be altered in place
         to add a named sparse vector, so hybrid search ships as a new,
         independently versioned collection per plan.md's "dual-write/
-        reindex migration rather than in-place silent mutation." Ingestion
-        and query wiring to actually populate/query this collection are
-        follow-up work — this method only establishes the schema.
+        reindex migration rather than in-place silent mutation." The
+        ingestion worker populates it (when HYBRID_SEARCH_ENABLED) and
+        hybrid_search() queries it; generation still retrieves from the
+        dense collection until it is switched over deliberately.
         """
         last_error: Exception | None = None
         for attempt in range(1, retries + 1):

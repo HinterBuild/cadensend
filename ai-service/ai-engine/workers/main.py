@@ -3,10 +3,15 @@
 AI Engine Worker - Background processing service.
 
 Handles source ingestion and issue generation tasks using the LangGraph agent.
-The worker consumes a reliable Redis list queue: jobs move to a processing
-list on pop and are acknowledged on completion, so a crash mid-job never
-loses work. Terminal failures land in a dead-letter list and are persisted
-to generation_runs for visibility in the Run Center.
+The worker consumes a FIFO Redis list queue with reliable-queue semantics:
+jobs move to a processing list when taken and are acknowledged when their
+handler finishes, so a crash mid-job leaves them to be recovered on restart.
+
+The job handlers catch their own errors and record them on the issue/series
+(status "failed" plus a message), so most failures are acked, not retried.
+Only an exception that escapes a handler goes through the requeue and
+dead-letter path in _finalize (dead letters are also written to
+generation_runs for the Run Center).
 """
 
 import asyncio
@@ -17,6 +22,7 @@ import signal
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 import warnings
 import base64
 
@@ -169,16 +175,29 @@ class AIWorker:
     def _mark_llm_finished(self, _task: asyncio.Task) -> None:
         self._last_llm_finished = time.monotonic()
 
-    async def _process_pending_jobs(self):
-        """Pop one job at a time with reliable-queue semantics.
+    async def _take_next(self, redis) -> Optional[str]:
+        """Atomically move the oldest queued job onto the processing list
+        without blocking; None when the queue is empty."""
+        return await redis.lmove(QUEUE_KEY, PROCESSING_KEY, "LEFT", "RIGHT")
 
-        BRPOPLPUSH moves the job onto the processing list immediately; the
-        ack happens after the handler finishes. Multiple workers can run
-        concurrently without double-processing because each pop is atomic.
+    async def _put_back(self, redis, msg: str) -> None:
+        """Undo a take: return a job to the front of the queue."""
+        await redis.lrem(PROCESSING_KEY, 1, msg)
+        await redis.lpush(QUEUE_KEY, msg)
+
+    async def _process_pending_jobs(self):
+        """Pop jobs with reliable-queue semantics.
+
+        Producers RPUSH onto the tail, so jobs are taken from the head
+        (LEFT) to keep the queue FIFO. BLMOVE/LMOVE move each job onto the
+        processing list atomically; it is acked (LREM) only after its handler
+        finishes, so a crash leaves it there for _recover_processing_queue.
+        Every job taken, including the extra batched ones, goes through the
+        processing list for the same reason.
         """
         try:
             redis = self._redis_client()
-            popped = await redis.brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
+            popped = await redis.blmove(QUEUE_KEY, PROCESSING_KEY, 5, "LEFT", "RIGHT")
             if not popped:
                 return
             msg = popped
@@ -187,9 +206,9 @@ class AIWorker:
             if task_name in {"generate_plan", "generate_issue"}:
                 free = uses_free_tier_pacing(job_data.get("model"))
                 if free and self._llm_busy():
-                    # Put it back at the head and retry shortly.
-                    await redis.lrem(PROCESSING_KEY, 1, msg)
-                    await redis.lpush(QUEUE_KEY, msg)
+                    # Free-tier models allow one call at a time: put it back at
+                    # the head and retry shortly.
+                    await self._put_back(redis, msg)
                     await asyncio.sleep(1)
                     return
                 if free and task_name == "generate_issue" and self._last_llm_finished:
@@ -203,8 +222,10 @@ class AIWorker:
                         await asyncio.sleep(wait)
                 self._dispatch_job(msg, ack=redis)
                 if not free and task_name == "generate_issue":
+                    # Paid models can run in parallel: batch up to 4 more
+                    # issue jobs while they're next in line.
                     for _ in range(4):
-                        extra = await redis.lpop(QUEUE_KEY)
+                        extra = await self._take_next(redis)
                         if not extra:
                             break
                         extra_data = json.loads(extra)
@@ -213,20 +234,20 @@ class AIWorker:
                         if extra_task == "generate_issue" and not extra_free:
                             self._dispatch_job(extra, ack=redis)
                         else:
-                            await redis.lpush(QUEUE_KEY, extra)
+                            await self._put_back(redis, extra)
                             break
                 return
 
             self._dispatch_job(msg, ack=redis)
+            # Ingestion doesn't touch the LLM gate, so batch consecutive ones.
             for _ in range(4):
-                extra = await redis.lpop(QUEUE_KEY)
+                extra = await self._take_next(redis)
                 if not extra:
                     break
-                extra_task = json.loads(extra).get("task", "")
-                if extra_task == "ingest_source":
+                if json.loads(extra).get("task", "") == "ingest_source":
                     self._dispatch_job(extra, ack=redis)
                 else:
-                    await redis.lpush(QUEUE_KEY, extra)
+                    await self._put_back(redis, extra)
                     break
         except Exception as e:
             if _is_idle_redis_timeout(e):
