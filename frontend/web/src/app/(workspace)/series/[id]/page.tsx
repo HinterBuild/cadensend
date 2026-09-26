@@ -12,6 +12,7 @@ import { Series, Issue, Source, RetrievedChunk } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelect } from '@/components/ModelSelect';
 import { ConfirmDialog } from '@/components/Modal';
+import { localInputToISO } from '@/lib/datetime';
 
 type SeriesPlan = { modules?: { title?: string; summary?: string; learning_objectives?: string[] }[] };
 
@@ -425,7 +426,7 @@ export default function SeriesViewPage({ params }: { params: Promise<{ id: strin
     try {
       await seriesApi.createIssue(id, {
         objective,
-        scheduled_at: issueScheduledAt || undefined,
+        scheduled_at: localInputToISO(issueScheduledAt),
         model: generationModel || user?.preferred_model,
       });
       setShowIssueDialog(false);

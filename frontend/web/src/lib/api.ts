@@ -2,7 +2,8 @@
 //
 // Authentication is cookie-based: the browser sends no credentials itself;
 // the Next.js proxy attaches the JWT from an httpOnly cookie and transparently
-// refreshes sliding sessions. 401 responses mean "session expired".
+// refreshes sliding sessions. A 401 means "session expired" everywhere except
+// credential endpoints, where it means the submitted credentials were wrong.
 import type {
   AnalyticsOverview,
   ExtractedBrief,
@@ -25,6 +26,10 @@ import type {
 } from '@/types';
 import type { ContentPreferences } from '@/types/contentPreferences';
 
+// Endpoints where a 401 is about the credentials in the request, not the
+// session, so the backend's own message should reach the user.
+const CREDENTIAL_ENDPOINTS = /^\/users\/(login|magic-link\/verify|reset-password|[^/]+\/password)$/;
+
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -41,7 +46,7 @@ async function fetchApi<T>(
 
   if (!response.ok) {
     let message = response.statusText;
-    if (response.status === 401) {
+    if (response.status === 401 && !CREDENTIAL_ENDPOINTS.test(endpoint)) {
       message = 'Your session has expired. Please sign in again.';
     } else {
       const errorData = await response.json().catch(() => ({}));

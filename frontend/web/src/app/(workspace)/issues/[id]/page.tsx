@@ -27,6 +27,7 @@ import { IssueEditorPreview, type PreviewTab } from '@/components/issues/IssueEd
 import { IssueStylePanel } from '@/components/issues/IssueStylePanel';
 import { IssueVersionPanel } from '@/components/issues/IssueVersionPanel';
 import { analyzeContentStructure } from '@/lib/contentStructure';
+import { localInputToISO } from '@/lib/datetime';
 
 type BlockCitation = { source_id?: string; chunk_id?: string; text?: string };
 type EditorBlock = { id: string; type: string; title?: string; text: string; citations?: BlockCitation[] };
@@ -219,7 +220,7 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
           ...visual,
         })),
         presentation: contentRef.current.presentation,
-        scheduled_at: scheduledAt || undefined,
+        scheduled_at: localInputToISO(scheduledAt),
         // Background saves are throttled by the version snapshotter;
         // explicit Save Draft captures history immediately.
         ...(silent ? { autosave: true } : {}),
@@ -311,6 +312,12 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
     setSendingTest(true);
     setError(null);
     setTestNotice('');
+    // The test email is rendered server-side from saved content, so send
+    // pending edits first or the test won't match what's on screen.
+    if (dirty && !(await saveIssue(true))) {
+      setSendingTest(false);
+      return;
+    }
     try {
       const result = await issueApi.testSend(id, testEmail.trim() || undefined);
       const email = (result as { email?: string }).email || user?.email || 'your inbox';
@@ -338,6 +345,10 @@ export default function IssueEditorPage({ params }: { params: Promise<{ id: stri
       );
       if (!proceed) return;
     }
+    // Flush edits still waiting on the autosave debounce; otherwise they'd be
+    // missing from the approved issue (and router.push unmounts the page
+    // before the debounced save fires).
+    if (dirty && !(await saveIssue(true))) return;
     try {
       await issueApi.approve(id, { scheduled_at: new Date(scheduledAt).toISOString() });
       if (issue) {

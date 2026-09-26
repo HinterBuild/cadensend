@@ -39,13 +39,12 @@ export default function LoginPage() {
     try {
       await login(email.trim(), password);
     } catch (err: unknown) {
-      const backendError = errorMessage(err) || '';
-      if (backendError.includes('user not found')) {
-        setError('We could not find an account with that email. Check the address or ask your workspace admin for access.');
-      } else if (backendError.includes('incorrect password')) {
-        setError('Incorrect password. Please try again or reset your password.');
+      // The backend deliberately doesn't say whether the email or the
+      // password was wrong, so neither does this message.
+      if ((err as { status?: number })?.status === 401) {
+        setError('Incorrect email or password. Try again, or reset your password.');
       } else {
-        setError(backendError || 'Something went wrong. Please try again.');
+        setError(errorMessage(err) || 'Something went wrong. Please try again.');
       }
     } finally {
       setLoading(false);
