@@ -1,6 +1,6 @@
 import * as AuthContext from '@/contexts/AuthContext';
 import { render, screen, waitFor } from '@testing-library/react';
-import InsightsPage from '@/app/insights/page';
+import InsightsPage from '../page';
 import { analyticsApi } from '@/lib/api';
 
 jest.mock('next/navigation', () => ({

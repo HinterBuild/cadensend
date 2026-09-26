@@ -4,7 +4,7 @@
 
 import * as AuthContext from '@/contexts/AuthContext';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import DashboardPage from '@/app/dashboard/page';
+import DashboardPage from '../page';
 import { seriesApi } from '@/lib/api';
 
 jest.mock('@/components/assistant/AssistantChat', () => ({
