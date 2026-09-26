@@ -197,9 +197,11 @@ docker compose -f docker-compose.yml -f docker-compose.frontend-dev.yml up front
 With the relevant Go, Python, and Node.js toolchains installed, install the frontend dependencies and run the repository test targets:
 
 ```bash
-(cd frontend/web && npm ci)
+(cd frontend/web && npm ci --legacy-peer-deps)
 make test
 ```
+
+`--legacy-peer-deps` is required for now: `lucide-react` and `@testing-library/react` still declare React 18 as a peer while the app runs React 19. The Dockerfiles use the same flag.
 
 Run individual suites from the repository root:
 
