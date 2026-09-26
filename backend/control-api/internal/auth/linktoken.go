@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +14,6 @@ const (
 	PurposeRecipientVerify = "recipient-verify"
 	PurposeUnsubscribe     = "recipient-unsubscribe"
 )
-
-var ErrInvalidLinkToken = errors.New("invalid or expired link token")
 
 func signPurposeToken(purpose, secret, workspaceID, email string, expiresAt time.Time) string {
 	expires := strconv.FormatInt(expiresAt.Unix(), 10)

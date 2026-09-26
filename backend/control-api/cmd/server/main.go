@@ -235,12 +235,6 @@ func main() {
 			api.POST("/llm-providers/:provider/validate", validateLLMProviderHandler(db))
 			api.GET("/llm-usage", getLLMUsageHandler(db))
 
-			// Operation monitoring
-			operations := api.Group("/operations")
-			{
-				operations.GET("/:id", getOperationHandler(db))
-			}
-
 			api.GET("/models", listModelsHandler())
 			api.GET("/analytics/overview", analyticsOverviewHandler(db))
 			api.GET("/runs", listRunsHandler(db))

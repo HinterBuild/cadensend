@@ -531,72 +531,15 @@ func listSeriesSourcesHandler(db *gorm.DB) gin.HandlerFunc {
 }
 
 func activateSeriesHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		result := db.Model(&service.Series{}).
-			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
-			Updates(map[string]interface{}{
-				"status":     SeriesStatusActive,
-				"updated_at": time.Now(),
-			})
-
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-		if result.RowsAffected == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"message": "series activated"})
-	}
+	return func(c *gin.Context) { updateSeriesStatus(db, c, SeriesStatusActive, "series activated") }
 }
 
 func pauseSeriesHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		result := db.Model(&service.Series{}).
-			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
-			Updates(map[string]interface{}{
-				"status":     SeriesStatusPaused,
-				"updated_at": time.Now(),
-			})
-
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-		if result.RowsAffected == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"message": "series paused"})
-	}
+	return func(c *gin.Context) { updateSeriesStatus(db, c, SeriesStatusPaused, "series paused") }
 }
 
 func resumeSeriesHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		result := db.Model(&service.Series{}).
-			Where("id = ? AND workspace_id = ?", id, c.GetString("workspace_id")).
-			Updates(map[string]interface{}{
-				"status":     SeriesStatusActive,
-				"updated_at": time.Now(),
-			})
-
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-		if result.RowsAffected == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "series not found"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"message": "series resumed"})
-	}
+	return func(c *gin.Context) { updateSeriesStatus(db, c, SeriesStatusActive, "series resumed") }
 }
 
 func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
@@ -625,7 +568,9 @@ func deleteSeriesHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// updateSeriesStatus is a shared helper for status transitions on Series.
+// updateSeriesStatus sets a workspace-scoped series' status. Pausing only
+// flips this flag: control-worker checks it before every send and defers
+// sends for a paused series until it is resumed.
 func updateSeriesStatus(db *gorm.DB, c *gin.Context, status, message string) {
 	id := c.Param("id")
 	result := db.Model(&service.Series{}).
@@ -1899,25 +1844,6 @@ func retrievalPreviewHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// Operation monitoring handler
-func getOperationHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		c.JSON(http.StatusOK, gin.H{
-			"data": map[string]interface{}{
-				"id":         id,
-				"target":     "unknown",
-				"status":     "completed",
-				"model":      cfg.DefaultModel,
-				"tokens":     map[string]int{"input": 0, "output": 0},
-				"cost":       0.0,
-				"created_at": "2024-01-01T00:00:00Z",
-			},
-		})
-	}
-}
-
-// Webhook handler: implemented in handlers_webhooks.go
 
 func listModelsHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {

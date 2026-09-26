@@ -3,12 +3,10 @@ package main
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"backend/control-api/internal/auth"
 	appmail "backend/control-api/internal/mail"
 	"backend/control-api/internal/service"
 )
@@ -132,31 +130,4 @@ func deleteAccountHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc
 		service.WriteAudit(db, c.Request.Context(), userID, service.AuditAccountDeleted, "user", userID, nil, c.ClientIP())
 		c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 	}
-}
-
-// --- recipient verification links -------------------------------------
-
-const recipientVerifyPurpose = auth.PurposeRecipientVerify
-const recipientUnsubPurpose = auth.PurposeUnsubscribe
-
-// SignRecipientToken produces an HMAC-signed, expiring token binding a
-// recipient email to its workspace. Used for verified-subscriber links.
-func SignRecipientToken(secret, workspaceID, email string, ttl time.Duration) string {
-	return auth.SignRecipientToken(secret, workspaceID, email, ttl)
-}
-
-// VerifyRecipientToken validates a signed recipient token.
-func VerifyRecipientToken(secret, workspaceID, email, token string) bool {
-	return auth.VerifyRecipientToken(secret, workspaceID, email, token)
-}
-
-// UnsubscribeURL builds the one-click unsubscribe link rendered in sends.
-func UnsubscribeURL(workspaceID, email string) string {
-	token := auth.SignUnsubscribeToken(cfg.JWTSecret, workspaceID, email, 365*24*time.Hour)
-	return cfg.FrontendOrigin + "/api/v1/webhooks/unsubscribe?email=" + email + "&token=" + token
-}
-
-// VerifyUnsubscribeToken validates an unsubscribe link token.
-func VerifyUnsubscribeToken(secret, workspaceID, email, token string) bool {
-	return auth.VerifyUnsubscribeToken(secret, workspaceID, email, token)
 }

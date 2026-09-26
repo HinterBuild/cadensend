@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"backend/control-api/internal/auth"
 	appmail "backend/control-api/internal/mail"
 	"backend/control-api/internal/service"
 )
@@ -139,7 +140,7 @@ func (h *recipientsHandler) setSuppressed(c *gin.Context) {
 
 // sendVerification emails a signed verify link to the recipient owner.
 func (h *recipientsHandler) sendVerification(rcpt *service.Recipient) error {
-	token := SignRecipientToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, 72*time.Hour)
+	token := auth.SignRecipientToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, 72*time.Hour)
 	verifyURL := cfg.FrontendOrigin + "/verify-recipient?token=" + token + "&email=" + url.QueryEscape(rcpt.Email)
 	_, html := appmail.RenderNotificationHTML(
 		"Confirm your subscription",
@@ -164,7 +165,7 @@ func (h *recipientsHandler) publicVerify(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no pending subscription for this email"})
 		return
 	}
-	if !VerifyRecipientToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
+	if !auth.VerifyRecipientToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired verification link"})
 		return
 	}
@@ -198,7 +199,7 @@ func (h *recipientsHandler) publicUnsubscribeForm(c *gin.Context) {
 		renderSimplePage(c, http.StatusNotFound, "Unknown address", "This address is not subscribed.")
 		return
 	}
-	if !VerifyUnsubscribeToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
+	if !auth.VerifyUnsubscribeToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
 		renderSimplePage(c, http.StatusBadRequest, "Link expired", "This unsubscribe link is invalid or has expired.")
 		return
 	}
@@ -232,7 +233,7 @@ func (h *recipientsHandler) publicUnsubscribeConfirm(c *gin.Context) {
 		renderSimplePage(c, http.StatusNotFound, "Unknown address", "This address is not subscribed.")
 		return
 	}
-	if !VerifyUnsubscribeToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
+	if !auth.VerifyUnsubscribeToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, token) {
 		renderSimplePage(c, http.StatusBadRequest, "Link expired", "This unsubscribe link is invalid or has expired.")
 		return
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"backend/control-api/internal/auth"
 	"backend/control-api/internal/service"
 )
 
@@ -203,7 +204,7 @@ func authorizeWebhook(c *gin.Context) error {
 	if provided == "" {
 		provided = strings.TrimSpace(c.Query("secret"))
 	}
-	if !constantTimeEqual(provided, secret) {
+	if !auth.ConstantTimeEqual(provided, secret) {
 		return errWebhookUnauthorized
 	}
 	return nil
@@ -218,17 +219,6 @@ const (
 	errWebhookUnauthorized   webhookError = "invalid webhook secret"
 )
 
-func constantTimeEqual(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var v byte
-	for i := 0; i < len(a); i++ {
-		v |= a[i] ^ b[i]
-	}
-	return v == 0
-}
-
 // isUniqueViolation reports whether err is a Postgres unique-constraint
 // failure (SQLSTATE 23505).
 func isUniqueViolation(err error) bool {
@@ -241,8 +231,7 @@ func isUniqueViolation(err error) bool {
 
 func truncate(s string, max int) string {
 	if len(s) <= max {
- 		return s
- 	}
- 	return s[:max-3] + "..."
+		return s
+	}
+	return s[:max-3] + "..."
 }
-
