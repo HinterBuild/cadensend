@@ -17,53 +17,7 @@ export interface User {
   preferred_model?: string;
 }
 
-export interface Workspace {
-  id: string;
-  name: string;
-  plan: string;
-  status: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // Series types
-export interface SeriesBrief {
-  topic: string;
-  goal: string;
-  level: string;
-  timezone: string;
-  start_date: string;
-  duration: string;
-  cadence: string;
-  send_days: string;
-  send_time: string;
-  language: string;
-  citation_req: string;
-  visuals: VisualPrefs;
-  delivery_prefs: DeliveryPrefs;
-  source_prefs: SourcePrefs;
-}
-
-export interface SeriesPlan {
-  id: string;
-  series_id: string;
-  version: number;
-  curriculum: Curriculum;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Curriculum {
-  objective: string;
-  outline: string[];
-  prerequisites: string[];
-  total_modules: number;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Series {
   id: string;
   workspace_id: string;
@@ -233,31 +187,6 @@ export interface Source {
   deleted_at?: string;
 }
 
-export interface SourceVersion {
-  id: string;
-  source_id: string;
-  content_hash: string;
-  object_key: string;
-  parser_version: string;
-  status: string;
-  error_code?: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SourceChunk {
-  id: string;
-  source_version_id: string;
-  index: number;
-  text: string;
-  token_count: number;
-  heading_path: string[];
-  checksum: string;
-  created_by: string;
-  created_at: string;
-}
-
 // Recipient (audience) types
 export interface Recipient {
   id: string;
@@ -297,87 +226,7 @@ export interface RetrievedChunk {
   preview: string;
 }
 
-// Delivery types
-export interface Delivery {
-  id: string;
-  issue_id: string;
-  recipient_id: string;
-  provider_id: string;
-  status: string;
-  idempotency_key: string;
-  external_event_id?: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-  delivered_at?: string;
-}
-
-// Schedule types
-export interface Schedule {
-  id: string;
-  issue_id?: string;
-  job_type: string;
-  run_at: string;
-  status: string;
-  attempts: number;
-  max_attempts: number;
-  claimed_at?: string;
-  started_at?: string;
-  completed_at?: string;
-  error_code?: string;
-  error_msg?: string;
-}
-
-// Operation types
-export interface Operation {
-  id: string;
-  target: string;
-  status: string;
-  model: string;
-  tokens: {
-    input: number;
-    output: number;
-  };
-  cost: number;
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
-  error_code?: string;
-}
-
-// Preferences
-export interface VisualPrefs {
-  diagram: string;
-  chart?: string;
-  infographic?: string;
-  alt_text: string;
-  brand_colors: string[];
-}
-
-export interface DeliveryPrefs {
-  verify_recipient: boolean;
-  manual_approval: boolean;
-}
-
-export interface SourcePrefs {
-  url?: string;
-  files: string[];
-  freshness: string;
-}
-
-// API Response types
-export interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  per_page: number;
-}
-
+// Analytics types
 export interface NamedCount {
   name: string;
   count: number;
@@ -463,15 +312,6 @@ export interface AnalyticsOverview {
   suggestions: AnalyticsSuggestion[];
 }
 
-export interface PlatformCatalogItem {
-  id: string;
-  kind: 'skill' | 'connector' | 'workflow' | 'insight' | 'editorial';
-  name: string;
-  description: string;
-  category: string;
-  metadata?: Record<string, unknown>;
-}
-
 export interface PlatformSkill {
   id: string;
   name: string;
@@ -500,30 +340,6 @@ export interface PlatformWorkflow {
   description: string;
   category: string;
   metadata?: Record<string, unknown>;
-}
-
-export interface PlatformInsight {
-  insight_type: string;
-  severity: 'info' | 'warning' | 'error';
-  title: string;
-  detail: string;
-  score: number | null;
-  payload?: Record<string, unknown>;
-}
-
-export interface EvaluationResult {
-  passed: boolean;
-  overall_score: number;
-  scores: Record<string, number>;
-  word_count: number;
-  section_count: number;
-}
-
-export interface StudioOutlineSection {
-  id: string;
-  title: string;
-  order: number;
-  text?: string;
 }
 
 export interface StudioComposeResult {

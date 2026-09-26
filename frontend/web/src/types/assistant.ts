@@ -67,8 +67,3 @@ export type AssistantStreamEvent =
   | { type: 'error'; message: string }
   | { type: 'done'; run_id?: string; awaiting_permission?: boolean; awaiting_form?: boolean };
 
-export type AssistantAgent = {
-  id: AssistantAgentId;
-  label: string;
-  description: string;
-};

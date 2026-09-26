@@ -308,14 +308,6 @@ export function contentStructureScore(checks: ContentCheck[]) {
   return { score, errors, warnings, infos };
 }
 
-export function summarizeContentChecks(checks: ContentCheck[]) {
-  const { score, errors, warnings } = contentStructureScore(checks);
-  if (errors > 0) return { label: 'Needs reordering', tone: 'error' as const, score };
-  if (warnings > 0) return { label: 'Could be tighter', tone: 'warning' as const, score };
-  if (checks.length > 0) return { label: 'Good flow', tone: 'info' as const, score };
-  return { label: 'Well structured', tone: 'success' as const, score };
-}
-
 export function contentStructureFromIssue(contentJson?: string | Record<string, unknown> | null): ContentStructureInput {
   let parsed: Record<string, unknown> | null = null;
   if (contentJson && typeof contentJson === 'object') {

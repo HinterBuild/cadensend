@@ -7,13 +7,10 @@
 import type {
   AnalyticsOverview,
   ExtractedBrief,
-  EvaluationResult,
   Issue,
   IssueVersion,
   IssueVersionDetail,
-  PlatformCatalogItem,
   PlatformConnector,
-  PlatformInsight,
   PlatformSkill,
   PlatformWorkflow,
   StudioComposeResult,
@@ -100,9 +97,6 @@ export const authApi = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
-
-  getUser: (userId: string) =>
-    fetchApi<{ data: User }>(`/users/${userId}`),
 
   updateUser: (userId: string, updates: { name?: string; timezone?: string; preferred_model?: string }) =>
     fetchApi<{ data: User }>(`/users/${userId}`, {
@@ -308,14 +302,6 @@ export const sourceApi = {
     });
   },
 
-  get: (id: string) =>
-    fetchApi<{ data: Source }>(`/sources/${id}`),
-
-  preview: (id: string) =>
-    fetchApi<{ data: { source_id: string; total: number; chunks: Array<{ chunk_index: number; title?: string; heading_path: string[]; preview: string }> } }>(`/sources/${id}/preview`, {
-      method: 'POST',
-    }),
-
   chunks: (id: string) =>
     fetchApi<{ data: { source_id: string; total: number; chunks: Array<{ chunk_index: number; heading_path: string[]; preview: string }> } }>(`/sources/${id}/chunks`, {
       method: 'POST',
@@ -450,10 +436,6 @@ export const runsApi = {
 };
 
 export const platformApi = {
-  catalog: (kind?: string) => {
-    const suffix = kind ? `?kind=${encodeURIComponent(kind)}` : '';
-    return fetchApi<{ data: PlatformCatalogItem[]; total: number }>(`/platform/catalog${suffix}`);
-  },
   skills: () => fetchApi<{ data: PlatformSkill[] }>('/platform/skills'),
   connectors: () => fetchApi<{ data: PlatformConnector[] }>('/platform/connectors'),
   syncConnector: (connectorId: string, config: Record<string, unknown> = {}) =>
@@ -467,17 +449,6 @@ export const platformApi = {
       method: 'POST',
       body: JSON.stringify({ mode_id: modeId, brief, context }),
     }),
-  computeInsights: () => fetchApi<{ data: PlatformInsight[]; total: number }>('/platform/insights/compute', { method: 'POST', body: '{}' }),
-  sandbox: (skillId: string, brief: Record<string, unknown>, prompt = '') =>
-    fetchApi('/platform/sandbox', {
-      method: 'POST',
-      body: JSON.stringify({ skill_id: skillId, brief, prompt }),
-    }),
-  evaluate: (issue: Record<string, unknown>, priorIssues: Record<string, unknown>[] = []) =>
-    fetchApi<{ data: EvaluationResult }>('/platform/evaluate', {
-      method: 'POST',
-      body: JSON.stringify({ issue, prior_issues: priorIssues }),
-    }),
   studioMeta: () => fetchApi<{ data: StudioMeta }>('/platform/studio/meta'),
   studioCompose: (payload: Record<string, unknown>) =>
     fetchApi<{ data: StudioComposeResult }>('/platform/studio/compose', {
@@ -489,16 +460,6 @@ export const platformApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  studioAnalyze: (payload: Record<string, unknown>) =>
-    fetchApi<{ data: StudioComposeResult['analysis'] }>('/platform/studio/analyze', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  studioLines: (payload: Record<string, unknown>) =>
-    fetchApi<{ data: Record<string, unknown> }>('/platform/studio/lines', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
   updateSeriesPlatform: (seriesId: string, workflowMode: string, skillId?: string) =>
     fetchApi(`/series/${seriesId}/platform`, {
       method: 'PATCH',
@@ -507,14 +468,6 @@ export const platformApi = {
         workflow_mode: workflowMode,
       }),
     }),
-  editorialAssets: (type?: string) => {
-    const suffix = type ? `?type=${encodeURIComponent(type)}` : '';
-    return fetchApi<{ data: Array<{ id: string; asset_type: string; name: string; data: Record<string, unknown> }> }>(
-      `/platform/editorial/assets${suffix}`
-    );
-  },
-  createEditorialAsset: (asset: { asset_type: string; name: string; data: Record<string, unknown>; series_id?: string; issue_id?: string }) =>
-    fetchApi('/platform/editorial/assets', { method: 'POST', body: JSON.stringify(asset) }),
   saveConnectorConfig: (connectorId: string, config: Record<string, unknown>, enabled = true) =>
     fetchApi(`/platform/connectors/${connectorId}/config`, {
       method: 'PUT',
@@ -543,15 +496,6 @@ export const assistantApi = {
 
   getThread: (id: string) =>
     fetchApi<{ thread: AssistantThread; messages: Array<Record<string, unknown>> }>(`/assistant/threads/${id}`),
-
-  updateThread: (id: string, payload: { title?: string; agent?: string; model?: string }) =>
-    fetchApi<{ thread: AssistantThread }>(`/assistant/threads/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-
-  deleteThread: (id: string) =>
-    fetchApi<{ message: string }>(`/assistant/threads/${id}`, { method: 'DELETE' }),
 
   syncMessages: (
     id: string,
