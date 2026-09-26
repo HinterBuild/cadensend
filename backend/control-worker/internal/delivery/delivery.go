@@ -4,6 +4,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"backend/control-worker/internal/config"
 	"backend/control-worker/internal/database"
@@ -18,22 +20,25 @@ import (
 )
 
 type issueRow struct {
-	ID          string  `gorm:"column:id"`
-	SeriesID    string  `gorm:"column:series_id"`
-	Objective   string  `gorm:"column:objective"`
-	Status      string  `gorm:"column:status"`
-	ContentJSON *string `gorm:"column:content_json"`
-	CreatedBy   string  `gorm:"column:created_by"`
+	ID          string     `gorm:"column:id"`
+	SeriesID    string     `gorm:"column:series_id"`
+	Objective   string     `gorm:"column:objective"`
+	Status      string     `gorm:"column:status"`
+	ContentJSON *string    `gorm:"column:content_json"`
+	CreatedBy   string     `gorm:"column:created_by"`
+	DeletedAt   *time.Time `gorm:"column:deleted_at"`
 }
 
 func (issueRow) TableName() string { return "issues" }
 
 type seriesRow struct {
-	ID          string `gorm:"column:id"`
-	WorkspaceID string `gorm:"column:workspace_id"`
-	Topic       string `gorm:"column:topic"`
-	Goal        string `gorm:"column:goal"`
-	CreatedBy   string `gorm:"column:created_by"`
+	ID          string     `gorm:"column:id"`
+	WorkspaceID string     `gorm:"column:workspace_id"`
+	Topic       string     `gorm:"column:topic"`
+	Goal        string     `gorm:"column:goal"`
+	Status      string     `gorm:"column:status"`
+	CreatedBy   string     `gorm:"column:created_by"`
+	DeletedAt   *time.Time `gorm:"column:deleted_at"`
 }
 
 func (seriesRow) TableName() string { return "series" }
@@ -46,12 +51,12 @@ type userRow struct {
 func (userRow) TableName() string { return "users" }
 
 type recipientRow struct {
-	ID                string     `gorm:"column:id"`
-	WorkspaceID       string     `gorm:"column:workspace_id"`
-	Email             string     `gorm:"column:email"`
-	Verified          bool       `gorm:"column:verified"`
-	Suppressed        bool       `gorm:"column:suppressed"`
-	SuppressionReason string     `gorm:"column:suppression_reason"`
+	ID                string `gorm:"column:id"`
+	WorkspaceID       string `gorm:"column:workspace_id"`
+	Email             string `gorm:"column:email"`
+	Verified          bool   `gorm:"column:verified"`
+	Suppressed        bool   `gorm:"column:suppressed"`
+	SuppressionReason string `gorm:"column:suppression_reason"`
 }
 
 func (recipientRow) TableName() string { return "recipients" }
@@ -88,8 +93,8 @@ type deliveryRow struct {
 func (deliveryRow) TableName() string { return "deliveries" }
 
 type sourceRow struct {
-	ID  string `gorm:"column:id"`
-	URL string `gorm:"column:url"`
+	ID   string `gorm:"column:id"`
+	URL  string `gorm:"column:url"`
 	Type string `gorm:"column:type"`
 }
 
@@ -100,99 +105,194 @@ type DeliveryWorker struct {
 	cfg *config.Config
 }
 
-func StartDeliveryWorker(cfg *config.Config) *DeliveryWorker {
-	dw := &DeliveryWorker{db: database.Get(), cfg: cfg}
-	log.Println("Delivery worker started")
-	return dw
+// NewDeliveryWorker wires a delivery worker to the shared database.
+func NewDeliveryWorker(cfg *config.Config) *DeliveryWorker {
+	return &DeliveryWorker{db: database.Get(), cfg: cfg}
 }
 
-func (dw *DeliveryWorker) DeliverScheduled(ctx context.Context, issueID, scheduleID string) error {
-	deferrable, terminal, checkErr := dw.preflightIssue(ctx, issueID)
-	if checkErr != nil {
-		return checkErr
+// Schedule state machine (owned by the schedules table, not by Asynq):
+//
+//	pending --scheduler--> claimed --here--> running --> completed
+//	                          |                  \--> pending (retry, run_at pushed out)
+//	                          |                   \-> failed  (attempts exhausted)
+//	                          \--> pending (deferred) | canceled | failed
+//
+// Every transition below is conditional on the expected current status.
+// That makes a stale or duplicate task (an Asynq redelivery, a watchdog
+// reclaim racing a slow send, or a user cancel) a no-op instead of a second
+// send or an overwritten cancel.
+
+// deliveryAction is what preflight decided to do with a claimed schedule.
+type deliveryAction int
+
+const (
+	actionSend deliveryAction = iota
+	actionDefer
+	actionCancel
+	actionFail
+)
+
+type deliveryDecision struct {
+	action deliveryAction
+	reason string
+	delay  time.Duration
+}
+
+// pausedRecheckDelay is how often a paused series' due sends are re-checked.
+// Resuming the series sends them within this window.
+const pausedRecheckDelay = 15 * time.Minute
+
+// generationRecheckDelay is how often a send waits on in-flight generation.
+const generationRecheckDelay = time.Minute
+
+// decideDelivery is the pure part of preflight: given the issue and series
+// rows, should this schedule send now, wait, or stop?
+func decideDelivery(issue *issueRow, series *seriesRow) deliveryDecision {
+	if issue == nil || issue.DeletedAt != nil {
+		return deliveryDecision{action: actionCancel, reason: "issue was deleted"}
 	}
-	if deferrable {
-		if scheduleID != "" {
-			dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
-				"status":     "pending",
-				"error_msg":  "waiting for issue generation",
-				"updated_at": time.Now().UTC(),
-			})
+	if series == nil || series.DeletedAt != nil {
+		return deliveryDecision{action: actionCancel, reason: "series was deleted"}
+	}
+	if series.Status == "paused" {
+		return deliveryDecision{action: actionDefer, reason: "series is paused", delay: pausedRecheckDelay}
+	}
+	if len(parseJSONMap(issue.ContentJSON)) > 0 {
+		return deliveryDecision{action: actionSend}
+	}
+	switch issue.Status {
+	case "generating":
+		return deliveryDecision{action: actionDefer, reason: "waiting for issue generation", delay: generationRecheckDelay}
+	case "failed":
+		return deliveryDecision{action: actionFail, reason: "issue generation failed; regenerate content before sending"}
+	default:
+		return deliveryDecision{action: actionFail, reason: "issue has no generated content"}
+	}
+}
+
+// retryDelay is exponential backoff for failed sends: 1m, 2m, 4m, ... capped
+// at 1h, so a short provider outage doesn't burn every attempt in seconds.
+func retryDelay(attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	if attempts > 7 {
+		return time.Hour
+	}
+	return time.Duration(1<<(attempts-1)) * time.Minute
+}
+
+// transition moves a schedule from `from` to the given updates and reports
+// whether this caller won the transition.
+func (dw *DeliveryWorker) transition(ctx context.Context, scheduleID, from string, updates map[string]any) bool {
+	updates["updated_at"] = time.Now().UTC()
+	res := dw.db.WithContext(ctx).Model(&scheduleRow{}).
+		Where("id = ? AND status = ?", scheduleID, from).
+		Updates(updates)
+	if res.Error != nil {
+		log.Printf("schedule %s transition from %s failed: %v", scheduleID, from, res.Error)
+		return false
+	}
+	return res.RowsAffected == 1
+}
+
+// DeliverScheduled runs one claimed delivery schedule. It never returns an
+// error for conditions the schedule row already records: retries are driven
+// by the schedules table (run_at + attempts), not by Asynq, so a returned
+// error would only cause a duplicate run.
+func (dw *DeliveryWorker) DeliverScheduled(ctx context.Context, issueID, scheduleID string) error {
+	var issue issueRow
+	var series seriesRow
+	issuePtr, seriesPtr := &issue, &series
+	if err := dw.db.WithContext(ctx).Where("id = ?", issueID).First(&issue).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			// Transient DB error: leave the schedule claimed; the watchdog
+			// returns it to pending, so this is retried rather than canceled.
+			log.Printf("schedule %s: loading issue failed: %v", scheduleID, err)
+			return nil
+		}
+		issuePtr = nil
+	} else if err := dw.db.WithContext(ctx).Where("id = ?", issue.SeriesID).First(&series).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("schedule %s: loading series failed: %v", scheduleID, err)
+			return nil
+		}
+		seriesPtr = nil
+	}
+
+	decision := decideDelivery(issuePtr, seriesPtr)
+	now := time.Now().UTC()
+	switch decision.action {
+	case actionDefer:
+		dw.transition(ctx, scheduleID, "claimed", map[string]any{
+			"status":     "pending",
+			"claimed_at": nil,
+			"run_at":     now.Add(decision.delay),
+			"error_msg":  decision.reason,
+		})
+		return nil
+	case actionCancel:
+		dw.transition(ctx, scheduleID, "claimed", map[string]any{
+			"status":    "canceled",
+			"error_msg": decision.reason,
+		})
+		return nil
+	case actionFail:
+		if dw.transition(ctx, scheduleID, "claimed", map[string]any{
+			"status":    "failed",
+			"error_msg": truncate(decision.reason, 500),
+		}) {
+			dw.alertOwnerOfFailure(ctx, issueID, &scheduleRow{Attempts: 1, MaxAttempts: 1}, fmt.Errorf("%s", decision.reason))
 		}
 		return nil
 	}
-	if terminal {
-		err := fmt.Errorf("issue generation failed; regenerate content before sending")
-		if scheduleID != "" {
-			dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
-				"status":     "failed",
-				"error_msg":  truncate(err.Error(), 500),
-				"updated_at": time.Now().UTC(),
-			})
-			dw.alertOwnerOfFailure(ctx, issueID, &scheduleRow{Attempts: 1, MaxAttempts: 1}, err)
-		}
-		return err
+
+	if !dw.transition(ctx, scheduleID, "claimed", map[string]any{
+		"status":     "running",
+		"started_at": now,
+		"attempts":   gorm.Expr("attempts + 1"),
+	}) {
+		return nil
 	}
 
-	now := time.Now().UTC()
-	if scheduleID != "" {
-		dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(map[string]any{
-			"status":     "running",
-			"started_at": now,
-			"attempts":   gorm.Expr("attempts + 1"),
-			"updated_at": now,
+	sendErr := dw.deliverIssue(ctx, &issue, &series)
+
+	var schedule scheduleRow
+	if err := dw.db.WithContext(ctx).Where("id = ?", scheduleID).First(&schedule).Error; err != nil {
+		log.Printf("schedule %s could not be reloaded after send: %v", scheduleID, err)
+		return nil
+	}
+	switch {
+	case sendErr == nil:
+		dw.transition(ctx, scheduleID, "running", map[string]any{
+			"status":       "completed",
+			"completed_at": time.Now().UTC(),
+			"error_msg":    "",
+		})
+	case schedule.Attempts >= schedule.MaxAttempts:
+		if dw.transition(ctx, scheduleID, "running", map[string]any{
+			"status":    "failed",
+			"error_msg": truncate(sendErr.Error(), 500),
+		}) {
+			dw.alertOwnerOfFailure(ctx, issueID, &schedule, sendErr)
+		}
+	default:
+		dw.transition(ctx, scheduleID, "running", map[string]any{
+			"status":     "pending",
+			"claimed_at": nil,
+			"run_at":     time.Now().UTC().Add(retryDelay(schedule.Attempts)),
+			"error_msg":  truncate(sendErr.Error(), 500),
 		})
 	}
-
-	err := dw.deliverIssue(ctx, issueID)
-
-	if scheduleID != "" {
-		var schedule scheduleRow
-		if loadErr := dw.db.WithContext(ctx).Where("id = ?", scheduleID).First(&schedule).Error; loadErr == nil {
-			attemptsExhausted := err != nil && schedule.Attempts >= schedule.MaxAttempts
-			updates := map[string]any{"updated_at": time.Now().UTC()}
-			switch {
-			case err == nil:
-				updates["status"] = "completed"
-				updates["completed_at"] = time.Now().UTC()
-				updates["error_msg"] = ""
-			case attemptsExhausted:
-				updates["status"] = "failed"
-				updates["error_msg"] = truncate(err.Error(), 500)
-				dw.alertOwnerOfFailure(ctx, issueID, &schedule, err)
-			default:
-				updates["status"] = "pending"
-				updates["error_msg"] = truncate(err.Error(), 500)
-			}
-			dw.db.WithContext(ctx).Model(&scheduleRow{}).Where("id = ?", scheduleID).Updates(updates)
-		}
-	}
-	return err
+	return nil
 }
 
-func (dw *DeliveryWorker) deliverIssue(ctx context.Context, issueID string) error {
-	var issue issueRow
-	if err := dw.db.WithContext(ctx).Where("id = ?", issueID).First(&issue).Error; err != nil {
-		return fmt.Errorf("issue not found: %w", err)
-	}
+// deliverIssue sends a content-ready issue to every deliverable recipient.
+// Recipients that already have a submitted/delivered row are skipped, which
+// is what makes a retry after a partial failure safe.
+func (dw *DeliveryWorker) deliverIssue(ctx context.Context, issue *issueRow, series *seriesRow) error {
 	content := parseJSONMap(issue.ContentJSON)
-	if len(content) == 0 {
-		switch issue.Status {
-		case "generating":
-			return fmt.Errorf("issue content not ready yet")
-		case "failed":
-			return fmt.Errorf("issue generation failed; regenerate content before sending")
-		default:
-			return fmt.Errorf("issue has no generated content")
-		}
-	}
-
-	var series seriesRow
-	if err := dw.db.WithContext(ctx).Where("id = ?", issue.SeriesID).First(&series).Error; err != nil {
-		return fmt.Errorf("series not found: %w", err)
-	}
-
-	recipients, err := dw.recipientEmails(ctx, series)
+	recipients, err := dw.recipientEmails(ctx, *series)
 	if err != nil {
 		return err
 	}
@@ -227,51 +327,21 @@ func (dw *DeliveryWorker) deliverIssue(ctx context.Context, issueID string) erro
 			sourceRefs,
 			unsubscribeURLFor(dw.cfg, series.WorkspaceID, rcpt.email),
 		)
-		if err := mail.Send(mailCfg, mail.Message{
+		sendErr := mail.Send(mailCfg, mail.Message{
 			To:      rcpt.email,
 			Subject: subject,
 			HTML:    htmlBody,
-		}); err != nil {
-			log.Printf("delivery to %s failed: %v", rcpt.email, err)
-			now := time.Now().UTC()
-			row := deliveryRow{
-				ID:             uuid.NewString(),
-				IssueID:        issue.ID,
-				RecipientID:    rcpt.id,
-				ProviderID:     dw.cfg.EmailProvider,
-				Status:         "failed",
-				IdempotencyKey: fmt.Sprintf("%s:%s", issue.ID, rcpt.id),
-				CreatedBy:      issue.CreatedBy,
-				CreatedAt:      now,
-				UpdatedAt:      now,
-				ErrorMsg:       truncate(err.Error(), 500),
-			}
-			if dbErr := dw.db.WithContext(ctx).Create(&row).Error; dbErr != nil {
-				log.Printf("delivery record warning: %v", dbErr)
-			}
+		})
+		dw.recordDelivery(ctx, issue, rcpt, sendErr)
+		if sendErr != nil {
+			log.Printf("delivery to %s failed: %v", rcpt.email, sendErr)
 			if firstErr == nil {
-				firstErr = fmt.Errorf("send to %s: %w", rcpt.email, err)
+				firstErr = fmt.Errorf("send to %s: %w", rcpt.email, sendErr)
 			}
-			continue
-		}
-		now := time.Now().UTC()
-		row := deliveryRow{
-			ID:             uuid.NewString(),
-			IssueID:        issue.ID,
-			RecipientID:    rcpt.id,
-			ProviderID:     dw.cfg.EmailProvider,
-			Status:         "submitted",
-			IdempotencyKey: fmt.Sprintf("%s:%s", issue.ID, rcpt.id),
-			CreatedBy:      issue.CreatedBy,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		if err := dw.db.WithContext(ctx).Create(&row).Error; err != nil {
-			log.Printf("delivery record warning: %v", err)
 		}
 	}
 
-	if firstErr != nil && len(recipients) > 0 {
+	if firstErr != nil {
 		return firstErr
 	}
 
@@ -279,6 +349,36 @@ func (dw *DeliveryWorker) deliverIssue(ctx context.Context, issueID string) erro
 		"status":     "sent",
 		"updated_at": time.Now().UTC(),
 	}).Error
+}
+
+// recordDelivery upserts the (issue, recipient) delivery row. It must be an
+// upsert: a recipient that failed on one attempt and succeeds on a retry
+// would otherwise hit the unique (issue_id, recipient_id) index, leave the
+// row "failed", and get emailed again on every later retry.
+func (dw *DeliveryWorker) recordDelivery(ctx context.Context, issue *issueRow, rcpt recipientAddr, sendErr error) {
+	now := time.Now().UTC()
+	row := deliveryRow{
+		ID:             uuid.NewString(),
+		IssueID:        issue.ID,
+		RecipientID:    rcpt.id,
+		ProviderID:     dw.cfg.EmailProvider,
+		Status:         "submitted",
+		IdempotencyKey: fmt.Sprintf("%s:%s", issue.ID, rcpt.id),
+		CreatedBy:      issue.CreatedBy,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if sendErr != nil {
+		row.Status = "failed"
+		row.ErrorMsg = truncate(sendErr.Error(), 500)
+	}
+	err := dw.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "issue_id"}, {Name: "recipient_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"status", "error_msg", "provider_id", "updated_at"}),
+	}).Create(&row).Error
+	if err != nil {
+		log.Printf("delivery record warning: %v", err)
+	}
 }
 
 type recipientAddr struct {
@@ -349,8 +449,8 @@ func (dw *DeliveryWorker) alertOwnerOfFailure(ctx context.Context, issueID strin
 
 	title := "Delivery failed: " + firstNonEmpty(issue.Objective, series.Topic)
 	body := fmt.Sprintf(
-		"Issue #%s of “%s” could not be delivered after %d attempts. Last error: %s. The send is marked failed — open the series to reschedule it.",
-		firstNonEmpty(issue.Objective, "n/a"), series.Topic, schedule.Attempts, truncate(cause.Error(), 300),
+		"“%s” in “%s” could not be delivered (attempt %d of %d). Last error: %s. The send is marked failed. Open the series to reschedule it.",
+		firstNonEmpty(issue.Objective, "Untitled issue"), series.Topic, schedule.Attempts, schedule.MaxAttempts, truncate(cause.Error(), 300),
 	)
 	_, html := mail.RenderNotificationHTML(title, body, "Open the series", dw.cfg.FrontendOrigin+"/series/"+series.ID)
 	cfg := mail.Config{
@@ -408,26 +508,6 @@ func (dw *DeliveryWorker) sourceRefsForContent(ctx context.Context, workspaceID 
 		refs[id] = mail.SourceRef{Label: label, URL: src.URL}
 	}
 	return refs
-}
-
-// preflightIssue checks whether delivery should proceed, defer, or stop.
-func (dw *DeliveryWorker) preflightIssue(ctx context.Context, issueID string) (deferrable bool, terminal bool, err error) {
-	var issue issueRow
-	if err := dw.db.WithContext(ctx).Where("id = ?", issueID).First(&issue).Error; err != nil {
-		return false, false, fmt.Errorf("issue not found: %w", err)
-	}
-	content := parseJSONMap(issue.ContentJSON)
-	if len(content) > 0 {
-		return false, false, nil
-	}
-	switch issue.Status {
-	case "generating":
-		return true, false, nil
-	case "failed":
-		return false, true, nil
-	default:
-		return false, false, nil
-	}
 }
 
 func parseJSONMap(raw *string) map[string]any {

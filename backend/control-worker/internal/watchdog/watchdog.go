@@ -40,11 +40,18 @@ func sweep(db *gorm.DB) {
 	now := time.Now().UTC()
 
 	// 1. Delivery schedules claimed but never finished (worker crash).
+	// Age is measured from the timestamp of the current state: started_at is
+	// kept from earlier runs, so using it for a freshly re-claimed row would
+	// reclaim it immediately. stuckScheduleAge must stay well above the Asynq
+	// task timeout (300s) or a slow-but-alive send could be reclaimed.
 	result := db.WithContext(ctx).
 		Exec(`UPDATE schedules SET status = 'pending', claimed_at = NULL,
 		      error_msg = 'reclaimed by watchdog after being stuck', updated_at = ?
 		      WHERE status IN ('claimed','running')
-		        AND COALESCE(started_at, claimed_at, updated_at) < ?`,
+		        AND CASE status
+		              WHEN 'claimed' THEN COALESCE(claimed_at, updated_at)
+		              ELSE COALESCE(started_at, updated_at)
+		            END < ?`,
 			now, now.Add(-stuckScheduleAge))
 	if result.Error != nil {
 		log.Printf("watchdog schedule sweep failed: %v", result.Error)

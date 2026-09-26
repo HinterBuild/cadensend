@@ -31,7 +31,7 @@ func init() {
 
 	database.Init(cfg.DatabaseURL)
 	database.ConfigurePool(cfg.DBMaxIdleConns, cfg.DBMaxOpenConns, cfg.DBConnMaxLifetime)
-	deliveryWorker := delivery.StartDeliveryWorker(cfg)
+	deliveryWorker := delivery.NewDeliveryWorker(cfg)
 	tasks.SetDeliverer(deliveryWorker.DeliverScheduled)
 	go scheduler.StartScheduler(cfg)
 	watchdog.Start(cfg)

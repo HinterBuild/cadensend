@@ -116,13 +116,13 @@ func (s *Scheduler) processDueJobs(ctx context.Context) error {
 		SET status = 'claimed', claimed_at = ?, updated_at = ?
 		WHERE id IN (
 			SELECT id FROM schedules
-			WHERE status = 'pending' AND run_at <= ? AND attempts < ?
+			WHERE status = 'pending' AND run_at <= ? AND attempts < max_attempts
 			ORDER BY run_at ASC
 			LIMIT 50
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, now, now, now, s.config.MaxAttempts).Scan(&schedules).Error
+	`, now, now, now).Scan(&schedules).Error
 	if err != nil {
 		return fmt.Errorf("failed to claim schedules: %w", err)
 	}
@@ -170,7 +170,10 @@ func (s *Scheduler) enqueueTask(ctx context.Context, taskType string, schedule *
 
 	_, err = s.asynqClient.Enqueue(task,
 		asynq.Queue("default"),
-		asynq.MaxRetry(3),
+		// No Asynq retries: the schedules row is the retry authority
+		// (attempts/max_attempts/run_at). An Asynq retry would run a second
+		// handler for the same schedule.
+		asynq.MaxRetry(0),
 		asynq.Timeout(300*time.Second),
 	)
 	if err != nil {

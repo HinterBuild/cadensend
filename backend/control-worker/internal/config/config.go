@@ -17,7 +17,6 @@ type Config struct {
 	LogLevel      string
 	DatabaseURL   string
 	RedisURL      string
-	MaxAttempts   int
 	JWTSecret     string
 	JWTExpiry     time.Duration
 	EmailProvider string
@@ -49,7 +48,6 @@ func LoadConfig() *Config {
 		LogLevel:      getEnv("LOG_LEVEL", "info"),
 		DatabaseURL:   getEnv("DATABASE_URL", ""),
 		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		MaxAttempts:   getEnvInt("MAX_ATTEMPTS", 5),
 		JWTSecret:     getEnv("JWT_SECRET", "change-this-in-production"),
 		JWTExpiry:     time.Hour * 24,
 		EmailProvider: getEnv("EMAIL_PROVIDER", ""),
