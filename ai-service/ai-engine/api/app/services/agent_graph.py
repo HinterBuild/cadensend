@@ -215,6 +215,24 @@ class NewsletterAgent:
             )
         return self._compiled
 
+    async def _start_fresh_thread(self, compiled: Any, thread_id: str) -> None:
+        """Drop earlier checkpoints for this thread before a new run.
+
+        Thread ids are stable per series/issue (e.g. "plan-<series>"), and the
+        add_messages reducer merges the initial `messages: []` into the
+        checkpointed history instead of replacing it. Without this reset a
+        regeneration would replay the previous run's prompt (ignoring an
+        edited brief) and the history would grow on every run. Runs never
+        resume from a checkpoint, so nothing is lost.
+        """
+        delete = getattr(getattr(compiled, "checkpointer", None), "adelete_thread", None)
+        if delete is None:
+            return
+        try:
+            await delete(thread_id)
+        except Exception as exc:
+            logger.warning("Could not reset checkpoint thread %s: %s", thread_id, exc)
+
     async def run_plan_generation(
         self,
         brief: Dict[str, Any],
@@ -250,6 +268,7 @@ class NewsletterAgent:
         }
 
         compiled = await self.compile_graph(thread_id)
+        await self._start_fresh_thread(compiled, thread_id)
 
         try:
             result = await compiled.ainvoke(
@@ -328,6 +347,7 @@ class NewsletterAgent:
         }
 
         compiled = await self.compile_graph(thread_id)
+        await self._start_fresh_thread(compiled, thread_id)
 
         try:
             result = await compiled.ainvoke(
