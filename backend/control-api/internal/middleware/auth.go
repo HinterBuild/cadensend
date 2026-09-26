@@ -101,10 +101,21 @@ func JWTMiddleware(jwtSecret string, db *gorm.DB) gin.HandlerFunc {
             current = cached
         } else if db != nil {
             var v int
-            if err := db.WithContext(c.Request.Context()).
+            res := db.WithContext(c.Request.Context()).
                 Table("users").Select("COALESCE(token_version, 1)").
                 Where("id = ? AND deleted_at IS NULL", claims.UserID).
-                Scan(&v).Error; err == nil && v > 0 {
+                Scan(&v)
+            switch {
+            case res.Error != nil:
+                // Fail open on a transient DB error: the signature is already
+                // verified, and locking every user out during a DB blip is
+                // worse than a short window where a revoked token still works.
+            case res.RowsAffected == 0:
+                // The account was deleted (or never existed). Its tokens must
+                // stop working immediately, not at expiry.
+                c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session revoked"})
+                return
+            case v > 0:
                 current = v
                 cache.set(claims.UserID, v)
             }

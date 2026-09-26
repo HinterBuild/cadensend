@@ -219,8 +219,10 @@ func syncAssistantMessagesHandler(db *gorm.DB) gin.HandlerFunc {
 				for _, msg := range req.Messages {
 					if msg.Role == "user" && strings.TrimSpace(msg.Content) != "" {
 						title := strings.TrimSpace(msg.Content)
-						if len(title) > 80 {
-							title = title[:77] + "..."
+						// Truncate by rune, not byte: a byte slice can split a
+						// multi-byte character, and Postgres rejects invalid UTF-8.
+						if runes := []rune(title); len(runes) > 80 {
+							title = string(runes[:77]) + "..."
 						}
 						updates["title"] = title
 						break

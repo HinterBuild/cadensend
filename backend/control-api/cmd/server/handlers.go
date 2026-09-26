@@ -687,7 +687,9 @@ func loginHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 
 		user, token, err := svc.AuthenticateUser(strings.ToLower(strings.TrimSpace(req.Email)), req.Password)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			// One message for both unknown email and wrong password, so the
+			// login form can't be used to discover which emails have accounts.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
 			return
 		}
 
@@ -854,8 +856,10 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		var req struct {
-			Subject       string          `json:"subject"`
-			Preheader     string          `json:"preheader"`
+			// Pointers so an omitted field (e.g. a partial update from the
+			// assistant) leaves the stored value alone instead of blanking it.
+			Subject       *string         `json:"subject"`
+			Preheader     *string         `json:"preheader"`
 			ContentBlocks json.RawMessage `json:"content_blocks"`
 			VisualSpecs   json.RawMessage `json:"visual_specs"`
 			Presentation  json.RawMessage `json:"presentation"`
@@ -878,8 +882,12 @@ func updateIssueHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		content := parseJSONMap(issue.ContentJSON)
-		content["subject"] = req.Subject
-		content["preheader"] = req.Preheader
+		if req.Subject != nil {
+			content["subject"] = *req.Subject
+		}
+		if req.Preheader != nil {
+			content["preheader"] = *req.Preheader
+		}
 		if len(req.ContentBlocks) > 0 && string(req.ContentBlocks) != "null" {
 			var blocks any
 			if err := json.Unmarshal(req.ContentBlocks, &blocks); err != nil {
@@ -1391,7 +1399,8 @@ func parseJSONMap(raw *string) map[string]any {
 // into display labels and links for the email renderer.
 func sourceRefsForContent(db *gorm.DB, workspaceID string, content map[string]any) map[string]mail.SourceRef {
 	ids := map[string]bool{}
-	for _, rawBlock := range content["content_blocks"].([]any) {
+	blocks, _ := content["content_blocks"].([]any)
+	for _, rawBlock := range blocks {
 		block, ok := rawBlock.(map[string]any)
 		if !ok {
 			continue
@@ -1855,7 +1864,7 @@ func aiEngineRequest(method, path string, payload map[string]interface{}) (int, 
 // for a query, by delegating to the AI engine's retrieval pipeline.
 func retrievalPreviewHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		seriesID := c.Param("series_id")
+		seriesID := c.Param("id")
 		var req struct {
 			Query string `json:"query" binding:"required"`
 			TopK  int    `json:"top_k"`

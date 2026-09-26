@@ -52,7 +52,7 @@ func platformConnectorsHandler() gin.HandlerFunc {
 				id, _ := items[i]["id"].(string)
 				if cfg, ok := configs[id]; ok {
 					items[i]["configured"] = true
-					items[i]["workspace_config"] = cfg
+					items[i]["workspace_config"] = redactSecrets(cfg)
 				} else {
 					items[i]["configured"] = false
 				}
@@ -554,7 +554,7 @@ func updateEmailProviderHandler(db *gorm.DB) gin.HandlerFunc {
 func testEmailProviderHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		workspaceID := c.GetString("workspace_id")
-		userEmail := c.GetString("user_email")
+		userEmail := c.GetString("email")
 		if userEmail == "" {
 			var email string
 			_ = db.Raw(`SELECT email FROM users WHERE id = ?::uuid`, c.GetString("user_id")).Scan(&email)

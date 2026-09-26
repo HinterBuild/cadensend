@@ -4,6 +4,7 @@ package main
 import (
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -139,7 +140,7 @@ func (h *recipientsHandler) setSuppressed(c *gin.Context) {
 // sendVerification emails a signed verify link to the recipient owner.
 func (h *recipientsHandler) sendVerification(rcpt *service.Recipient) error {
 	token := SignRecipientToken(cfg.JWTSecret, rcpt.WorkspaceID, rcpt.Email, 72*time.Hour)
-	verifyURL := cfg.FrontendOrigin + "/verify-recipient?token=" + token + "&email=" + rcpt.Email
+	verifyURL := cfg.FrontendOrigin + "/verify-recipient?token=" + token + "&email=" + url.QueryEscape(rcpt.Email)
 	_, html := appmail.RenderNotificationHTML(
 		"Confirm your subscription",
 		"You have been added as a reader on Cadensend. Confirm this email address to start receiving series issues.",
