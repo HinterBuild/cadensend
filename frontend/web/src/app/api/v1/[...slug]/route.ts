@@ -6,12 +6,15 @@ import { NextRequest, NextResponse } from 'next/server'
 // - The JWT lives in an httpOnly cookie and is injected as an Authorization
 //   header here; it is never readable by client JavaScript.
 // - The token value returned by auth endpoints (login, magic-link verify,
-//   password change/reset, refresh) is moved into the cookie and stripped
-//   from the JSON body before it reaches the browser.
-// - State-changing requests must present a same-origin Origin/Referer header
-//   (CSRF defense alongside SameSite=Lax).
-// - Active sessions slide: when a request carries a token that is more than
-//   halfway to expiry, the proxy silently refreshes it via the backend.
+//   password change, refresh) is moved into the cookie and stripped from the
+//   JSON body before it reaches the browser.
+// - State-changing requests must carry a same-origin Origin header (CSRF
+//   defense alongside SameSite=Lax). GETs skip the check because the cookie
+//   is SameSite=Lax and GET handlers have no side effects.
+// - Active sessions slide: once a token is past half its lifetime, the proxy
+//   silently refreshes it via the backend.
+// - Logout only clears the cookie. The JWT itself stays valid until expiry;
+//   "revoke sessions" (token_version bump) is the server-side kill switch.
 
 const BACKEND_URL =
   process.env.BACKEND_API_URL ||
@@ -19,13 +22,14 @@ const BACKEND_URL =
   'http://localhost:8080'
 
 const SESSION_COOKIE = 'cadensend_session'
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000 // matches ACCESS_TOKEN_EXPIRE_MINUTES default
-const REFRESH_AFTER_MS = TOKEN_TTL_MS / 2
+// Used only when a token carries no exp claim.
+const FALLBACK_TTL_SECONDS = 24 * 60 * 60
 
+// Responses from these routes may carry a fresh token that must move into
+// the cookie.
 const AUTH_ROUTES = [
   { method: 'POST', pattern: /^users\/login$/ },
   { method: 'POST', pattern: /^users\/magic-link\/verify$/ },
-  { method: 'POST', pattern: /^users\/reset-password$/ },
   { method: 'PATCH', pattern: /^users\/[^/]+\/password$/ },
   { method: 'POST', pattern: /^users\/me\/session\/refresh$/ },
   { method: 'POST', pattern: /^users\/me\/sessions\/revoke$/ },
@@ -51,11 +55,14 @@ export async function DELETE(request: NextRequest) {
   return proxyRequest(request)
 }
 
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
+function tokenTimes(token: string): { exp: number; iat: number } | null {
   try {
     const part = token.split('.')[1]
-    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-    return JSON.parse(json)
+    const payload = JSON.parse(
+      Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
+    )
+    if (typeof payload?.exp !== 'number' || typeof payload?.iat !== 'number') return null
+    return { exp: payload.exp * 1000, iat: payload.iat * 1000 }
   } catch {
     return null
   }
@@ -64,12 +71,12 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 function sameOriginStateChange(request: NextRequest): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return true
   const origin = request.headers.get('origin') || ''
-  if (!origin) {
-    // Browsers always send Origin on cross-origin and most same-origin
-    // unsafe methods; absence implies a non-browser client.
-    return false
-  }
+  // Browsers send Origin on unsafe methods; its absence implies a non-browser
+  // client, which has no business going through this cookie-based proxy.
+  if (!origin) return false
   try {
+    // Compared against Host, so a reverse proxy in front of this app must
+    // preserve the original Host header.
     return new URL(origin).host === request.headers.get('host')
   } catch {
     return false
@@ -77,12 +84,10 @@ function sameOriginStateChange(request: NextRequest): boolean {
 }
 
 async function maybeRefreshSession(token: string): Promise<string | null> {
-  const payload = decodeJwtPayload(token)
-  const exp = typeof payload?.exp === 'number' ? (payload.exp as number) * 1000 : null
-  const iat = typeof payload?.iat === 'number' ? (payload.iat as number) * 1000 : null
-  if (!exp || !iat) return null
-  if (exp - Date.now() > REFRESH_AFTER_MS) return null
-  if (Date.now() - iat < 60 * 1000) return null // don't churn on bursts
+  const times = tokenTimes(token)
+  if (!times) return null
+  const halfLife = (times.exp - times.iat) / 2
+  if (times.exp - Date.now() > halfLife) return null
 
   try {
     const response = await fetch(`${BACKEND_URL}/v1/users/me/session/refresh`, {
@@ -100,7 +105,12 @@ async function maybeRefreshSession(token: string): Promise<string | null> {
 
 function sessionCookie(token: string): string {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
-  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TOKEN_TTL_MS / 1000}${secure}`
+  // Match the cookie's lifetime to the token's so neither outlives the other.
+  const times = tokenTimes(token)
+  const maxAge = times
+    ? Math.max(0, Math.floor((times.exp - Date.now()) / 1000))
+    : FALLBACK_TTL_SECONDS
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
 }
 
 function clearSessionCookie(): string {
@@ -108,15 +118,38 @@ function clearSessionCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
 }
 
-function extractToken(path: string, method: string, body: unknown, responseHeaders: Headers): string | null {
-  for (const route of AUTH_ROUTES) {
-    if (route.method === method && route.pattern.test(path)) {
-      if (body && typeof body === 'object' && 'token' in body && typeof body.token === 'string' && body.token.length > 20) return body.token
-      break
-    }
+function isAuthRoute(path: string, method: string): boolean {
+  return AUTH_ROUTES.some(route => route.method === method && route.pattern.test(path))
+}
+
+function tokenFromBody(body: unknown): string | null {
+  if (body && typeof body === 'object' && 'token' in body) {
+    const token = (body as { token: unknown }).token
+    // Real JWTs are far longer; this rejects placeholder/empty values.
+    if (typeof token === 'string' && token.length > 20) return token
   }
-  const renewed = responseHeaders.get('X-Renewed-Token')
-  return renewed && renewed.length > 20 ? renewed : null
+  return null
+}
+
+async function buildBody(
+  request: NextRequest,
+  headers: Record<string, string>,
+): Promise<BodyInit | undefined> {
+  if (request.method === 'GET' || request.method === 'HEAD') return undefined
+  const contentType = request.headers.get('content-type') || ''
+
+  // JSON (or no content type, which every client in this app treats as JSON)
+  // is re-serialized so a malformed body becomes a clean '{}'.
+  if (!contentType || contentType.includes('application/json')) {
+    headers['Content-Type'] = 'application/json'
+    const parsed = await request.json().catch(() => null)
+    return parsed === null || parsed === undefined ? '{}' : JSON.stringify(parsed)
+  }
+
+  // Everything else (multipart uploads, the urlencoded unsubscribe form) is
+  // forwarded byte-for-byte with its original content type.
+  headers['Content-Type'] = contentType
+  return request.arrayBuffer()
 }
 
 async function proxyRequest(request: NextRequest) {
@@ -131,16 +164,8 @@ async function proxyRequest(request: NextRequest) {
   }
 
   const targetUrl = `${BACKEND_URL}/v1/${path}${url.search}`
+  const sessionToken = request.cookies.get(SESSION_COOKIE)?.value || ''
 
-  let sessionToken = request.cookies.get(SESSION_COOKIE)?.value || ''
-
-  // Legacy clients may still send a bearer header directly.
-  if (!sessionToken) {
-    const legacy = request.headers.get('authorization')
-    if (legacy?.startsWith('Bearer ')) sessionToken = legacy.slice(7)
-  }
-
-  const incomingContentType = request.headers.get('content-type') || ''
   const headers: Record<string, string> = {}
   const requestId = request.headers.get('x-request-id') || ''
   if (requestId) headers['X-Request-ID'] = requestId
@@ -151,41 +176,15 @@ async function proxyRequest(request: NextRequest) {
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) headers['X-Forwarded-For'] = forwarded
 
-  if (sessionToken) {
-    headers['Authorization'] = `Bearer ${sessionToken}`
-  }
+  const body = await buildBody(request, headers)
 
-  let body: BodyInit | undefined
-  let parsedBody: unknown = null
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    if (incomingContentType.includes('multipart/form-data')) {
-      headers['Content-Type'] = incomingContentType
-      body = await request.arrayBuffer()
-    } else {
-      headers['Content-Type'] = 'application/json'
-      parsedBody = await request.json().catch(() => null)
-      if (parsedBody !== null && parsedBody !== undefined) {
-        body = JSON.stringify(parsedBody)
-      } else {
-        body = '{}'
-      }
-    }
-  }
+  const refreshedToken = sessionToken ? await maybeRefreshSession(sessionToken) : null
+  const activeToken = refreshedToken || sessionToken
+  if (activeToken) headers['Authorization'] = `Bearer ${activeToken}`
 
   let response: Response
-  let refreshedToken: string | null = null
-  if (sessionToken) {
-    refreshedToken = await maybeRefreshSession(sessionToken)
-    if (refreshedToken) {
-      headers['Authorization'] = `Bearer ${refreshedToken}`
-    }
-  }
   try {
-    response = await fetch(targetUrl, {
-      method: request.method,
-      headers,
-      body,
-    })
+    response = await fetch(targetUrl, { method: request.method, headers, body })
   } catch {
     return NextResponse.json({ error: 'backend unavailable' }, { status: 502 })
   }
@@ -208,19 +207,23 @@ async function proxyRequest(request: NextRequest) {
   }
 
   // Move freshly issued tokens into the httpOnly cookie before the browser
-  // ever sees the JSON.
-  const newToken = extractToken(path, request.method, data, response.headers) ||
-    (refreshedToken && response.ok ? refreshedToken : null)
-  if (newToken && data && typeof data === 'object' && 'token' in data) {
-    delete data.token
+  // ever sees the JSON. Only auth routes carry a session token in the body,
+  // so other responses keep any unrelated "token" field intact.
+  let newToken: string | null = null
+  if (isAuthRoute(path, request.method)) {
+    newToken = tokenFromBody(data)
+    if (newToken) delete (data as { token?: unknown }).token
   }
+  if (!newToken && refreshedToken && response.ok) newToken = refreshedToken
 
   const headersInit: Record<string, string> = {}
   if (newToken) {
     headersInit['set-cookie'] = sessionCookie(newToken)
   } else if (response.status === 401 && path !== 'users/login' && !path.startsWith('webhooks/')) {
     // A 401 from a protected endpoint means the session is no longer valid;
-    // clear the cookie so the next navigation lands on login cleanly.
+    // clear the cookie so the next navigation lands on login cleanly. Login
+    // 401s mean bad credentials, and webhooks are public, so neither should
+    // sign the user out.
     headersInit['set-cookie'] = clearSessionCookie()
   }
 

@@ -251,6 +251,10 @@ export function IssueEditorPreview({
               ) : (
                 <iframe
                   title="Rendered email HTML"
+                  // No allow-scripts/allow-same-origin: the email HTML runs in an
+                  // opaque origin, so nothing in it can call the API with the
+                  // user's session cookie. Popups stay allowed so links open.
+                  sandbox="allow-popups allow-popups-to-escape-sandbox"
                   srcDoc={previewHtml}
                   className="h-[min(900px,70vh)] w-full bg-white"
                 />

@@ -62,3 +62,42 @@ it('clears the session cookie when a protected route returns 401', async () => {
   expect(response.headers.get('set-cookie')).toContain('cadensend_session=;');
   expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
 });
+
+it('forwards urlencoded form bodies unchanged (unsubscribe confirm)', async () => {
+  const upstream = jest.spyOn(global, 'fetch').mockResolvedValue(
+    new Response('<html>ok</html>', { headers: { 'content-type': 'text/html' } }),
+  );
+  await POST(new NextRequest('http://localhost:3000/api/v1/webhooks/unsubscribe', {
+    method: 'POST',
+    headers: {
+      origin: 'http://localhost:3000',
+      host: 'localhost:3000',
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: 'token=abc&email=a%40b.com',
+  }));
+  const init = upstream.mock.calls[0][1] as RequestInit;
+  expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/x-www-form-urlencoded');
+  expect(new TextDecoder().decode(init.body as ArrayBuffer)).toBe('token=abc&email=a%40b.com');
+});
+
+it('moves a login token into the cookie and strips it from the body', async () => {
+  const token = 'header.' + Buffer.from(JSON.stringify({ exp: 9999999999, iat: 1 })).toString('base64') + '.sig';
+  jest.spyOn(global, 'fetch').mockResolvedValue(Response.json({ token, user: { id: 'u1' } }));
+  const response = await POST(new NextRequest('http://localhost:3000/api/v1/users/login', {
+    method: 'POST',
+    headers: { origin: 'http://localhost:3000', host: 'localhost:3000', 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'a@b.com', password: 'x' }),
+  }));
+  const data = await response.json();
+  expect(data.token).toBeUndefined();
+  expect(data.user.id).toBe('u1');
+  expect(response.headers.get('set-cookie')).toContain(`cadensend_session=${token}`);
+});
+
+it('leaves a "token" field alone on non-auth routes', async () => {
+  jest.spyOn(global, 'fetch').mockResolvedValue(Response.json({ token: 'x'.repeat(40) }));
+  const response = await GET(new NextRequest('http://localhost:3000/api/v1/series'));
+  expect((await response.json()).token).toBe('x'.repeat(40));
+  expect(response.headers.get('set-cookie')).toBeNull();
+});
