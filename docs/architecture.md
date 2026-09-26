@@ -77,7 +77,6 @@ cadensend/
 │   ├── api/                # FastAPI app
 │   └── workers/            # Python job consumers
 ├── db/migrations/          # SQL migrations
-├── packages/               # Shared contracts / email templates
 └── docs/                   # Architecture and project docs
 ```
 

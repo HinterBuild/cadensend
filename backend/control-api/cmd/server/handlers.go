@@ -26,8 +26,9 @@ import (
 	"backend/control-api/internal/urlcheck"
 )
 
-// Status constants for domain entities.
-// These mirror the values defined in packages/contracts and must stay in sync.
+// Status values stored in the shared Postgres tables. control-worker and the
+// Python ai-engine read and write these same strings, so renaming one here
+// requires changing it there too.
 const (
 	SeriesStatusDraft     = "draft"
 	SeriesStatusActive    = "active"
