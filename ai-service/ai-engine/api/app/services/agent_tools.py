@@ -69,7 +69,7 @@ class NewsletterTools:
         for r in results:
             payload = r.get("payload", {}) or {}
             raw_text = payload.get("text_preview", payload.get("content", "")) or ""
-            safe_text = sanitize_source_text(str(raw_text))
+            safe_text, _ = sanitize_source_text(str(raw_text))
             source_id = payload.get("source_id", "")
             section_path = payload.get("section_path", []) or []
             formatted.append(

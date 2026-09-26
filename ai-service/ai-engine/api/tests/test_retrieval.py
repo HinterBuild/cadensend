@@ -89,3 +89,25 @@ def test_format_results():
     assert formatted[0]["score"] == 0.95
     assert formatted[0]["source_id"] == "src-1"
     assert formatted[0]["payload"] == mock_hit.payload
+
+
+def test_single_source_still_fills_top_k():
+    """A series with one source must get multiple chunks, not just one."""
+    service = RetrievalService.__new__(RetrievalService)
+    results = [
+        {"id": str(i), "score": 1 - i * 0.1, "chunk_id": f"c{i}", "source_id": "src-1"}
+        for i in range(5)
+    ]
+    assert len(service._deduplicate_and_diversify(results, 3)) == 3
+
+
+def test_every_source_represented_before_backfill():
+    service = RetrievalService.__new__(RetrievalService)
+    results = [
+        {"id": "1", "score": 0.9, "chunk_id": "a1", "source_id": "A"},
+        {"id": "2", "score": 0.8, "chunk_id": "a2", "source_id": "A"},
+        {"id": "3", "score": 0.7, "chunk_id": "a3", "source_id": "A"},
+        {"id": "4", "score": 0.2, "chunk_id": "b1", "source_id": "B"},
+    ]
+    picked = service._deduplicate_and_diversify(results, 2)
+    assert {r["source_id"] for r in picked} == {"A", "B"}

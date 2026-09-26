@@ -1,6 +1,7 @@
 """Unit tests for stale-content refresh prompt shaping."""
 
 import unittest
+from datetime import datetime
 from unittest.mock import Mock
 
 from app.services.agent_graph import NewsletterAgent
@@ -45,7 +46,7 @@ class AgentRefreshPromptTests(unittest.TestCase):
             }
         )
         self.assertEqual(len(messages), 2)
-        self.assertIn("refreshing an older issue as of August 25, 2026", messages[0].content)
+        self.assertIn(f"refreshing an older issue as of {datetime.utcnow():%B %d, %Y}", messages[0].content)
         self.assertIn("What changed", messages[0].content)
         self.assertIn("Refresh this older issue instead of writing from scratch.", messages[1].content)
         self.assertIn('"issue_id": "issue-9"', messages[1].content)

@@ -642,7 +642,6 @@ class AIWorker:
                         max(len(modules), len(by_sequence)),
                     )
                     model = job_data.get("model") or ""
-                    auto_send = not bool(series["manual_approval"])
                     created_by = str(series["created_by"])
                     workspace_id = str(series["workspace_id"])
                     immutable_statuses = {"sent", "approved", "generating"}
@@ -654,18 +653,31 @@ class AIWorker:
                         row = by_sequence.get(sequence_no)
 
                         if row is not None:
-                            # Reconcile: refresh objective on untouched issues only.
+                            # Reconcile an existing issue with the new plan. Issues
+                            # that are sent/approved/in-flight are left alone, and
+                            # "ready" issues only get their objective refreshed so a
+                            # plan change never overwrites content the user may have
+                            # edited. Everything else is regenerated; it must be set
+                            # to 'generating' or the job's pre-flight check skips it.
                             issue_id = str(row["id"])
-                            if str(row["status"]) not in immutable_statuses:
-                                await conn.execute(
-                                    """
-                                    UPDATE issues
-                                    SET objective = $2, updated_at = NOW()
-                                    WHERE id = $1::uuid
-                                    """,
-                                    issue_id,
-                                    title,
-                                )
+                            status = str(row["status"])
+                            if status in immutable_statuses:
+                                continue
+                            regenerate = status != "ready"
+                            await conn.execute(
+                                """
+                                UPDATE issues
+                                SET objective = $2,
+                                    status = CASE WHEN $3 THEN 'generating' ELSE status END,
+                                    generate_error = CASE WHEN $3 THEN '' ELSE generate_error END,
+                                    updated_at = NOW()
+                                WHERE id = $1::uuid
+                                """,
+                                issue_id,
+                                title,
+                                regenerate,
+                            )
+                            if regenerate:
                                 jobs.append(
                                     {
                                         "task": "generate_issue",

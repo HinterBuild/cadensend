@@ -129,31 +129,39 @@ class RetrievalService:
         return results
 
     def _deduplicate_and_diversify(self, results: List[Dict], top_k: int) -> List[Dict]:
-        """Deduplicate and diversify search results by source."""
+        """Drop duplicate chunks, then pick the best chunk from each source
+        before filling the remaining slots by score.
+
+        The first pass guarantees every matched source is represented; the
+        second pass backfills so a single-source series still gets up to
+        top_k chunks instead of one.
+        """
+        unique: List[Dict] = []
         seen_chunks: set = set()
-        seen_sources: set = set()
-        diversified: List[Dict] = []
-
         for result in results:
-            chunk_id = result.get("chunk_id", "")
+            key = result.get("chunk_id") or result.get("id")
+            if key in seen_chunks:
+                continue
+            seen_chunks.add(key)
+            unique.append(result)
+
+        picked: List[Dict] = []
+        seen_sources: set = set()
+        for result in unique:
             source_id = result.get("source_id", "")
+            if source_id not in seen_sources:
+                seen_sources.add(source_id)
+                picked.append(result)
 
-            # Skip duplicate chunks
-            if chunk_id in seen_chunks:
-                continue
-            seen_chunks.add(chunk_id)
-
-            # Prefer source diversity when scores are comparable
-            if source_id in seen_sources and len(seen_sources) < 3:
-                continue
-            seen_sources.add(source_id)
-
-            diversified.append(result)
-
-            if len(diversified) >= top_k:
+        picked_ids = {id(r) for r in picked}
+        for result in unique:
+            if len(picked) >= top_k:
                 break
+            if id(result) not in picked_ids:
+                picked.append(result)
 
-        return diversified
+        picked.sort(key=lambda r: r.get("score") or 0, reverse=True)
+        return picked[:top_k]
 
     def _redact_text(self, text: str, max_len: int = 100) -> str:
         """Redact sensitive text for logging."""

@@ -426,7 +426,7 @@ class NewsletterAgent:
             refresh_instructions = ""
             if refresh_mode:
                 refresh_instructions = f"""
-- You are refreshing an older issue as of August 25, 2026.
+- You are refreshing an older issue as of {datetime.utcnow():%B %d, %Y}.
 - Preserve the strongest structure, framing, and teaching moves from the old issue when they are still correct.
 - Replace stale claims, old dates, outdated tooling details, and weak examples with fresher material from retrieved context.
 - When the old draft conflicts with retrieved context, trust the retrieved context.

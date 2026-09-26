@@ -50,6 +50,8 @@ SUPPORTED_EXTENSIONS: Dict[str, str] = {
 	".csv": "csv",
 }
 
+MAX_FETCH_BYTES = 10 * 1024 * 1024
+
 MARKITDOWN_SUPPORTED = {"pdf", "docx", "pptx", "xlsx", "html", "text", "markdown"}
 
 # Namespaces seen in real-world Atom feeds.
@@ -371,10 +373,20 @@ class IngestionWorker:
 			chunk["visibility"] = visibility
 
 	async def _fetch_url(self, url: str) -> str:
-		"""Fetch content from a URL."""
+		"""Fetch content from a URL.
+
+		Fails on non-2xx so an error page is never indexed as source
+		material, and caps the body so one huge page can't exhaust memory.
+		"""
 		async with aiohttp.ClientSession() as session:
 			async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as response:
-				return await response.text()
+				response.raise_for_status()
+				body = bytearray()
+				async for chunk in response.content.iter_chunked(64 * 1024):
+					body.extend(chunk)
+					if len(body) > MAX_FETCH_BYTES:
+						raise ValueError(f"Source is larger than {MAX_FETCH_BYTES // (1024 * 1024)} MB")
+				return bytes(body).decode(response.get_encoding() or "utf-8", errors="replace")
 
 	@staticmethod
 	def _looks_like_feed(raw: str) -> bool:
