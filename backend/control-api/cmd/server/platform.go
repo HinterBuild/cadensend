@@ -453,7 +453,10 @@ func editorialAssetsHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// Email provider settings — users pick their own send inbox/provider.
+// Email provider settings: a workspace can save its own send provider and
+// verify it with a test email. Known gap: scheduled issue delivery in
+// control-worker does not read workspace_email_config yet and always sends
+// through the global Brevo settings from the environment.
 
 var supportedEmailProviders = []map[string]string{
 	{"id": "brevo", "name": "Brevo", "description": "Transactional email via Brevo API"},
@@ -535,7 +538,7 @@ func updateEmailProviderHandler(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported email provider"})
 			return
 		}
-		cfgJSON, _ := json.Marshal(req.Config)
+		cfgJSON, _ := json.Marshal(keepStoredSecrets(db, workspaceID, provider, req.Config))
 		err := db.Exec(`
 			INSERT INTO workspace_email_config (workspace_id, provider, from_email, from_name, config, verified, is_active, updated_at)
 			VALUES (?::uuid, ?, ?, ?, ?::jsonb, false, true, NOW())
@@ -575,12 +578,52 @@ func testEmailProviderHandler(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// redactedSecret is what redactSecrets shows in place of a secret value.
+const redactedSecret = "••••••••"
+
+// isSecretKey reports whether a config key holds a credential.
+func isSecretKey(key string) bool {
+	lk := strings.ToLower(key)
+	return strings.Contains(lk, "key") || strings.Contains(lk, "password") || strings.Contains(lk, "secret")
+}
+
+// keepStoredSecrets fills secret fields the client left blank (or sent back
+// as the redaction mask) from the stored config. The settings form never
+// sees real secrets, so without this every save of other fields would wipe
+// the saved API key/password. Secrets are only carried over when the
+// provider is unchanged: one provider's key is meaningless for another.
+func keepStoredSecrets(db *gorm.DB, workspaceID, provider string, incoming map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	for k, v := range incoming {
+		out[k] = v
+	}
+	var stored struct {
+		Provider string
+		Config   string
+	}
+	if err := db.Raw(`SELECT provider, config::text AS config FROM workspace_email_config WHERE workspace_id = ?::uuid`, workspaceID).
+		Scan(&stored).Error; err != nil || stored.Provider != provider {
+		return out
+	}
+	existing := map[string]interface{}{}
+	_ = json.Unmarshal([]byte(stored.Config), &existing)
+	for k, v := range existing {
+		if !isSecretKey(k) {
+			continue
+		}
+		cur, present := out[k]
+		if s, _ := cur.(string); !present || s == "" || s == redactedSecret {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func redactSecrets(cfg map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{}
 	for k, v := range cfg {
-		lk := strings.ToLower(k)
-		if strings.Contains(lk, "key") || strings.Contains(lk, "password") || strings.Contains(lk, "secret") {
-			out[k] = "••••••••"
+		if isSecretKey(k) {
+			out[k] = redactedSecret
 		} else {
 			out[k] = v
 		}

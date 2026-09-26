@@ -609,6 +609,26 @@ func createUserHandler(db *gorm.DB, svc *service.UserService) gin.HandlerFunc {
 		}
 		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 
+		if !cfg.EnableSignup {
+			c.JSON(http.StatusForbidden, gin.H{"error": "sign-up is disabled"})
+			return
+		}
+		// This route is public and the caller picks the workspace, so it may
+		// only claim a workspace nobody belongs to yet (bootstrapping a fresh
+		// install). Otherwise anyone who learned a workspace's UUID could
+		// register straight into that tenant.
+		var members int64
+		if err := db.Table("users").
+			Where("workspace_id = ? AND deleted_at IS NULL", req.WorkspaceID).
+			Count(&members).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not verify workspace"})
+			return
+		}
+		if members > 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "this workspace already has members; ask a member to invite you"})
+			return
+		}
+
 		user, err := svc.CreateUser(req.Email, req.Password, req.Name, req.Timezone, req.WorkspaceID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
