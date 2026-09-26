@@ -400,10 +400,6 @@ func writeLayoutStart(b *strings.Builder, seriesTopic, kind string, test bool, t
 	}
 }
 
-func writeLayoutEnd(b *strings.Builder) {
-	writeLayoutEndOpts(b, "", defaultPresentationTheme())
-}
-
 // writeLayoutEndOpts closes the layout and appends a footer. When
 // unsubscribeURL is non-empty (real subscriber sends) it renders the
 // legally required one-click unsubscribe link.
@@ -478,6 +474,3 @@ func esc(s string) string {
 	return html.EscapeString(s)
 }
 
-func nlToBr(s string) string {
-	return strings.ReplaceAll(s, "\n", "<br>")
-}

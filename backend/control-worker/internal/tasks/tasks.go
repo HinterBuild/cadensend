@@ -12,7 +12,6 @@ import (
 type TaskPayload struct {
 	IssueID    string `json:"issue_id"`
 	ScheduleID string `json:"schedule_id"`
-	Attempt    int    `json:"attempt"`
 }
 
 type DeliverFunc func(ctx context.Context, issueID, scheduleID string) error

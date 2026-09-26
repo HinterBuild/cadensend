@@ -184,40 +184,6 @@ func writeCitations(b *strings.Builder, citations []citation, refs map[string]So
 	b.WriteString(`</ul></div>`)
 }
 
-func RenderPlanModuleHTML(seriesTopic, seriesGoal, level string, index int, module map[string]any) (subject string, htmlBody string) {
-	title := firstString(module, "title")
-	if title == "" {
-		title = fmt.Sprintf("Module %d", index+1)
-	}
-	summary := firstString(module, "summary")
-	objectives := stringList(module["learning_objectives"])
-	subject = fmt.Sprintf("%s — %s", title, seriesTopic)
-
-	var body strings.Builder
-	theme := defaultPresentationTheme()
-	writeLayoutStart(&body, seriesTopic, "Curriculum preview", true, theme)
-	fmt.Fprintf(&body, `<p style="color:%s;font-family:%s;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Module %d</p>`, theme.Muted, theme.bodyFont(), index+1)
-	fmt.Fprintf(&body, `<h2 style="font-family:%s;font-size:22px;color:%s;margin:0 0 12px;">%s</h2>`, theme.headingFont(), theme.Text, esc(title))
-	if summary != "" {
-		fmt.Fprintf(&body, `<p style="color:%s;font-family:%s;font-size:15px;line-height:1.6;">%s</p>`, theme.Text, theme.bodyFont(), esc(summary))
-	} else if seriesGoal != "" {
-		fmt.Fprintf(&body, `<p style="color:%s;font-family:%s;font-size:15px;line-height:1.6;">Goal: %s</p>`, theme.Text, theme.bodyFont(), esc(seriesGoal))
-	}
-	if level != "" {
-		fmt.Fprintf(&body, `<p style="color:%s;font-family:%s;font-size:13px;">Level: %s</p>`, theme.Muted, theme.bodyFont(), esc(level))
-	}
-	if len(objectives) > 0 {
-		fmt.Fprintf(&body, `<p style="font-family:%s;font-weight:600;color:%s;margin:20px 0 8px;">What you will learn</p><ul style="color:%s;font-family:%s;padding-left:20px;">`, theme.bodyFont(), theme.Text, theme.Text, theme.bodyFont())
-		for _, obj := range objectives {
-			fmt.Fprintf(&body, `<li style="margin:0 0 6px;">%s</li>`, esc(obj))
-		}
-		body.WriteString(`</ul>`)
-	}
-	fmt.Fprintf(&body, `<p style="margin-top:24px;color:%s;font-family:%s;font-size:13px;">This is a plan preview. Generated issues will include the full lesson body and citations.</p>`, theme.Muted, theme.bodyFont())
-	writeLayoutEndOpts(&body, "", theme)
-	return subject, body.String()
-}
-
 type contentBlock struct {
 	title     string
 	text      string
@@ -288,10 +254,6 @@ func writeLayoutStart(b *strings.Builder, seriesTopic, kind string, test bool, t
 	}
 }
 
-func writeLayoutEnd(b *strings.Builder) {
-	writeLayoutEndOpts(b, "", defaultPresentationTheme())
-}
-
 // writeLayoutEndOpts closes the layout and appends a footer. When
 // unsubscribeURL is non-empty (real subscriber sends) it renders the
 // legally required one-click unsubscribe link.
@@ -345,27 +307,6 @@ func firstString(m map[string]any, keys ...string) string {
 	return ""
 }
 
-func stringList(v any) []string {
-	switch items := v.(type) {
-	case []any:
-		out := make([]string, 0, len(items))
-		for _, item := range items {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	case []string:
-		return items
-	default:
-		return nil
-	}
-}
-
 func esc(s string) string {
 	return html.EscapeString(s)
-}
-
-func nlToBr(s string) string {
-	return strings.ReplaceAll(s, "\n", "<br>")
 }

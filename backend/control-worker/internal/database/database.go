@@ -3,6 +3,7 @@ package database
 
 import (
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -10,13 +11,11 @@ import (
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
-	"os"
 )
 
 var (
 	dbInstance *gorm.DB
 	once       sync.Once
-	mu         sync.RWMutex
 )
 
 // Init initializes the database connection pool
@@ -76,34 +75,11 @@ func ConfigurePool(maxIdle, maxOpen int, maxLifetime time.Duration) {
 	log.Printf("Database pool: max_idle=%d max_open=%d max_lifetime=%s", maxIdle, maxOpen, maxLifetime)
 }
 
-// Get returns the database instance
+// Get returns the shared database handle, connecting on first use. Init's
+// sync.Once makes this safe to call from multiple goroutines.
 func Get() *gorm.DB {
 	if dbInstance == nil {
 		Init("")
 	}
-
-	mu.RLock()
-	defer mu.RUnlock()
-
 	return dbInstance
-}
-
-// Close closes the database connection
-func Close() error {
-	if dbInstance == nil {
-		return nil
-	}
-
-	sqlDB, err := dbInstance.DB()
-	if err != nil {
-		return err
-	}
-
-	err = sqlDB.Close()
-	if err != nil {
-		return err
-	}
-
-	dbInstance = nil
-	return nil
 }

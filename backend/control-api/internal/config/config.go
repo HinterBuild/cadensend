@@ -77,7 +77,9 @@ func LoadConfig() *Config {
 	cfg := &Config{
 		Host:               getEnv("HOST", "0.0.0.0"),
 		Port:               getEnv("PORT", "8080"),
-		Env:                getEnv("ENV", "development"),
+		// ENVIRONMENT is the documented name (.env.example, ai-engine); ENV
+		// is still honored for existing deployments.
+		Env:                getEnv("ENVIRONMENT", getEnv("ENV", "development")),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		DatabaseURL:        getEnv("DATABASE_URL", ""),
 		RedisURL:           getEnv("REDIS_URL", "redis://localhost:6379/0"),

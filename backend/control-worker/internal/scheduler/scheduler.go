@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"golang.org/x/sync/semaphore"
 
 	"backend/control-worker/internal/config"
 	"backend/control-worker/internal/database"
@@ -52,16 +51,9 @@ func StartScheduler(cfg *config.Config) {
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: addr, Password: password, DB: dbNum})
 	defer asynqClient.Close()
 
-	// Create scheduler
-	semLimit := cfg.SchedulerSemLimit
-	if semLimit <= 0 {
-		semLimit = 10
-	}
 	s := &Scheduler{
-		config:      cfg,
 		db:          db,
 		asynqClient: asynqClient,
-		sem:         semaphore.NewWeighted(int64(semLimit)),
 	}
 
 	// Start scheduler loop
@@ -90,26 +82,26 @@ func StartScheduler(cfg *config.Config) {
 		}
 	}()
 
-	for {
-		select {
-		case <-ticker.C:
-			if err := s.processDueJobs(ctx); err != nil {
-				log.Printf("Scheduler error: %v", err)
-			}
+	for range ticker.C {
+		if err := s.processDueJobs(ctx); err != nil {
+			log.Printf("Scheduler error: %v", err)
 		}
 	}
 }
 
 type Scheduler struct {
-	config      *config.Config
 	db          *gorm.DB
 	asynqClient *asynq.Client
-	sem         *semaphore.Weighted
 }
 
 func (s *Scheduler) processDueJobs(ctx context.Context) error {
 	now := time.Now().UTC()
 
+	// Claim a batch of due schedules in one statement. FOR UPDATE SKIP LOCKED
+	// lets several worker replicas poll concurrently and each get a disjoint
+	// batch without blocking on one another. The claim commits before the
+	// task is enqueued, so a crash in between leaves rows "claimed"; the
+	// watchdog returns those to pending.
 	var schedules []Schedule
 	err := s.db.WithContext(ctx).Raw(`
 		UPDATE schedules
@@ -147,14 +139,8 @@ func (s *Scheduler) processSchedule(ctx context.Context, schedule *Schedule) err
 }
 
 func (s *Scheduler) enqueueTask(ctx context.Context, taskType string, schedule *Schedule) error {
-	if err := s.sem.Acquire(ctx, 1); err != nil {
-		return fmt.Errorf("failed to acquire semaphore: %w", err)
-	}
-	defer s.sem.Release(1)
-
 	payload := map[string]interface{}{
 		"schedule_id": schedule.ID,
-		"attempt":     schedule.Attempts + 1,
 	}
 
 	if schedule.IssueID != nil {

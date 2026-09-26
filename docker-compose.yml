@@ -57,6 +57,7 @@ services:
     environment:
       DATABASE_URL: postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable
       REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-10}"
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-40}"
       DB_CONN_MAX_LIFETIME_MINUTES: "${DB_CONN_MAX_LIFETIME_MINUTES:-30}"
@@ -92,16 +93,11 @@ services:
     environment:
       DATABASE_URL: postgres://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend?sslmode=disable
       REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
       DB_MAX_IDLE_CONNS: "${WORKER_DB_MAX_IDLE_CONNS:-5}"
       DB_MAX_OPEN_CONNS: "${WORKER_DB_MAX_OPEN_CONNS:-20}"
       DB_CONN_MAX_LIFETIME_MINUTES: "${DB_CONN_MAX_LIFETIME_MINUTES:-30}"
       ASYNQ_CONCURRENCY: "${ASYNQ_CONCURRENCY:-10}"
-      SCHEDULER_SEM_LIMIT: "${SCHEDULER_SEM_LIMIT:-10}"
-      QDRANT_URL: http://qdrant:6333
-      OBJECT_STORAGE_URL: http://minio:9000
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       EMAIL_PROVIDER: "${EMAIL_PROVIDER}"
       SMTP_FROM: "${SMTP_FROM}"
       SMTP_FROM_NAME: "${SMTP_FROM_NAME}"
@@ -128,6 +124,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend
       REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
       DB_POOL_SIZE: "${AI_DB_POOL_SIZE:-20}"
       DB_MAX_OVERFLOW: "${AI_DB_MAX_OVERFLOW:-10}"
       UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
@@ -163,6 +160,7 @@ services:
       PYTHONPATH: /app/api
       DATABASE_URL: postgresql+asyncpg://cadensend:${POSTGRES_PASSWORD:-cadensend}@postgres:5432/cadensend
       REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
       OPENROUTER_REDIS_PACING: "${OPENROUTER_REDIS_PACING:-true}"
       QDRANT_URL: http://qdrant:6333
       OBJECT_STORAGE_URL: http://minio:9000
