@@ -204,7 +204,6 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
       const toolCall = message.toolCalls?.find((tc) => tc.id === message.permission?.id);
       if (toolCall) {
         await continueWithToolResult(
-          message,
           toolCall.id,
           toolCall.name,
           result,
@@ -241,7 +240,6 @@ export function AssistantChat({ onSeriesChange, layout = 'full' }: AssistantChat
       const taggedIds = taggedIssues.map((i) => i.id);
       if (toolCall) {
         await continueWithToolResult(
-          message,
           toolCall.id,
           toolCall.name,
           result,

@@ -146,6 +146,17 @@ export function useAssistantChat() {
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
+  // Single write path for messages. It computes from messagesRef (the latest
+  // committed list) rather than a render-time `messages` closure, and updates
+  // the ref synchronously, so back-to-back updates such as "mark permission
+  // approved" then "append the tool result" can't overwrite each other.
+  const commit = useCallback((update: (prev: AssistantMessage[]) => AssistantMessage[]) => {
+    const next = update(messagesRef.current);
+    messagesRef.current = next;
+    setMessages(next);
+    return next;
+  }, []);
+
   const enableLocalMode = useCallback((id?: string) => {
     const nextId = id || localThreadId();
     const localMessages = loadLocalMessages();
@@ -250,12 +261,13 @@ export function useAssistantChat() {
         // ignore
       }
     }).catch((err: unknown) => {
+      // Fall back to a browser-local conversation either way. enableLocalMode
+      // clears any error, so the message must be set after it or it's lost.
+      // 404/502 just mean thread storage isn't available, which isn't an error.
       const status = apiStatus(err);
-      if (status === 404 || status === 502) {
-        enableLocalMode();
-      } else {
+      enableLocalMode();
+      if (status !== 404 && status !== 502) {
         setError(apiErrorMessage(err, 'Failed to load assistant'));
-        enableLocalMode();
       }
     }).finally(() => {
       setLoadingThread(false);
@@ -336,7 +348,7 @@ export function useAssistantChat() {
         toolResults: [],
       };
 
-      setMessages((prev) => [...prev, assistant]);
+      commit((prev) => [...prev, assistant]);
 
       try {
         const response = await fetch('/api/v1/assistant/chat', {
@@ -413,23 +425,31 @@ export function useAssistantChat() {
             setError(event.message);
           }
 
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...assistant, streaming: true } : m)));
+          commit((prev) => prev.map((m) => (m.id === assistantId ? { ...assistant, streaming: true } : m)));
         }
 
         assistant = { ...assistant, streaming: false };
-        const finalMessages = messagesRef.current.map((m) => (m.id === assistantId ? assistant : m));
-        setMessages(finalMessages);
+        const finalMessages = commit((prev) => prev.map((m) => (m.id === assistantId ? assistant : m)));
         await syncToServer(finalMessages, { agent, model, thread: activeThreadId });
       } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
+        if ((err as Error).name === 'AbortError') {
+          // Stopped by the user (or a thread switch): keep whatever streamed
+          // so far but end the "thinking" state; drop it if nothing arrived.
+          commit((prev) =>
+            assistant.content || assistant.toolCalls?.length
+              ? prev.map((m) => (m.id === assistantId ? { ...assistant, streaming: false } : m))
+              : prev.filter((m) => m.id !== assistantId),
+          );
+          return;
+        }
         setError(apiErrorMessage(err, 'Chat failed'));
-        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        commit((prev) => prev.filter((m) => m.id !== assistantId));
       } finally {
         setStreaming(false);
         abortRef.current = null;
       }
     },
-    [syncToServer],
+    [commit, syncToServer],
   );
 
   const sendMessage = useCallback(
@@ -445,17 +465,15 @@ export function useAssistantChat() {
       if (!trimmed || streaming || !threadId) return;
 
       const userMsg: AssistantMessage = { id: uid(), role: 'user', content: trimmed };
-      const next = [...messages, userMsg];
-      setMessages(next);
+      const next = commit((prev) => [...prev, userMsg]);
       saveLocalMessages(next);
       await streamChat(toApiMessages(next), model, agent, timezone, threadId, taggedIssueIds, effort);
     },
-    [messages, streamChat, streaming, threadId],
+    [commit, streamChat, streaming, threadId],
   );
 
   const continueWithToolResult = useCallback(
     async (
-      assistantMsg: AssistantMessage,
       toolCallId: string,
       toolName: string,
       result: string,
@@ -472,16 +490,18 @@ export function useAssistantChat() {
         content: result,
         toolResults: [{ id: toolCallId, name: toolName, output: result, status: 'done' }],
       };
+      // Built from the latest committed list, which already includes the
+      // permission/form status change the caller made just before this.
+      const before = messagesRef.current;
       const apiMessages = [
-        ...toApiMessages(messages),
+        ...toApiMessages(before),
         { role: 'tool', content: result, tool_call_id: toolCallId, name: toolName },
       ];
-      const next = [...messages, toolMsg];
-      setMessages(next);
+      const next = commit((prev) => [...prev, toolMsg]);
       await syncToServer(next, { agent, model, thread: threadId });
       await streamChat(apiMessages, model, agent, timezone, threadId, taggedIssueIds, effort);
     },
-    [messages, streamChat, syncToServer, threadId],
+    [commit, streamChat, syncToServer, threadId],
   );
 
   const newThread = useCallback(
@@ -537,30 +557,28 @@ export function useAssistantChat() {
 
   const clearError = useCallback(() => setError(null), []);
 
+  // Sync happens outside the state updater: updaters must be pure, and React
+  // may run them twice in StrictMode, which would double the server write.
   const updatePermission = useCallback(
     (messageId: string, patch: Partial<AssistantPermission>) => {
-      setMessages((prev) => {
-        const next = prev.map((m) =>
+      const next = commit((prev) =>
+        prev.map((m) =>
           m.id === messageId && m.permission ? { ...m, permission: { ...m.permission, ...patch } } : m,
-        );
-        void syncToServer(next);
-        return next;
-      });
+        ),
+      );
+      void syncToServer(next);
     },
-    [syncToServer],
+    [commit, syncToServer],
   );
 
   const updateForm = useCallback(
     (messageId: string, patch: Partial<AssistantSeriesSetupForm>) => {
-      setMessages((prev) => {
-        const next = prev.map((m) =>
-          m.id === messageId && m.form ? { ...m, form: { ...m.form, ...patch } } : m,
-        );
-        void syncToServer(next);
-        return next;
-      });
+      const next = commit((prev) =>
+        prev.map((m) => (m.id === messageId && m.form ? { ...m, form: { ...m.form, ...patch } } : m)),
+      );
+      void syncToServer(next);
     },
-    [syncToServer],
+    [commit, syncToServer],
   );
 
   const activeThreadTitle = threads.find((t) => t.id === threadId)?.title || 'New conversation';
