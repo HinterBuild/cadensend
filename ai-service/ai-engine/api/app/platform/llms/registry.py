@@ -1,5 +1,5 @@
 from typing import Dict, Type, Optional, List as ListType
-from pydantic import BaseModel, validator
+from pydantic import BaseModel
 import os
 
 from .base import LLMProvider

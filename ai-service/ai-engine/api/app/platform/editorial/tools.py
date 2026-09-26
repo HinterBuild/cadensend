@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from app.platform.editorial.studio import DEFAULT_BANNED
 

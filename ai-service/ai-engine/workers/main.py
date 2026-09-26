@@ -39,7 +39,7 @@ from app.services.model_service import (
     resolve_default_model,
     resolve_provider_config,
 )
-from app.platform.llms import LLMRegistry, ProviderConfig
+from app.platform.llms import LLMRegistry
 from pathlib import Path
 import sys
 
@@ -55,7 +55,6 @@ from app.services.openrouter_limits import (
 from app.services.agent_graph import get_agent
 from app.services.checkpoint_backend import get_checkpoint_backend
 from app.workers.ingestion_worker import IngestionWorker
-from app.rag.chunking.text_splitter import chunking_service
 from app.rag.embeddings.qdrant import qdrant_service
 
 logging.basicConfig(level=settings.LOG_LEVEL.upper())

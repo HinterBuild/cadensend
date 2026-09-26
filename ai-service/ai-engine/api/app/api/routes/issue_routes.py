@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import logging
 
-from app.services.agent_graph import NewsletterAgent, get_agent
+from app.services.agent_graph import get_agent
 from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)

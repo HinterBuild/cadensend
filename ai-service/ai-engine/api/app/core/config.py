@@ -2,8 +2,7 @@
 
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
-from typing import Optional, List
-import os
+from typing import Optional
 
 class Settings(BaseSettings):
     # Server settings

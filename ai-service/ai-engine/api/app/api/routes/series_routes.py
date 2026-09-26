@@ -1,12 +1,11 @@
 """API routes for series management."""
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 import logging
-import asyncio
 
-from app.services.agent_graph import NewsletterAgent, get_agent
+from app.services.agent_graph import get_agent
 from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)

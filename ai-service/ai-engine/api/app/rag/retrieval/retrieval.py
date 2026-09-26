@@ -2,7 +2,7 @@
 Handles dense retrieval with mandatory tenant filters.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
 import logging

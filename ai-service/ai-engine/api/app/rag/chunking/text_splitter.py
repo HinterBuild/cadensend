@@ -5,8 +5,6 @@ Handles structure-aware chunking of documents.
 from typing import List, Dict, Any, Optional
 import hashlib
 import re
-from markdown import markdown as md_to_html
-from bs4 import BeautifulSoup
 import logging
 
 logger = logging.getLogger(__name__)
